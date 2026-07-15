@@ -1,5 +1,5 @@
 # pytest-homeassistant-custom-component 0.13.317+ requires Python >=3.14
 # (tracks HA core). Bump it together with .python-version and the CI matrix.
 pytest-homeassistant-custom-component==0.13.316
-aioresponses>=0.7.7
-ruff>=0.8.0
+aioresponses>=0.7.9
+ruff>=0.15.21
