@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Bump dependency (Dependabot)
+
 ## 0.1.0
 
 - Initial release: weather entity with AROME hourly forecast (+60 h) and derived daily forecast (~2–3 days) for arbitrary coordinates
