@@ -1,27 +1,62 @@
-name: Release
+name: Auto Release
 
 on:
-  push:
-    tags:
-      - "v*"
-
-permissions:
-  contents: write
+  workflow_run:
+    workflows: ["Validate"]
+    types: [completed]
+    branches: [main]
 
 jobs:
   release:
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - name: Verify tag matches manifest version
-        run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          MANIFEST_VERSION=$(jq -r .version custom_components/geosphere_next/manifest.json)
-          if [ "$TAG_VERSION" != "$MANIFEST_VERSION" ]; then
-            echo "Tag $TAG_VERSION does not match manifest version $MANIFEST_VERSION" >&2
-            exit 1
-          fi
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/checkout@v7
         with:
-          generate_release_notes: true
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Extract version from manifest.json
+        id: version
+        run: |
+          version=$(jq -r '.version' custom_components/geosphere_next/manifest.json)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Check if release already exists
+        id: check
+        run: |
+          if gh release view "${TAG}" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract changelog section
+        if: steps.check.outputs.exists == 'false'
+        id: notes
+        run: |
+          notes=$(awk -v ver="${VERSION}" '
+            $0 == "## " ver { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md | sed -e '/^$/N;/^\n$/d' -e 's/^[[:space:]]*//')
+          echo "${notes}" > /tmp/release-notes.md
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Create release
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          gh release create "${TAG}" \
+            --title "${TAG}" \
+            --target "${{ github.event.workflow_run.head_sha }}" \
+            --notes-file /tmp/release-notes.md
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
