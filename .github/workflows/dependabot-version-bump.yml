@@ -1,0 +1,97 @@
+name: Dependabot Version Bump
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  version-bump:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.GH_ACTION_APP_ID }}
+          private-key: ${{ secrets.GH_ACTION_APP_PRIVATE_KEY }}
+
+      - name: Checkout PR branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Extract current version
+        id: version
+        run: |
+          current=$(jq -r '.version' custom_components/geosphere_next/manifest.json)
+          major=$(echo "${current}" | cut -d. -f1)
+          minor=$(echo "${current}" | cut -d. -f2)
+          patch=$(echo "${current}" | cut -d. -f3)
+          new_patch=$((patch + 1))
+          new_version="${major}.${minor}.${new_patch}"
+          echo "current=${current}" >> "$GITHUB_OUTPUT"
+          echo "new=${new_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Check if already bumped
+        id: check
+        run: |
+          if grep -q "^## ${NEW_VERSION}$" CHANGELOG.md; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.new }}
+
+      - name: Extract dependency name from PR title
+        if: steps.check.outputs.skip == 'false'
+        id: dep
+        run: |
+          dep=$(echo "${PR_TITLE}" | sed -n 's/^Bump \(.*\) from .*/\1/p')
+          if [ -z "${dep}" ]; then
+            dep="dependency"
+          fi
+          echo "name=${dep}" >> "$GITHUB_OUTPUT"
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+
+      - name: Bump version in manifest.json
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          jq --arg v "${NEW}" '.version = $v' \
+            custom_components/geosphere_next/manifest.json > tmp.json
+          mv tmp.json custom_components/geosphere_next/manifest.json
+        env:
+          NEW: ${{ steps.version.outputs.new }}
+
+      - name: Add changelog entry
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          tmp=$(mktemp)
+          {
+            echo "# Changelog"
+            echo ""
+            echo "## ${NEW}"
+            echo ""
+            echo "- Bump ${DEP_NAME} (Dependabot)"
+            echo ""
+            tail -n +3 CHANGELOG.md
+          } > "${tmp}"
+          mv "${tmp}" CHANGELOG.md
+        env:
+          NEW: ${{ steps.version.outputs.new }}
+          DEP_NAME: ${{ steps.dep.outputs.name }}
+
+      - name: Commit and push
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add custom_components/geosphere_next/manifest.json CHANGELOG.md
+          git commit -m "Bump version to ${NEW} for Dependabot update"
+          git push
+        env:
+          NEW: ${{ steps.version.outputs.new }}
