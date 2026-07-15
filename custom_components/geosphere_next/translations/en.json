@@ -1,0 +1,59 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "GeoSphere Austria Next",
+        "description": "Point forecast (AROME) and current conditions (INCA nowcast) from the official GeoSphere Austria Dataset API for any location — no weather station required.",
+        "data": {
+          "name": "Name",
+          "location": "Location"
+        },
+        "data_description": {
+          "location": "Any point inside the AROME model domain (Austria and surrounding Alpine region). Current-condition data is available inside Austria only."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the GeoSphere API",
+      "out_of_domain": "This location is outside the GeoSphere AROME model domain"
+    },
+    "abort": {
+      "already_configured": "This location is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Update intervals",
+        "data": {
+          "current_interval": "Current conditions update interval",
+          "forecast_interval": "Forecast update interval"
+        },
+        "data_description": {
+          "current_interval": "How often the nowcast is polled. The AROME model itself only updates every 3 hours.",
+          "forecast_interval": "How often the AROME forecast is polled."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "temperature": { "name": "Temperature" },
+      "apparent_temperature": { "name": "Apparent temperature" },
+      "dew_point": { "name": "Dew point" },
+      "humidity": { "name": "Humidity" },
+      "pressure": { "name": "Pressure" },
+      "wind_speed": { "name": "Wind speed" },
+      "wind_gust_speed": { "name": "Wind gust speed" },
+      "wind_bearing": { "name": "Wind direction" },
+      "cloud_coverage": { "name": "Cloud coverage" },
+      "precipitation_1h": { "name": "Precipitation (last hour)" },
+      "condition": { "name": "Condition" },
+      "global_radiation": { "name": "Global radiation" },
+      "snow_limit": { "name": "Snow limit" },
+      "cape": { "name": "CAPE" },
+      "precipitation_type": { "name": "Precipitation type code" },
+      "weather_symbol": { "name": "Weather symbol code" }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "domain": "geosphere_next",
+  "name": "GeoSphere Austria Next",
+  "codeowners": ["@slettmayer"],
+  "config_flow": true,
+  "documentation": "https://github.com/slettmayer/ha-geosphere-next",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/slettmayer/ha-geosphere-next/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

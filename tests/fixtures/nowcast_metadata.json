@@ -1,0 +1,96 @@
+{
+  "title": "Nowcasting model",
+  "parameters": [
+    {
+      "name": "dd",
+      "long_name": "10m wind direction",
+      "desc": "wind direction 10m above ground",
+      "unit": "m s-1"
+    },
+    {
+      "name": "ff",
+      "long_name": "10m wind speed",
+      "desc": "wind speed 10m above ground",
+      "unit": "m s-1"
+    },
+    {
+      "name": "fx",
+      "long_name": "10m gust speed",
+      "desc": "gust speed 10m above ground",
+      "unit": "m s-1"
+    },
+    {
+      "name": "pt",
+      "long_name": "precipitation type",
+      "desc": "precipitation type",
+      "unit": ""
+    },
+    {
+      "name": "rh2m",
+      "long_name": "relative humidity 2m above ground",
+      "desc": "relative humidity 2m above ground",
+      "unit": "%"
+    },
+    {
+      "name": "rr",
+      "long_name": "precipitation sum",
+      "desc": "precipitation sum",
+      "unit": "kg m-2"
+    },
+    {
+      "name": "t2m",
+      "long_name": "air temperature 2m above ground",
+      "desc": "air temperature 2m above ground",
+      "unit": "degree_Celsius"
+    },
+    {
+      "name": "td",
+      "long_name": "dew point temperature 2m above ground",
+      "desc": "dew point temperature 2m above ground",
+      "unit": "degree_Celsius"
+    }
+  ],
+  "frequency": "15min",
+  "type": "timeseries",
+  "mode": "forecast",
+  "response_formats": [
+    "geojson",
+    "csv"
+  ],
+  "last_forecast_reftime": "2026-07-15T15:30+00:00",
+  "max_forecast_offset": 5,
+  "available_forecast_reftimes": [
+    "2026-07-15T15:30+00:00",
+    "2026-07-15T15:15+00:00",
+    "2026-07-15T15:00+00:00",
+    "2026-07-15T14:45+00:00",
+    "2026-07-15T14:30+00:00",
+    "2026-07-15T14:15+00:00"
+  ],
+  "forecast_length": 13,
+  "bbox": [
+    45.50288351657135,
+    8.098133748352293,
+    49.47817568460958,
+    17.742270413233744
+  ],
+  "bbox_outer": [
+    45.49811305905748,
+    8.09080314984374,
+    49.48267002420558,
+    17.74953688061394
+  ],
+  "spatial_resolution": [
+    1000,
+    1000
+  ],
+  "spatial_resolution_unit": "m",
+  "spatial_resolution_m": 1000,
+  "crs": "EPSG:31287",
+  "grid_bounds": [
+    190000.0,
+    20000.0,
+    620000.0,
+    720000.0
+  ]
+}

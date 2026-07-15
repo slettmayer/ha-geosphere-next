@@ -1,0 +1,87 @@
+{
+  "title": "INCA analysis - large domain",
+  "parameters": [
+    {
+      "name": "GL",
+      "long_name": "global radiation",
+      "desc": "global radiation",
+      "unit": "W m-2"
+    },
+    {
+      "name": "P0",
+      "long_name": "mean sea level pressure",
+      "desc": "mean sea level pressure",
+      "unit": "Pa"
+    },
+    {
+      "name": "RH2M",
+      "long_name": "relative humidity",
+      "desc": "relative humidity 2m above ground",
+      "unit": "percent"
+    },
+    {
+      "name": "RR",
+      "long_name": "1-hour precipitation sum",
+      "desc": "1-hour precipitation sum",
+      "unit": "kg m-2"
+    },
+    {
+      "name": "T2M",
+      "long_name": "air temperature",
+      "desc": "air temperature 2m above ground",
+      "unit": "degree_Celsius"
+    },
+    {
+      "name": "TD2M",
+      "long_name": "dew point temperature",
+      "desc": "dew point temperature 2m above ground",
+      "unit": "degree_Celsius"
+    },
+    {
+      "name": "UU",
+      "long_name": "wind speed in eastward direction",
+      "desc": "wind speed in eastward direction",
+      "unit": "m s-1"
+    },
+    {
+      "name": "VV",
+      "long_name": "wind speed in northward direction",
+      "desc": "wind speed in northward direction",
+      "unit": "m s-1"
+    }
+  ],
+  "frequency": "1H",
+  "type": "timeseries",
+  "mode": "historical",
+  "response_formats": [
+    "geojson",
+    "csv"
+  ],
+  "start_time": "2011-03-15T00:00+00:00",
+  "end_time": "2026-07-15T15:00+00:00",
+  "bbox": [
+    45.77222010581118,
+    8.098133748352293,
+    49.47817568460958,
+    17.742270413233744
+  ],
+  "bbox_outer": [
+    45.76744784846555,
+    8.09080314984374,
+    49.48267002420558,
+    17.74953688061394
+  ],
+  "spatial_resolution": [
+    1000,
+    1000
+  ],
+  "spatial_resolution_unit": "m",
+  "spatial_resolution_m": 1000,
+  "crs": "EPSG:31287",
+  "grid_bounds": [
+    220000.0,
+    20000.0,
+    620000.0,
+    720000.0
+  ]
+}

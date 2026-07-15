@@ -1,0 +1,15 @@
+{
+  "entity": {
+    "sensor": {
+      "apparent_temperature": { "default": "mdi:thermometer-lines" },
+      "dew_point": { "default": "mdi:water-thermometer" },
+      "cloud_coverage": { "default": "mdi:cloud-percent" },
+      "condition": { "default": "mdi:weather-partly-cloudy" },
+      "global_radiation": { "default": "mdi:weather-sunny" },
+      "snow_limit": { "default": "mdi:snowflake-thermometer" },
+      "cape": { "default": "mdi:weather-lightning" },
+      "precipitation_type": { "default": "mdi:weather-rainy" },
+      "weather_symbol": { "default": "mdi:code-tags" }
+    }
+  }
+}

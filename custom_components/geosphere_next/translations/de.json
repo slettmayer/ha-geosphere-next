@@ -1,0 +1,59 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "GeoSphere Austria Next",
+        "description": "Punktvorhersage (AROME) und aktuelle Messwerte (INCA-Nowcast) direkt von der offiziellen GeoSphere-Austria-Dataset-API für einen beliebigen Standort — keine Wetterstation erforderlich.",
+        "data": {
+          "name": "Name",
+          "location": "Standort"
+        },
+        "data_description": {
+          "location": "Beliebiger Punkt innerhalb des AROME-Modellgebiets (Österreich und umliegender Alpenraum). Aktuelle Messwerte sind nur innerhalb Österreichs verfügbar."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung zur GeoSphere-API fehlgeschlagen",
+      "out_of_domain": "Dieser Standort liegt außerhalb des GeoSphere-AROME-Modellgebiets"
+    },
+    "abort": {
+      "already_configured": "Dieser Standort ist bereits konfiguriert"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Aktualisierungsintervalle",
+        "data": {
+          "current_interval": "Intervall für aktuelle Messwerte",
+          "forecast_interval": "Intervall für die Vorhersage"
+        },
+        "data_description": {
+          "current_interval": "Wie oft der Nowcast abgefragt wird. Das AROME-Modell selbst rechnet nur alle 3 Stunden neu.",
+          "forecast_interval": "Wie oft die AROME-Vorhersage abgefragt wird."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "temperature": { "name": "Temperatur" },
+      "apparent_temperature": { "name": "Gefühlte Temperatur" },
+      "dew_point": { "name": "Taupunkt" },
+      "humidity": { "name": "Luftfeuchtigkeit" },
+      "pressure": { "name": "Luftdruck" },
+      "wind_speed": { "name": "Windgeschwindigkeit" },
+      "wind_gust_speed": { "name": "Windböen" },
+      "wind_bearing": { "name": "Windrichtung" },
+      "cloud_coverage": { "name": "Bewölkung" },
+      "precipitation_1h": { "name": "Niederschlag (letzte Stunde)" },
+      "condition": { "name": "Wetterzustand" },
+      "global_radiation": { "name": "Globalstrahlung" },
+      "snow_limit": { "name": "Schneefallgrenze" },
+      "cape": { "name": "CAPE" },
+      "precipitation_type": { "name": "Niederschlagsart-Code" },
+      "weather_symbol": { "name": "Wettersymbol-Code" }
+    }
+  }
+}

@@ -1,0 +1,98 @@
+{
+  "media_type": "application/json",
+  "type": "FeatureCollection",
+  "version": "v1",
+  "timestamps": [
+    "2026-07-15T13:00+00:00",
+    "2026-07-15T14:00+00:00",
+    "2026-07-15T15:00+00:00"
+  ],
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          16.37578582763672,
+          48.22446823120117
+        ]
+      },
+      "properties": {
+        "parameters": {
+          "T2M": {
+            "name": "air temperature",
+            "unit": "degree_Celsius",
+            "data": [
+              30.17,
+              30.33,
+              30.43
+            ]
+          },
+          "TD2M": {
+            "name": "dew point temperature",
+            "unit": "degree_Celsius",
+            "data": [
+              13.66,
+              13.58,
+              12.59
+            ]
+          },
+          "RH2M": {
+            "name": "relative humidity",
+            "unit": "percent",
+            "data": [
+              36.48,
+              35.97,
+              33.53
+            ]
+          },
+          "RR": {
+            "name": "1-hour precipitation sum",
+            "unit": "kg m-2",
+            "data": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "P0": {
+            "name": "mean sea level pressure",
+            "unit": "Pa",
+            "data": [
+              101634.84,
+              101599.41,
+              101585.83
+            ]
+          },
+          "GL": {
+            "name": "global radiation",
+            "unit": "W m-2",
+            "data": [
+              371.07,
+              305.02,
+              248.94
+            ]
+          },
+          "UU": {
+            "name": "wind speed in eastward direction",
+            "unit": "m s-1",
+            "data": [
+              -0.39,
+              -0.86,
+              -0.09
+            ]
+          },
+          "VV": {
+            "name": "wind speed in northward direction",
+            "unit": "m s-1",
+            "data": [
+              -1.12,
+              -1.06,
+              -2.83
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
