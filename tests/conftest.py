@@ -21,6 +21,7 @@ LATITUDE = 48.2208
 LONGITUDE = 16.3738
 
 AROME_URL = re.compile(r".*/timeseries/forecast/nwp-v1-1h-2500m\?.*")
+ENSEMBLE_URL = re.compile(r".*/timeseries/forecast/ensemble-v1-1h-2500m\?.*")
 NOWCAST_URL = re.compile(r".*/timeseries/forecast/nowcast-v1-15min-1km\?.*")
 INCA_URL = re.compile(r".*/timeseries/historical/inca-v1-1h-1km\?.*")
 CHEM_URL = re.compile(r".*/timeseries/forecast/chem-v2-1h-3km\?.*")
@@ -55,6 +56,7 @@ def mock_config_entry() -> MockConfigEntry:
 def mock_api(aioclient_mock: AiohttpClientMocker) -> AiohttpClientMocker:
     """Mock the GeoSphere API with recorded fixture responses."""
     aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
     aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
     aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
     aioclient_mock.get(CHEM_URL, json=load_fixture("chem.json"))

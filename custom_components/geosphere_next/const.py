@@ -13,6 +13,7 @@ API_BASE_URL = "https://dataset.api.hub.geosphere.at/v1"
 
 # Datasets (mode, resource id)
 DATASET_AROME = ("forecast", "nwp-v1-1h-2500m")
+DATASET_ENSEMBLE = ("forecast", "ensemble-v1-1h-2500m")
 DATASET_NOWCAST = ("forecast", "nowcast-v1-15min-1km")
 DATASET_INCA = ("historical", "inca-v1-1h-1km")
 DATASET_CHEM = ("forecast", "chem-v2-1h-3km")
@@ -35,6 +36,9 @@ AROME_PARAMETERS = (
     "cape",
     "sy",
 )
+# C-LAEF ensemble precipitation percentiles (per-hour amounts, kg m-2; the
+# API exposes only p10/p50/p90 — no member counts or true probabilities).
+ENSEMBLE_PARAMETERS = ("rr_p10", "rr_p50", "rr_p90")
 NOWCAST_PARAMETERS = ("t2m", "td", "rh2m", "rr", "pt", "dd", "ff", "fx")
 INCA_PARAMETERS = ("T2M", "TD2M", "RH2M", "RR", "P0", "GL", "UU", "VV")
 # WRF-Chem surface concentrations (µg/m³) and the daily European AQI (1-6).
@@ -57,6 +61,15 @@ AIR_QUALITY_INTERVAL_MINUTES = 60
 INCA_MAX_AGE_SECONDS = 55 * 60
 # INCA analyses trail real time by <1 h; query a window of the last 3 hours.
 INCA_LOOKBACK_HOURS = 3
+
+# Stepped precipitation probability from the ensemble rr percentiles: a
+# percentile above PRECIP_MIN_MM bounds the fraction of wet ensemble members
+# (p10 wet -> >=90 %, p50 wet -> >=50 %, p90 wet -> >=10 %); the displayed
+# value is the midpoint of the implied range.
+POP_P10_WET_PCT = 95
+POP_P50_WET_PCT = 70
+POP_P90_WET_PCT = 30
+POP_DRY_PCT = 0
 
 # Condition-derivation thresholds (see condition.py)
 THUNDER_CAPE_JKG = 1000.0

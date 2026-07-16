@@ -84,6 +84,8 @@ async def test_get_forecasts_hourly(
     )[ENTITY_ID]["forecast"]
     assert hourly[0]["datetime"] == "2026-07-15T16:00:00+00:00"
     assert hourly[0]["precipitation"] == 0.48
+    # Ensemble fixture: all percentiles wet at 16:00Z -> stepped PoP 95 %.
+    assert hourly[0]["precipitation_probability"] == 95
     # Magnus dew point from t2m 28.6 / rh2m 50.1 (service output is converted,
     # so the key is dew_point, not native_dew_point).
     assert hourly[0]["dew_point"] == 17.2

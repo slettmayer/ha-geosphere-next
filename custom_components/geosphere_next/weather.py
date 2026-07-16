@@ -11,6 +11,7 @@ from homeassistant.components.weather import (
     ATTR_FORECAST_NATIVE_TEMP,
     ATTR_FORECAST_NATIVE_WIND_GUST_SPEED,
     ATTR_FORECAST_NATIVE_WIND_SPEED,
+    ATTR_FORECAST_PRECIPITATION_PROBABILITY,
     ATTR_FORECAST_TIME,
     ATTR_FORECAST_WIND_BEARING,
     CoordinatorWeatherEntity,
@@ -132,6 +133,9 @@ class GeoSphereWeather(
                     ATTR_FORECAST_NATIVE_DEW_POINT: hour.dew_point,
                     ATTR_FORECAST_HUMIDITY: hour.humidity,
                     ATTR_FORECAST_NATIVE_PRECIPITATION: hour.precipitation,
+                    ATTR_FORECAST_PRECIPITATION_PROBABILITY: (
+                        hour.precipitation_probability
+                    ),
                     ATTR_FORECAST_NATIVE_WIND_SPEED: hour.wind_speed,
                     ATTR_FORECAST_WIND_BEARING: hour.wind_bearing,
                     ATTR_FORECAST_NATIVE_WIND_GUST_SPEED: hour.wind_gust_speed,

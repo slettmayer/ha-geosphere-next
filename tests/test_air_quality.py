@@ -27,6 +27,7 @@ from .conftest import (
     AROME_URL,
     CHEM_AQI_URL,
     CHEM_URL,
+    ENSEMBLE_URL,
     INCA_URL,
     LATITUDE,
     LONGITUDE,
@@ -126,6 +127,7 @@ async def test_chem_failure_retries_setup(
     """A failing chem endpoint puts the entry into setup retry."""
     freezer.move_to(FROZEN_NOW)
     aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
     aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
     aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
     aioclient_mock.get(CHEM_URL, status=500)
@@ -146,6 +148,7 @@ async def test_aqi_failure_keeps_pollutants(
     """A failing AQI endpoint must not take the pollutant sensors down."""
     freezer.move_to(FROZEN_NOW)
     aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
     aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
     aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
     aioclient_mock.get(CHEM_URL, json=load_fixture("chem.json"))
