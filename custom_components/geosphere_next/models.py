@@ -62,20 +62,6 @@ class HourlyForecast:
 
 
 @dataclass(slots=True)
-class DailyForecast:
-    """One derived daily forecast entry."""
-
-    datetime: datetime
-    temperature: float | None
-    templow: float | None
-    precipitation: float | None
-    wind_speed: float | None
-    wind_bearing: float | None
-    humidity: float | None
-    condition: str | None = None
-
-
-@dataclass(slots=True)
 class ForecastData:
     """Processed forecast-coordinator data."""
 
@@ -83,7 +69,6 @@ class ForecastData:
     grid_latitude: float
     grid_longitude: float
     hourly: list[HourlyForecast] = field(default_factory=list)
-    daily: list[DailyForecast] = field(default_factory=list)
     # "Step 0" snapshot for current-state fallbacks (first future-most hour).
     current: HourlyForecast | None = None
     snow_limit: float | None = None

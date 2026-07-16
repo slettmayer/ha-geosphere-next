@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+
+- Remove: the daily forecast. AROME's +60 h horizon yields at most 2–3 aggregable days, and the Home Assistant frontend only renders forecasts with more than 2 entries — the daily view would intermittently spin forever (evenings). The weather entity is hourly-only now; see the README FAQ
+
 ## 0.2.0
 
 - Add: hourly forecast dew point, derived from AROME temperature + humidity via the Magnus formula

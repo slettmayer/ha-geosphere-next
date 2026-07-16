@@ -21,7 +21,6 @@ from .api import (
     GeoSphereRateLimitError,
 )
 from .condition import (
-    aggregate_daily,
     apparent_temperature,
     derive_condition,
     derive_current_condition,
@@ -197,7 +196,6 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
             grid_latitude=response.grid_latitude,
             grid_longitude=response.grid_longitude,
             hourly=hourly,
-            daily=aggregate_daily(hourly, dt_util.get_default_time_zone()),
             current=hourly[0],
             snow_limit=(
                 response.value_at("snowlmt", first_future_index)

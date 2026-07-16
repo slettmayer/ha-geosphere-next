@@ -40,9 +40,6 @@ async def test_forecast_processing(
     assert first.cloud_coverage == 0
     # Magnus from t2m 28.6 / rh2m 50.1.
     assert first.dew_point == pytest.approx(17.2)
-    # Jul 15 has only evening hours left (18:00-23:00 local, no daytime
-    # hours), so it is dropped; the full days Jul 16 and Jul 17 remain.
-    assert len(data.daily) == 2
     assert data.snow_limit == pytest.approx(3371.9)
     assert data.current is first
 

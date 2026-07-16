@@ -9,7 +9,6 @@ from homeassistant.components.weather import (
     ATTR_FORECAST_NATIVE_DEW_POINT,
     ATTR_FORECAST_NATIVE_PRECIPITATION,
     ATTR_FORECAST_NATIVE_TEMP,
-    ATTR_FORECAST_NATIVE_TEMP_LOW,
     ATTR_FORECAST_NATIVE_WIND_GUST_SPEED,
     ATTR_FORECAST_NATIVE_WIND_SPEED,
     ATTR_FORECAST_TIME,
@@ -53,14 +52,17 @@ class GeoSphereWeather(
         GeoSphereForecastCoordinator,
     ]
 ):
-    """Weather entity backed by the current + forecast coordinators."""
+    """Weather entity backed by the current + forecast coordinators.
+
+    Hourly forecast only: AROME's ~60 h horizon yields at most 2-3 aggregable
+    local days, and the HA frontend only renders forecast arrays with more
+    than 2 entries — a daily tab would intermittently spin forever.
+    """
 
     _attr_has_entity_name = True
     _attr_name = None
     _attr_attribution = ATTRIBUTION
-    _attr_supported_features = (
-        WeatherEntityFeature.FORECAST_DAILY | WeatherEntityFeature.FORECAST_HOURLY
-    )
+    _attr_supported_features = WeatherEntityFeature.FORECAST_HOURLY
     _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_native_pressure_unit = UnitOfPressure.HPA
     _attr_native_wind_speed_unit = UnitOfSpeed.METERS_PER_SECOND
@@ -70,7 +72,6 @@ class GeoSphereWeather(
     def __init__(self, entry: GeoSphereNextConfigEntry) -> None:
         super().__init__(
             entry.runtime_data.current,
-            daily_coordinator=entry.runtime_data.forecast,
             hourly_coordinator=entry.runtime_data.forecast,
         )
         self._attr_unique_id = entry.entry_id
@@ -138,25 +139,4 @@ class GeoSphereWeather(
                 }
             )
             for hour in coordinator.data.hourly
-        ]
-
-    @callback
-    def _async_forecast_daily(self) -> list[Forecast] | None:
-        coordinator = self.forecast_coordinators["daily"]
-        if coordinator is None or coordinator.data is None:
-            return None
-        return [
-            Forecast(
-                {
-                    ATTR_FORECAST_TIME: day.datetime.isoformat(),
-                    ATTR_FORECAST_CONDITION: day.condition,
-                    ATTR_FORECAST_NATIVE_TEMP: day.temperature,
-                    ATTR_FORECAST_NATIVE_TEMP_LOW: day.templow,
-                    ATTR_FORECAST_HUMIDITY: day.humidity,
-                    ATTR_FORECAST_NATIVE_PRECIPITATION: day.precipitation,
-                    ATTR_FORECAST_NATIVE_WIND_SPEED: day.wind_speed,
-                    ATTR_FORECAST_WIND_BEARING: day.wind_bearing,
-                }
-            )
-            for day in coordinator.data.daily
         ]
