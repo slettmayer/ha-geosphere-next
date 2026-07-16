@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0
+
+- Add: GeoSphere Austria brand images shipped inside the integration (`brand/` directory, the Brands Proxy API mechanism for custom integrations since HA 2026.3) — the integration now shows its icon and logo in the HA UI
+- Chore: enable the HACS brands check (satisfied by the local `brand/` assets) — last blocker before the HACS default-store submission
+
 ## 0.4.0
 
 - Chore: migrate the test harness to Python 3.14 + pytest-homeassistant-custom-component 0.13.346 (HA 2026.7.2)
