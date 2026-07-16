@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.0
+
+- Add: optional air-quality sensors (off by default, enable via Configure) — NO₂, O₃, PM10, PM2.5 concentrations and the daily European Air Quality Index from GeoSphere's WRF-Chem forecast (`chem-v2-1h-3km` / `chem_aqi-v1-1d-3km`, 3 km grid)
+- Add: each pollutant sensor exposes its +73 h hourly forecast as a `forecast` attribute (excluded from the recorder); the AQI sensor carries `today` / `tomorrow` / `in_2_days` attributes
+
 ## 0.6.0
 
 - Fix: current temperature, humidity, dew point, and wind now prefer the INCA hourly analysis over the 15-min nowcast — the nowcast temperature extrapolates from an analysis ~2 h behind and lagged real stations by up to ±2 °C on diurnal ramps (too cold while warming, too warm while cooling)

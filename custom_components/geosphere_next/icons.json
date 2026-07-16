@@ -9,7 +9,12 @@
       "snow_limit": { "default": "mdi:snowflake-thermometer" },
       "cape": { "default": "mdi:weather-lightning" },
       "precipitation_type": { "default": "mdi:weather-rainy" },
-      "weather_symbol": { "default": "mdi:code-tags" }
+      "weather_symbol": { "default": "mdi:code-tags" },
+      "nitrogen_dioxide": { "default": "mdi:molecule" },
+      "ozone": { "default": "mdi:molecule" },
+      "pm10": { "default": "mdi:blur" },
+      "pm25": { "default": "mdi:blur" },
+      "air_quality_index": { "default": "mdi:air-filter" }
     }
   }
 }

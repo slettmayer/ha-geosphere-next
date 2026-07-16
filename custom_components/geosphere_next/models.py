@@ -76,6 +76,28 @@ class ForecastData:
 
 
 @dataclass(slots=True)
+class AirQualityData:
+    """Processed air-quality data (WRF-Chem forecast + daily European AQI).
+
+    Concentrations are µg/m³; the AQI uses the EEA European Air Quality
+    Index scale (1 = best … 6 = worst).
+    """
+
+    reference_time: datetime | None
+    no2: float | None = None
+    o3: float | None = None
+    pm10: float | None = None
+    pm25: float | None = None
+    # Hourly forecast series per pollutant key ("no2", "o3", "pm10", "pm25").
+    forecast: dict[str, list[tuple[datetime, float | None]]] = field(
+        default_factory=dict
+    )
+    aqi_today: int | None = None
+    aqi_tomorrow: int | None = None
+    aqi_in_2_days: int | None = None
+
+
+@dataclass(slots=True)
 class CurrentConditions:
     """Merged current conditions (nowcast → INCA → AROME fallback chain)."""
 

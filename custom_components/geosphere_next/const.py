@@ -15,6 +15,8 @@ API_BASE_URL = "https://dataset.api.hub.geosphere.at/v1"
 DATASET_AROME = ("forecast", "nwp-v1-1h-2500m")
 DATASET_NOWCAST = ("forecast", "nowcast-v1-15min-1km")
 DATASET_INCA = ("historical", "inca-v1-1h-1km")
+DATASET_CHEM = ("forecast", "chem-v2-1h-3km")
+DATASET_CHEM_AQI = ("forecast", "chem_aqi-v1-1d-3km")
 
 AROME_PARAMETERS = (
     "t2m",
@@ -35,15 +37,21 @@ AROME_PARAMETERS = (
 )
 NOWCAST_PARAMETERS = ("t2m", "td", "rh2m", "rr", "pt", "dd", "ff", "fx")
 INCA_PARAMETERS = ("T2M", "TD2M", "RH2M", "RR", "P0", "GL", "UU", "VV")
+# WRF-Chem surface concentrations (µg/m³) and the daily European AQI (1-6).
+CHEM_PARAMETERS = ("no2surf", "o3surf", "pm10surf", "pm25surf")
+CHEM_AQI_PARAMETERS = ("aqi",)
 
 # Config / options
 CONF_HAS_NOWCAST = "has_nowcast"
 CONF_CURRENT_INTERVAL = "current_interval"
 CONF_FORECAST_INTERVAL = "forecast_interval"
+CONF_AIR_QUALITY = "air_quality"
 
 DEFAULT_NAME = "GeoSphere Next"
 DEFAULT_CURRENT_INTERVAL_MINUTES = 15
 DEFAULT_FORECAST_INTERVAL_MINUTES = 30
+# Not user-configurable: the chem model runs once a day with hourly steps.
+AIR_QUALITY_INTERVAL_MINUTES = 60
 
 # How old the cached INCA slice may get before it is re-fetched (seconds).
 INCA_MAX_AGE_SECONDS = 55 * 60

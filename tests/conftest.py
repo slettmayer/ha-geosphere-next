@@ -23,6 +23,8 @@ LONGITUDE = 16.3738
 AROME_URL = re.compile(r".*/timeseries/forecast/nwp-v1-1h-2500m\?.*")
 NOWCAST_URL = re.compile(r".*/timeseries/forecast/nowcast-v1-15min-1km\?.*")
 INCA_URL = re.compile(r".*/timeseries/historical/inca-v1-1h-1km\?.*")
+CHEM_URL = re.compile(r".*/timeseries/forecast/chem-v2-1h-3km\?.*")
+CHEM_AQI_URL = re.compile(r".*/timeseries/forecast/chem_aqi-v1-1d-3km\?.*")
 
 
 @pytest.fixture(autouse=True)
@@ -55,4 +57,6 @@ def mock_api(aioclient_mock: AiohttpClientMocker) -> AiohttpClientMocker:
     aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
     aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
     aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    aioclient_mock.get(CHEM_URL, json=load_fixture("chem.json"))
+    aioclient_mock.get(CHEM_AQI_URL, json=load_fixture("chem_aqi.json"))
     return aioclient_mock
