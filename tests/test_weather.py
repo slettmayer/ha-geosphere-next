@@ -33,7 +33,8 @@ async def test_weather_state(
     state = hass.states.get(ENTITY_ID)
     assert state is not None
     assert state.state == "sunny"
-    assert state.attributes["temperature"] == 29.7  # rounded display precision
+    # INCA analysis value, rounded display precision.
+    assert state.attributes["temperature"] == 30.4
     assert state.attributes["humidity"] is not None
     assert state.attributes["pressure"] == 1015.9
     assert "GeoSphere Austria" in state.attributes["attribution"]
