@@ -12,7 +12,7 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
 )
 
-from .conftest import AROME_URL, INCA_URL, NOWCAST_URL, load_fixture
+from .conftest import AROME_URL, ENSEMBLE_URL, INCA_URL, NOWCAST_URL, load_fixture
 
 FROZEN_NOW = "2026-07-15T16:00:00+00:00"
 
@@ -50,6 +50,35 @@ async def test_forecast_processing(
     assert data.snow_limit == pytest.approx(3371.9)
     assert data.current is first
 
+    # Stepped probability from the ensemble rr percentiles (fixture hours):
+    # all wet / median wet / only p90 wet / all dry / p90 below threshold.
+    assert first.precipitation_probability == 95
+    assert data.hourly[1].precipitation_probability == 70
+    assert data.hourly[2].precipitation_probability == 30
+    assert data.hourly[3].precipitation_probability == 0
+    assert data.hourly[4].precipitation_probability == 0
+    # Last fixture hour has null percentiles -> no probability.
+    assert data.hourly[-1].precipitation_probability is None
+
+
+async def test_ensemble_failure_omits_probability(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A failing ensemble endpoint must not take the forecast down."""
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, status=500)
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await _setup(hass, mock_config_entry)
+
+    data = mock_config_entry.runtime_data.forecast.data
+    assert len(data.hourly) == 57
+    assert all(hour.precipitation_probability is None for hour in data.hourly)
+
 
 async def test_current_merge(
     hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
@@ -86,6 +115,7 @@ async def test_nowcast_failure_falls_back_to_inca(
     """When the nowcast errors, INCA values fill the current conditions."""
     freezer.move_to(FROZEN_NOW)
     aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
     aioclient_mock.get(NOWCAST_URL, status=500)
     aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
     await _setup(hass, mock_config_entry)
@@ -107,6 +137,7 @@ async def test_inca_failure_falls_back_to_nowcast(
     """When INCA errors, the nowcast fills the thermodynamic fields."""
     freezer.move_to(FROZEN_NOW)
     aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
     aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
     aioclient_mock.get(INCA_URL, status=500)
     await _setup(hass, mock_config_entry)

@@ -59,6 +59,8 @@ class HourlyForecast:
     cape: float | None
     dew_point: float | None = None
     condition: str | None = None
+    # Stepped estimate from the C-LAEF ensemble rr percentiles (0/30/70/95).
+    precipitation_probability: int | None = None
 
 
 @dataclass(slots=True)

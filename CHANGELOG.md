@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.0
+
+- Add: hourly precipitation probability in the weather forecast, derived from GeoSphere's C-LAEF ensemble precipitation percentiles (`ensemble-v1-1h-2500m`). The API exposes only p10/p50/p90 — no member fractions — so the probability is a stepped, ensemble-backed estimate (0 / 30 / 70 / 95 %); see the README FAQ. Adds ~2 API requests/hour; an ensemble fetch failure degrades to no probability instead of breaking the forecast
+
 ## 0.7.0
 
 - Add: optional air-quality sensors (off by default, enable via Configure) — NO₂, O₃, PM10, PM2.5 concentrations and the daily European Air Quality Index from GeoSphere's WRF-Chem forecast (`chem-v2-1h-3km` / `chem_aqi-v1-1d-3km`, 3 km grid)

@@ -39,15 +39,22 @@ from .const import (
     DATASET_AROME,
     DATASET_CHEM,
     DATASET_CHEM_AQI,
+    DATASET_ENSEMBLE,
     DATASET_INCA,
     DATASET_NOWCAST,
     DEFAULT_CURRENT_INTERVAL_MINUTES,
     DEFAULT_FORECAST_INTERVAL_MINUTES,
     DOMAIN,
+    ENSEMBLE_PARAMETERS,
     INCA_LOOKBACK_HOURS,
     INCA_MAX_AGE_SECONDS,
     INCA_PARAMETERS,
     NOWCAST_PARAMETERS,
+    POP_DRY_PCT,
+    POP_P10_WET_PCT,
+    POP_P50_WET_PCT,
+    POP_P90_WET_PCT,
+    PRECIP_MIN_MM,
     PT_NO_PRECIPITATION,
 )
 from .models import (
@@ -78,6 +85,26 @@ def _percent(value: float | None) -> float | None:
     if value is None:
         return None
     return round(value * 100.0, 0)
+
+
+def _precipitation_probability(
+    p10: float | None, p50: float | None, p90: float | None
+) -> int | None:
+    """Stepped probability of a wet hour (>= PRECIP_MIN_MM) from rr percentiles.
+
+    The ensemble API only publishes p10/p50/p90 (no member fractions), so the
+    wettest percentile above the threshold bounds the share of wet members and
+    the midpoint of that range is reported: 95 / 70 / 30 / 0 %.
+    """
+    if p90 is None:
+        return None
+    if p10 is not None and p10 >= PRECIP_MIN_MM:
+        return POP_P10_WET_PCT
+    if p50 is not None and p50 >= PRECIP_MIN_MM:
+        return POP_P50_WET_PCT
+    if p90 >= PRECIP_MIN_MM:
+        return POP_P90_WET_PCT
+    return POP_DRY_PCT
 
 
 def _diff(series: list[float | None], index: int) -> float | None:
@@ -133,12 +160,41 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
             ) from err
         except GeoSphereApiError as err:
             raise UpdateFailed(f"AROME update failed: {err}") from err
-        return self._process(response)
 
-    def _process(self, response: GeoSphereResponse) -> ForecastData:
+        # The C-LAEF ensemble percentiles only add the precipitation
+        # probability; their failure must not take the forecast down.
+        ensemble: GeoSphereResponse | None = None
+        try:
+            ensemble = await self._client.get_timeseries(
+                *DATASET_ENSEMBLE,
+                parameters=ENSEMBLE_PARAMETERS,
+                latitude=self.latitude,
+                longitude=self.longitude,
+            )
+        except GeoSphereApiError as err:
+            _LOGGER.warning(
+                "Ensemble update failed, omitting precipitation probability: %s", err
+            )
+
+        return self._process(response, ensemble)
+
+    def _process(
+        self, response: GeoSphereResponse, ensemble: GeoSphereResponse | None = None
+    ) -> ForecastData:
         now = dt_util.utcnow()
         hourly: list[HourlyForecast] = []
         first_future_index: int | None = None
+
+        # Ensemble hours align with AROME's whole-hour stamps (both 1 h grids,
+        # matched by exact timestamp); missing hours yield no probability.
+        pop_by_ts: dict[datetime, int | None] = {}
+        if ensemble is not None:
+            for i, ts in enumerate(ensemble.timestamps):
+                pop_by_ts[ts] = _precipitation_probability(
+                    ensemble.value_at("rr_p10", i),
+                    ensemble.value_at("rr_p50", i),
+                    ensemble.value_at("rr_p90", i),
+                )
 
         # Keep the in-progress hour so the forecast starts at the current hour
         # (matching OWM / Open-Meteo), comparing against the top of the hour
@@ -179,6 +235,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                     cloud_coverage=cloud,
                     cape=cape,
                     dew_point=dew_point_from_t_rh(temperature, humidity),
+                    precipitation_probability=pop_by_ts.get(ts),
                     condition=derive_condition(
                         precipitation,
                         snow,

@@ -12,18 +12,20 @@ coordinate:
 | Data | Dataset | Resolution |
 |---|---|---|
 | Hourly forecast (+60 h) | AROME `nwp-v1-1h-2500m` | 2.5 km, model runs every 3 h |
+| Precipitation probability (per forecast hour) | C-LAEF ensemble `ensemble-v1-1h-2500m` | 2.5 km, model runs every 12 h |
 | Current temperature, humidity, dew point, wind, MSL pressure, global radiation, 1 h precipitation | INCA analysis `inca-v1-1h-1km` | 1 km, hourly (observation-anchored) |
 | Current precipitation type/rate, wind gusts; fallback for the INCA fields | INCA nowcast `nowcast-v1-15min-1km` | 1 km, 15 min |
 | Air quality (optional): NO₂, O₃, PM10, PM2.5 (+73 h hourly) | WRF-Chem `chem-v2-1h-3km` | 3 km, model runs daily |
 | Air quality (optional): daily European Air Quality Index | WRF-Chem `chem_aqi-v1-1d-3km` | 3 km, model runs daily |
 
-No API key required. The default polling intervals use ~7 requests/hour of the
-API's 240 requests/hour budget (~9 with air quality enabled).
+No API key required. The default polling intervals use ~9 requests/hour of the
+API's 240 requests/hour budget (~11 with air quality enabled).
 
 ## Entities
 
 - **Weather entity** with current conditions plus an hourly forecast
-  (`weather.get_forecasts`). No daily forecast — see the FAQ.
+  (`weather.get_forecasts`), including a stepped precipitation probability
+  from the C-LAEF ensemble. No daily forecast — see the FAQ for both.
 - **Sensors**: temperature, apparent temperature, dew point, humidity, pressure
   (MSL), wind speed / gusts / direction, cloud coverage, precipitation (last
   hour), condition, global radiation, snow limit.
@@ -95,12 +97,18 @@ uses for this model. The raw symbol is still exposed as a diagnostic sensor.
 
 ## FAQ
 
-**Why is there no precipitation probability in the forecasts?**
-AROME is a *deterministic* model — each run produces a single outcome, not an
-ensemble of scenarios, so there is no probability to report. Integrations that
-show one (OpenWeatherMap, Open-Meteo) derive it from ensemble or statistically
-post-processed products. If GeoSphere's C-LAEF ensemble dataset becomes
-practical to sample per point, this may be added later.
+**Why does the precipitation probability only show 0 / 30 / 70 / 95 %?**
+AROME itself is a *deterministic* model — each run produces a single outcome,
+not an ensemble of scenarios, so it has no probability of its own. The
+probability comes from GeoSphere's C-LAEF *ensemble* dataset instead, which
+publishes only three precipitation percentiles per hour (p10 / p50 / p90),
+not the fraction of wet ensemble members. Three percentiles can only bound
+that fraction: if even the 10th percentile is wet (≥ 0.1 mm), at least 90 %
+of members rain; if only the median is wet, 50–90 % do; if only the 90th
+percentile is wet, 10–50 % do. The integration reports the midpoint of the
+implied range — 95, 70, 30, or 0 % — which is coarser than the smooth-looking
+percentages other providers show, but every step is genuinely ensemble-backed
+rather than interpolated.
 
 **Why can the current temperature trail nearby stations by up to ~1 °C?**
 Current thermodynamic values come from the INCA hourly analysis, which is
