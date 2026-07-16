@@ -2,7 +2,8 @@
 
 ## 0.5.0
 
-- Chore: enable the HACS brands check now that `geosphere_next` is in home-assistant/brands — the integration shows the GeoSphere Austria icon in the HA UI and is ready for a HACS default-store submission
+- Add: GeoSphere Austria brand images shipped inside the integration (`brand/` directory, the Brands Proxy API mechanism for custom integrations since HA 2026.3) — the integration now shows its icon and logo in the HA UI
+- Chore: enable the HACS brands check (satisfied by the local `brand/` assets) — last blocker before the HACS default-store submission
 
 ## 0.4.0
 

@@ -83,4 +83,8 @@ Data provided by [GeoSphere Austria](https://www.geosphere.at/) via the
 Dataset API, licensed under
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
+The GeoSphere Austria name and logo (`custom_components/geosphere_next/brand/`)
+are trademarks of GeoSphere Austria, used for identification purposes only.
+They are **not** covered by this repository's MIT license.
+
 This is a third-party integration, not affiliated with GeoSphere Austria.
