@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+
+- Chore: migrate the test harness to Python 3.14 + pytest-homeassistant-custom-component 0.13.346 (HA 2026.7.2)
+- Chore: replace aioresponses (incompatible with aiohttp 3.14) with Home Assistant's own `aioclient_mock` test mocker — no runtime changes
+
 ## 0.3.0
 
 - Remove: the daily forecast. AROME's +60 h horizon yields at most 2–3 aggregable days, and the Home Assistant frontend only renders forecasts with more than 2 entries — the daily view would intermittently spin forever (evenings). The weather entity is hourly-only now; see the README FAQ

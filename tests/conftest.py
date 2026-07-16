@@ -7,9 +7,11 @@ import re
 from pathlib import Path
 
 import pytest
-from aioresponses import aioresponses
 from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.test_util.aiohttp import (
+    AiohttpClientMocker,
+)
 
 from custom_components.geosphere_next.const import CONF_HAS_NOWCAST, DOMAIN
 
@@ -48,10 +50,9 @@ def mock_config_entry() -> MockConfigEntry:
 
 
 @pytest.fixture
-def mock_api() -> aioresponses:
+def mock_api(aioclient_mock: AiohttpClientMocker) -> AiohttpClientMocker:
     """Mock the GeoSphere API with recorded fixture responses."""
-    with aioresponses() as mocked:
-        mocked.get(AROME_URL, payload=load_fixture("arome.json"), repeat=True)
-        mocked.get(NOWCAST_URL, payload=load_fixture("nowcast.json"), repeat=True)
-        mocked.get(INCA_URL, payload=load_fixture("inca.json"), repeat=True)
-        yield mocked
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    return aioclient_mock
