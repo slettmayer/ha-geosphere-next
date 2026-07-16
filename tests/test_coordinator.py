@@ -6,6 +6,11 @@ import pytest
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from pytest_homeassistant_custom_component.test_util.aiohttp import (
+    AiohttpClientMocker,
+)
+
+from .conftest import AROME_URL, INCA_URL, NOWCAST_URL, load_fixture
 
 FROZEN_NOW = "2026-07-15T16:00:00+00:00"
 
@@ -66,25 +71,17 @@ async def test_current_merge(
 
 
 async def test_nowcast_failure_falls_back_to_inca(
-    hass: HomeAssistant, mock_config_entry, freezer: FrozenDateTimeFactory
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
 ) -> None:
     """When the nowcast errors, INCA values fill the current conditions."""
-    import re
-
-    from aioresponses import aioresponses
-
-    from .conftest import AROME_URL, INCA_URL, load_fixture
-
     freezer.move_to(FROZEN_NOW)
-    with aioresponses() as mocked:
-        mocked.get(AROME_URL, payload=load_fixture("arome.json"), repeat=True)
-        mocked.get(
-            re.compile(r".*/timeseries/forecast/nowcast-v1-15min-1km\?.*"),
-            status=500,
-            repeat=True,
-        )
-        mocked.get(INCA_URL, payload=load_fixture("inca.json"), repeat=True)
-        await _setup(hass, mock_config_entry)
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(NOWCAST_URL, status=500)
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await _setup(hass, mock_config_entry)
 
     data = mock_config_entry.runtime_data.current.data
     # INCA T2M latest (15:00Z)
