@@ -1,4 +1,4 @@
-"""Condition derivation and daily aggregation — pure functions, fully testable.
+"""Condition derivation — pure functions, fully testable.
 
 GeoSphere's `sy` weather symbol uses an undocumented proprietary code table,
 so (like open-meteo) the HA condition is derived from physical parameters
@@ -9,8 +9,7 @@ literals are used to keep this module free of homeassistant imports.
 from __future__ import annotations
 
 import math
-from collections import Counter
-from datetime import datetime, tzinfo
+from datetime import datetime
 
 from astral import Observer
 from astral.sun import elevation as solar_elevation
@@ -30,29 +29,6 @@ from .const import (
     WINDY_CLOUD_TCC_PCT,
     WINDY_GUST_MS,
 )
-from .models import DailyForecast, HourlyForecast
-
-# Most severe first — used to pick a representative daily condition.
-CONDITION_SEVERITY = (
-    "lightning-rainy",
-    "lightning",
-    "hail",
-    "pouring",
-    "snowy-rainy",
-    "snowy",
-    "rainy",
-    "fog",
-    "windy-variant",
-    "windy",
-    "cloudy",
-    "partlycloudy",
-    "sunny",
-    "clear-night",
-)
-_DAYTIME_HOURS = range(6, 18)
-_MIN_HOURS_FOR_DAILY = 6
-_MIN_DAYTIME_HOURS_FOR_DAILY = 3
-_SEVERE_HOURS_FOR_DAILY = 3
 
 
 def wind_from_components(
@@ -182,71 +158,3 @@ def derive_current_condition(
         return "fog"
 
     return derive_condition(0.0, 0.0, cloud_coverage, cape, gust_speed, night)
-
-
-def aggregate_daily(hourly: list[HourlyForecast], tz: tzinfo) -> list[DailyForecast]:
-    """Aggregate hourly forecasts into local-calendar-day daily entries.
-
-    Days with fewer than _MIN_HOURS_FOR_DAILY hours of data, or fewer than
-    _MIN_DAYTIME_HOURS_FOR_DAILY daytime hours, are dropped — the truncated
-    last day of the 60 h horizon, and the current day once only evening
-    hours remain (its "high" would just be the early-evening temperature).
-    """
-    by_day: dict[str, list[HourlyForecast]] = {}
-    for hour in hourly:
-        local = hour.datetime.astimezone(tz)
-        by_day.setdefault(local.date().isoformat(), []).append(hour)
-
-    daily: list[DailyForecast] = []
-    for hours in by_day.values():
-        if len(hours) < _MIN_HOURS_FOR_DAILY:
-            continue
-        daytime_count = sum(
-            1 for h in hours if h.datetime.astimezone(tz).hour in _DAYTIME_HOURS
-        )
-        if daytime_count < _MIN_DAYTIME_HOURS_FOR_DAILY:
-            continue
-        highs = [h.temphigh if h.temphigh is not None else h.temperature for h in hours]
-        lows = [h.templow if h.templow is not None else h.temperature for h in hours]
-        highs = [v for v in highs if v is not None]
-        lows = [v for v in lows if v is not None]
-        precip = [h.precipitation for h in hours if h.precipitation is not None]
-        humidities = [h.humidity for h in hours if h.humidity is not None]
-        windy = [h for h in hours if h.wind_speed is not None]
-        max_wind = max(windy, key=lambda h: h.wind_speed) if windy else None
-
-        first_local = hours[0].datetime.astimezone(tz)
-        daily.append(
-            DailyForecast(
-                datetime=first_local.replace(hour=0, minute=0, second=0, microsecond=0),
-                temperature=max(highs) if highs else None,
-                templow=min(lows) if lows else None,
-                precipitation=round(sum(precip), 1) if precip else None,
-                wind_speed=max_wind.wind_speed if max_wind else None,
-                wind_bearing=max_wind.wind_bearing if max_wind else None,
-                humidity=round(sum(humidities) / len(humidities))
-                if humidities
-                else None,
-                condition=_daily_condition(hours, tz),
-            )
-        )
-    return daily
-
-
-def _daily_condition(hours: list[HourlyForecast], tz: tzinfo) -> str | None:
-    """Most severe condition present in >=3 daytime hours, else most frequent."""
-    daytime = [
-        h.condition
-        for h in hours
-        if h.condition is not None and h.datetime.astimezone(tz).hour in _DAYTIME_HOURS
-    ]
-    pool = daytime or [h.condition for h in hours if h.condition is not None]
-    if not pool:
-        return None
-    # Night hours may report clear-night; a daily entry should say sunny.
-    pool = ["sunny" if c == "clear-night" else c for c in pool]
-    counts = Counter(pool)
-    for condition in CONDITION_SEVERITY:
-        if counts.get(condition, 0) >= _SEVERE_HOURS_FOR_DAILY:
-            return condition
-    return counts.most_common(1)[0][0]

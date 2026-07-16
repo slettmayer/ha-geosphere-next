@@ -11,7 +11,7 @@ coordinate:
 
 | Data | Dataset | Resolution |
 |---|---|---|
-| Hourly forecast (+60 h) + derived daily (~2–3 days) | AROME `nwp-v1-1h-2500m` | 2.5 km, model runs every 3 h |
+| Hourly forecast (+60 h) | AROME `nwp-v1-1h-2500m` | 2.5 km, model runs every 3 h |
 | Current conditions | INCA nowcast `nowcast-v1-15min-1km` | 1 km, 15 min |
 | MSL pressure, global radiation, 1 h precipitation | INCA analysis `inca-v1-1h-1km` | 1 km, hourly |
 
@@ -20,8 +20,8 @@ API's 240 requests/hour budget.
 
 ## Entities
 
-- **Weather entity** with current conditions plus hourly and daily forecasts
-  (`weather.get_forecasts`).
+- **Weather entity** with current conditions plus an hourly forecast
+  (`weather.get_forecasts`). No daily forecast — see the FAQ.
 - **Sensors**: temperature, apparent temperature, dew point, humidity, pressure
   (MSL), wind speed / gusts / direction, cloud coverage, precipitation (last
   hour), condition, global radiation, snow limit.
@@ -68,12 +68,14 @@ show one (OpenWeatherMap, Open-Meteo) derive it from ensemble or statistically
 post-processed products. If GeoSphere's C-LAEF ensemble dataset becomes
 practical to sample per point, this may be added later.
 
-**Why does the daily forecast only cover 2–3 days?**
-It is aggregated from AROME's +60 h hourly horizon; there is no longer-range
-GeoSphere point-forecast dataset. Days are only included when they have enough
-data — at least 6 hours overall and 3 daytime hours (06:00–17:59 local).
-Late in the evening the *current* day drops out of the daily list for the same
-reason: a "high" computed from evening hours alone would be misleading.
+**Why is there no daily forecast?**
+AROME is a deliberately high-resolution, *short-range* model: its +60 h
+horizon covers at most 2–3 aggregable local days (and no GeoSphere dataset
+forecasts further ahead — the C-LAEF ensemble has the same 61 h length).
+The Home Assistant frontend only renders forecasts with more than 2 entries,
+so a daily view would intermittently show a perpetual loading spinner
+depending on the time of day. Hourly-only is the honest fit; pair the
+integration with a long-range provider if you need multi-day forecasts.
 
 ## Attribution
 

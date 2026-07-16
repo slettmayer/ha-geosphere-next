@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.components.weather import (
     DOMAIN as WEATHER_DOMAIN,
     SERVICE_GET_FORECASTS,
+    WeatherEntityFeature,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 
 ENTITY_ID = "weather.geosphere_next"
 FROZEN_NOW = "2026-07-15T16:00:00+00:00"
@@ -34,26 +37,40 @@ async def test_weather_state(
     assert state.attributes["humidity"] is not None
     assert state.attributes["pressure"] == 1015.9
     assert "GeoSphere Austria" in state.attributes["attribution"]
+    # Hourly only: AROME's ~60 h horizon yields at most 2-3 aggregable days,
+    # and the HA frontend needs >2 forecast entries to render — a daily tab
+    # would intermittently spin forever.
+    assert (
+        state.attributes["supported_features"] == WeatherEntityFeature.FORECAST_HOURLY
+    )
 
 
-async def test_get_forecasts_hourly_and_daily(
+async def test_get_forecasts_hourly(
     hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
 ) -> None:
     freezer.move_to(FROZEN_NOW)
     await _setup(hass, mock_config_entry)
 
-    for forecast_type, expected_len in (("hourly", 57), ("daily", 2)):
-        response = await hass.services.async_call(
+    response = await hass.services.async_call(
+        WEATHER_DOMAIN,
+        SERVICE_GET_FORECASTS,
+        {"entity_id": ENTITY_ID, "type": "hourly"},
+        blocking=True,
+        return_response=True,
+    )
+    forecast = response[ENTITY_ID]["forecast"]
+    assert len(forecast) == 57
+    assert forecast[0]["temperature"] is not None
+    assert forecast[0]["condition"] is not None
+
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
             WEATHER_DOMAIN,
             SERVICE_GET_FORECASTS,
-            {"entity_id": ENTITY_ID, "type": forecast_type},
+            {"entity_id": ENTITY_ID, "type": "daily"},
             blocking=True,
             return_response=True,
         )
-        forecast = response[ENTITY_ID]["forecast"]
-        assert len(forecast) == expected_len
-        assert forecast[0]["temperature"] is not None
-        assert forecast[0]["condition"] is not None
 
     hourly = (
         await hass.services.async_call(

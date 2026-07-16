@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import UTC, datetime
 
 import pytest
 
 from custom_components.geosphere_next.condition import (
-    aggregate_daily,
     apparent_temperature,
     derive_condition,
     derive_current_condition,
@@ -16,9 +14,6 @@ from custom_components.geosphere_next.condition import (
     is_night,
     wind_from_components,
 )
-from custom_components.geosphere_next.models import HourlyForecast
-
-VIENNA = ZoneInfo("Europe/Vienna")
 
 
 @pytest.mark.parametrize(
@@ -149,83 +144,3 @@ def test_dew_point_from_t_rh() -> None:
     assert dew_point_from_t_rh(None, 50.0) is None
     assert dew_point_from_t_rh(20.0, None) is None
     assert dew_point_from_t_rh(20.0, 0.0) is None
-
-
-def _hour(ts: datetime, **kwargs) -> HourlyForecast:
-    defaults = {
-        "temperature": 20.0,
-        "templow": 18.0,
-        "temphigh": 22.0,
-        "humidity": 60.0,
-        "precipitation": 0.0,
-        "snow": 0.0,
-        "wind_speed": 3.0,
-        "wind_bearing": 180.0,
-        "wind_gust_speed": 6.0,
-        "cloud_coverage": 20.0,
-        "cape": 0.0,
-        "condition": "partlycloudy",
-    }
-    defaults.update(kwargs)
-    return HourlyForecast(datetime=ts, **defaults)
-
-
-def test_aggregate_daily() -> None:
-    # Two full days of hourly data starting at local midnight.
-    start = datetime(2026, 7, 16, 0, 0, tzinfo=VIENNA).astimezone(UTC)
-    hours = []
-    for i in range(48):
-        ts = start + timedelta(hours=i)
-        rainy_afternoon = 12 <= (i % 24) <= 16 and i >= 24
-        hours.append(
-            _hour(
-                ts,
-                temphigh=25.0 + (i % 24) / 10,
-                templow=14.0 - (i % 24) / 10,
-                precipitation=1.2 if rainy_afternoon else 0.0,
-                condition="rainy" if rainy_afternoon else "partlycloudy",
-            )
-        )
-
-    daily = aggregate_daily(hours, VIENNA)
-    assert len(daily) == 2
-    day1, day2 = daily
-    assert day1.temperature == pytest.approx(27.3)
-    assert day1.templow == pytest.approx(11.7)
-    assert day1.condition == "partlycloudy"
-    assert day1.precipitation == 0.0
-    # Day 2 has a 5-hour rainy afternoon -> severe condition wins.
-    assert day2.condition == "rainy"
-    assert day2.precipitation == pytest.approx(6.0)
-
-
-def test_aggregate_daily_drops_short_days() -> None:
-    start = datetime(2026, 7, 16, 21, 0, tzinfo=VIENNA).astimezone(UTC)
-    hours = [_hour(start + timedelta(hours=i)) for i in range(3)]
-    assert aggregate_daily(hours, VIENNA) == []
-
-
-def test_aggregate_daily_drops_evening_only_day() -> None:
-    # 6 hours (>= _MIN_HOURS_FOR_DAILY) but all after 18:00 local: the "high"
-    # would just be the early-evening temperature, so the day is dropped.
-    start = datetime(2026, 7, 16, 18, 0, tzinfo=VIENNA).astimezone(UTC)
-    hours = [_hour(start + timedelta(hours=i)) for i in range(6)]
-    assert aggregate_daily(hours, VIENNA) == []
-
-
-def test_aggregate_daily_keeps_day_with_minimum_daytime_hours() -> None:
-    # 15:00-23:00 local: 9 hours total, 3 of them daytime (15, 16, 17) — kept.
-    start = datetime(2026, 7, 16, 15, 0, tzinfo=VIENNA).astimezone(UTC)
-    hours = [_hour(start + timedelta(hours=i)) for i in range(9)]
-    daily = aggregate_daily(hours, VIENNA)
-    assert len(daily) == 1
-    assert daily[0].temperature == pytest.approx(22.0)
-
-
-def test_aggregate_daily_clear_night_becomes_sunny() -> None:
-    start = datetime(2026, 7, 16, 0, 0, tzinfo=VIENNA).astimezone(UTC)
-    hours = [
-        _hour(start + timedelta(hours=i), condition="clear-night") for i in range(24)
-    ]
-    daily = aggregate_daily(hours, VIENNA)
-    assert daily[0].condition == "sunny"
