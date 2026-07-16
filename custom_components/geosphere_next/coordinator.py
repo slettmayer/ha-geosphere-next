@@ -25,6 +25,7 @@ from .condition import (
     apparent_temperature,
     derive_condition,
     derive_current_condition,
+    dew_point_from_t_rh,
     is_night,
     wind_from_components,
 )
@@ -155,13 +156,15 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
             snow = _diff(response.series("snow_acc"), i)
             cloud = _percent(response.value_at("tcc", i))
             cape = response.value_at("cape", i)
+            temperature = response.value_at("t2m", i)
+            humidity = response.value_at("rh2m", i)
             hourly.append(
                 HourlyForecast(
                     datetime=ts,
-                    temperature=response.value_at("t2m", i),
+                    temperature=temperature,
                     templow=response.value_at("mnt2m", i),
                     temphigh=response.value_at("mxt2m", i),
-                    humidity=response.value_at("rh2m", i),
+                    humidity=humidity,
                     precipitation=precipitation,
                     snow=snow,
                     wind_speed=wind_speed,
@@ -169,6 +172,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                     wind_gust_speed=gust_speed,
                     cloud_coverage=cloud,
                     cape=cape,
+                    dew_point=dew_point_from_t_rh(temperature, humidity),
                     condition=derive_condition(
                         precipitation,
                         snow,

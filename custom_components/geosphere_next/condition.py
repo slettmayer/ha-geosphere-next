@@ -51,6 +51,7 @@ CONDITION_SEVERITY = (
 )
 _DAYTIME_HOURS = range(6, 18)
 _MIN_HOURS_FOR_DAILY = 6
+_MIN_DAYTIME_HOURS_FOR_DAILY = 3
 _SEVERE_HOURS_FOR_DAILY = 3
 
 
@@ -80,6 +81,18 @@ def apparent_temperature(
         humidity / 100.0 * 6.105 * math.exp(17.27 * temperature / (237.7 + temperature))
     )
     return round(temperature + 0.33 * vapor_pressure - 0.70 * wind_speed - 4.0, 1)
+
+
+def dew_point_from_t_rh(
+    temperature: float | None, humidity: float | None
+) -> float | None:
+    """Magnus dew point (°C) from T (°C) and RH (%); AROME has no dew-point param."""
+    if temperature is None or humidity is None or humidity <= 0.0:
+        return None
+    humidity = min(humidity, 100.0)
+    a, b = 17.62, 243.12
+    gamma = math.log(humidity / 100.0) + a * temperature / (b + temperature)
+    return round(b * gamma / (a - gamma), 1)
 
 
 def derive_condition(
@@ -174,8 +187,10 @@ def derive_current_condition(
 def aggregate_daily(hourly: list[HourlyForecast], tz: tzinfo) -> list[DailyForecast]:
     """Aggregate hourly forecasts into local-calendar-day daily entries.
 
-    Days with fewer than _MIN_HOURS_FOR_DAILY hours of data are dropped
-    (typically the truncated last day of the 60 h horizon).
+    Days with fewer than _MIN_HOURS_FOR_DAILY hours of data, or fewer than
+    _MIN_DAYTIME_HOURS_FOR_DAILY daytime hours, are dropped — the truncated
+    last day of the 60 h horizon, and the current day once only evening
+    hours remain (its "high" would just be the early-evening temperature).
     """
     by_day: dict[str, list[HourlyForecast]] = {}
     for hour in hourly:
@@ -185,6 +200,11 @@ def aggregate_daily(hourly: list[HourlyForecast], tz: tzinfo) -> list[DailyForec
     daily: list[DailyForecast] = []
     for hours in by_day.values():
         if len(hours) < _MIN_HOURS_FOR_DAILY:
+            continue
+        daytime_count = sum(
+            1 for h in hours if h.datetime.astimezone(tz).hour in _DAYTIME_HOURS
+        )
+        if daytime_count < _MIN_DAYTIME_HOURS_FOR_DAILY:
             continue
         highs = [h.temphigh if h.temphigh is not None else h.temperature for h in hours]
         lows = [h.templow if h.templow is not None else h.temperature for h in hours]

@@ -57,6 +57,7 @@ class HourlyForecast:
     wind_gust_speed: float | None
     cloud_coverage: float | None
     cape: float | None
+    dew_point: float | None = None
     condition: str | None = None
 
 

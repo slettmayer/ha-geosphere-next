@@ -59,6 +59,22 @@ is derived from physical parameters (cloud cover, precipitation and snow
 amounts, CAPE, wind gusts, solar elevation) — the same approach open-meteo
 uses for this model. The raw symbol is still exposed as a diagnostic sensor.
 
+## FAQ
+
+**Why is there no precipitation probability in the forecasts?**
+AROME is a *deterministic* model — each run produces a single outcome, not an
+ensemble of scenarios, so there is no probability to report. Integrations that
+show one (OpenWeatherMap, Open-Meteo) derive it from ensemble or statistically
+post-processed products. If GeoSphere's C-LAEF ensemble dataset becomes
+practical to sample per point, this may be added later.
+
+**Why does the daily forecast only cover 2–3 days?**
+It is aggregated from AROME's +60 h hourly horizon; there is no longer-range
+GeoSphere point-forecast dataset. Days are only included when they have enough
+data — at least 6 hours overall and 3 daytime hours (06:00–17:59 local).
+Late in the evening the *current* day drops out of the daily list for the same
+reason: a "high" computed from evening hours alone would be misleading.
+
 ## Attribution
 
 Data provided by [GeoSphere Austria](https://www.geosphere.at/) via the

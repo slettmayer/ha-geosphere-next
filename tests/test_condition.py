@@ -12,6 +12,7 @@ from custom_components.geosphere_next.condition import (
     apparent_temperature,
     derive_condition,
     derive_current_condition,
+    dew_point_from_t_rh,
     is_night,
     wind_from_components,
 )
@@ -138,6 +139,18 @@ def test_apparent_temperature() -> None:
     assert apparent_temperature(None, 50.0, 2.0) is None
 
 
+def test_dew_point_from_t_rh() -> None:
+    assert dew_point_from_t_rh(20.0, 50.0) == pytest.approx(9.3)
+    # Saturated air: dew point equals the temperature.
+    assert dew_point_from_t_rh(20.0, 100.0) == pytest.approx(20.0)
+    # RH above 100 (model artifact) clamps instead of exceeding T.
+    assert dew_point_from_t_rh(20.0, 104.0) == pytest.approx(20.0)
+    assert dew_point_from_t_rh(-5.0, 80.0) == pytest.approx(-7.9, abs=0.1)
+    assert dew_point_from_t_rh(None, 50.0) is None
+    assert dew_point_from_t_rh(20.0, None) is None
+    assert dew_point_from_t_rh(20.0, 0.0) is None
+
+
 def _hour(ts: datetime, **kwargs) -> HourlyForecast:
     defaults = {
         "temperature": 20.0,
@@ -190,6 +203,23 @@ def test_aggregate_daily_drops_short_days() -> None:
     start = datetime(2026, 7, 16, 21, 0, tzinfo=VIENNA).astimezone(UTC)
     hours = [_hour(start + timedelta(hours=i)) for i in range(3)]
     assert aggregate_daily(hours, VIENNA) == []
+
+
+def test_aggregate_daily_drops_evening_only_day() -> None:
+    # 6 hours (>= _MIN_HOURS_FOR_DAILY) but all after 18:00 local: the "high"
+    # would just be the early-evening temperature, so the day is dropped.
+    start = datetime(2026, 7, 16, 18, 0, tzinfo=VIENNA).astimezone(UTC)
+    hours = [_hour(start + timedelta(hours=i)) for i in range(6)]
+    assert aggregate_daily(hours, VIENNA) == []
+
+
+def test_aggregate_daily_keeps_day_with_minimum_daytime_hours() -> None:
+    # 15:00-23:00 local: 9 hours total, 3 of them daytime (15, 16, 17) — kept.
+    start = datetime(2026, 7, 16, 15, 0, tzinfo=VIENNA).astimezone(UTC)
+    hours = [_hour(start + timedelta(hours=i)) for i in range(9)]
+    daily = aggregate_daily(hours, VIENNA)
+    assert len(daily) == 1
+    assert daily[0].temperature == pytest.approx(22.0)
 
 
 def test_aggregate_daily_clear_night_becomes_sunny() -> None:
