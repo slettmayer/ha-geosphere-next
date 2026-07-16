@@ -27,19 +27,21 @@ async def test_forecast_processing(
     data = mock_config_entry.runtime_data.forecast.data
 
     # Fixture: reference 12:00Z, timestamps 15:00Z..+60h. At frozen 16:00Z the
-    # first future hour is 17:00Z (index 2); indices 0-1 are skipped/past.
-    assert len(data.hourly) == 56
+    # forecast starts at the in-progress hour 16:00Z (index 1); index 0 (15:00Z)
+    # is dropped since accumulated params have no predecessor to difference.
+    assert len(data.hourly) == 57
     first = data.hourly[0]
-    assert first.datetime.isoformat() == "2026-07-15T17:00:00+00:00"
-    assert first.temperature == 28.1
-    # rr_acc[2] - rr_acc[1] = 0.479 - 0.479
-    assert first.precipitation == 0.0
-    # tcc 0.0 -> 0 %, 19:00 local in July is daytime
+    assert first.datetime.isoformat() == "2026-07-15T16:00:00+00:00"
+    assert first.temperature == 28.6
+    # rr_acc[1] - rr_acc[0] = 0.479 - 0.0
+    assert first.precipitation == 0.48
+    assert first.condition == "rainy"
+    # tcc 0.0 -> 0 %
     assert first.cloud_coverage == 0
-    assert first.condition == "sunny"
-    # Only the two full local days (Jul 16, Jul 17) survive aggregation.
-    assert len(data.daily) == 2
-    assert data.snow_limit == pytest.approx(3401.2)
+    # Jul 15 now keeps 6 evening hours (18:00-23:00 local), so it survives
+    # aggregation alongside the two full days Jul 16 and Jul 17.
+    assert len(data.daily) == 3
+    assert data.snow_limit == pytest.approx(3371.9)
     assert data.current is first
 
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Fix: the hourly forecast now includes the current, in-progress hour instead of starting at the next full hour, matching OpenWeatherMap and the Open-Meteo AROME view
+
 ## 0.1.1
 
 - Bump dependency (Dependabot)
