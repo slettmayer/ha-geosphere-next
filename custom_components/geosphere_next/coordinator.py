@@ -133,11 +133,15 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         hourly: list[HourlyForecast] = []
         first_future_index: int | None = None
 
-        # Index 0 is skipped: accumulated parameters have no predecessor step,
-        # so its hourly precipitation is unknowable (verified spike finding E-7).
+        # Keep the in-progress hour so the forecast starts at the current hour
+        # (matching OWM / Open-Meteo), comparing against the top of the hour
+        # rather than the exact instant. Index 0 is still skipped: accumulated
+        # parameters have no predecessor step, so its hourly precipitation is
+        # unknowable (verified spike finding E-7).
+        cutoff = now.replace(minute=0, second=0, microsecond=0)
         for i in range(1, len(response.timestamps)):
             ts = response.timestamps[i]
-            if ts <= now:
+            if ts < cutoff:
                 continue
             if first_future_index is None:
                 first_future_index = i
