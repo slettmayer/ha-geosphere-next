@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.core import HomeAssistant
 
@@ -16,13 +17,11 @@ async def test_sensor_values(
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
 
+    # Thermodynamic + wind values come from the INCA analysis (latest 15:00Z).
     expectations = {
-        "sensor.geosphere_next_temperature": ("29.74", "°C"),
-        "sensor.geosphere_next_dew_point": ("13.04", "°C"),
+        "sensor.geosphere_next_temperature": ("30.43", "°C"),
+        "sensor.geosphere_next_dew_point": ("12.59", "°C"),
         "sensor.geosphere_next_pressure": ("1015.9", "hPa"),
-        # HA's metric unit system converts wind speed to km/h (2.1 m/s).
-        "sensor.geosphere_next_wind_speed": ("7.56", "km/h"),
-        "sensor.geosphere_next_wind_direction": ("345.2", "°"),
         "sensor.geosphere_next_global_radiation": ("248.94", "W/m²"),
         "sensor.geosphere_next_condition": ("sunny", None),
         "sensor.geosphere_next_precipitation_last_hour": ("0.0", "mm"),
@@ -33,6 +32,15 @@ async def test_sensor_values(
         assert state.state == value, f"{entity_id}: {state.state} != {value}"
         if unit is not None:
             assert state.attributes["unit_of_measurement"] == unit
+
+    # INCA UU/VV-derived wind is not a round number; compare numerically.
+    # HA's metric unit system converts wind speed to km/h (2.83 m/s).
+    wind_speed = hass.states.get("sensor.geosphere_next_wind_speed")
+    assert float(wind_speed.state) == pytest.approx(10.19, abs=0.01)
+    assert wind_speed.attributes["unit_of_measurement"] == "km/h"
+    wind_direction = hass.states.get("sensor.geosphere_next_wind_direction")
+    assert float(wind_direction.state) == pytest.approx(1.8, abs=0.1)
+    assert wind_direction.attributes["unit_of_measurement"] == "°"
 
 
 async def test_diagnostic_sensors_disabled_by_default(

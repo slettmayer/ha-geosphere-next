@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0
+
+- Fix: current temperature, humidity, dew point, and wind now prefer the INCA hourly analysis over the 15-min nowcast — the nowcast temperature extrapolates from an analysis ~2 h behind and lagged real stations by up to ±2 °C on diurnal ramps (too cold while warming, too warm while cooling)
+- Fix: the INCA cache now refreshes based on the age of the newest analysis instead of the last fetch time, cutting worst-case staleness from ~2 h to ~75 min
+
 ## 0.5.0
 
 - Add: GeoSphere Austria brand images shipped inside the integration (`brand/` directory, the Brands Proxy API mechanism for custom integrations since HA 2026.3) — the integration now shows its icon and logo in the HA UI

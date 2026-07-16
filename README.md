@@ -12,8 +12,8 @@ coordinate:
 | Data | Dataset | Resolution |
 |---|---|---|
 | Hourly forecast (+60 h) | AROME `nwp-v1-1h-2500m` | 2.5 km, model runs every 3 h |
-| Current conditions | INCA nowcast `nowcast-v1-15min-1km` | 1 km, 15 min |
-| MSL pressure, global radiation, 1 h precipitation | INCA analysis `inca-v1-1h-1km` | 1 km, hourly |
+| Current temperature, humidity, dew point, wind, MSL pressure, global radiation, 1 h precipitation | INCA analysis `inca-v1-1h-1km` | 1 km, hourly (observation-anchored) |
+| Current precipitation type/rate, wind gusts; fallback for the INCA fields | INCA nowcast `nowcast-v1-15min-1km` | 1 km, 15 min |
 
 No API key required. The default polling intervals use ~7 requests/hour of the
 API's 240 requests/hour budget.
@@ -67,6 +67,15 @@ ensemble of scenarios, so there is no probability to report. Integrations that
 show one (OpenWeatherMap, Open-Meteo) derive it from ensemble or statistically
 post-processed products. If GeoSphere's C-LAEF ensemble dataset becomes
 practical to sample per point, this may be added later.
+
+**Why can the current temperature trail nearby stations by up to ~1 °C?**
+Current thermodynamic values come from the INCA hourly analysis, which is
+anchored on real station observations but publishes with some delay — the
+newest available hour can be up to ~75 minutes old, so steep morning/evening
+ramps show up slightly late. The 15-min nowcast product is *not* used as the
+primary source on purpose: its temperature extrapolates from an analysis
+roughly 2 hours behind, which was measured to lag real stations by up to
+±2 °C on diurnal ramps (too cold while warming, too warm while cooling).
 
 **Why is there no daily forecast?**
 AROME is a deliberately high-resolution, *short-range* model: its +60 h

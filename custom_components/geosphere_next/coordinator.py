@@ -234,7 +234,6 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         self.longitude: float = config_entry.data[CONF_LONGITUDE]
         self.has_nowcast: bool = config_entry.data.get(CONF_HAS_NOWCAST, True)
         self._inca: GeoSphereResponse | None = None
-        self._inca_fetched_at: datetime | None = None
 
     async def _async_update_data(self) -> CurrentConditions:
         nowcast: GeoSphereResponse | None = None
@@ -257,12 +256,18 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         return self._merge(nowcast, inca)
 
     async def _async_get_inca(self) -> GeoSphereResponse | None:
-        """Return the cached INCA slice, refreshing it when older than ~55 min."""
+        """Return the cached INCA slice, refreshing once its newest analysis ages out.
+
+        Freshness is keyed on the newest analysis timestamp, not the fetch
+        time: once the latest published hour is older than ~55 min, every
+        update cycle retries until the next hourly analysis appears (at most
+        a few extra requests per hour against the 240 req/h budget).
+        """
         now = dt_util.utcnow()
         if (
             self._inca is not None
-            and self._inca_fetched_at is not None
-            and (now - self._inca_fetched_at).total_seconds() < INCA_MAX_AGE_SECONDS
+            and self._inca.timestamps
+            and (now - self._inca.timestamps[-1]).total_seconds() < INCA_MAX_AGE_SECONDS
         ):
             return self._inca
         if not self.has_nowcast:
@@ -277,7 +282,6 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
                 start=now - timedelta(hours=INCA_LOOKBACK_HOURS),
                 end=now,
             )
-            self._inca_fetched_at = now
         except GeoSphereApiError as err:
             _LOGGER.warning("INCA update failed, falling back: %s", err)
         return self._inca
@@ -316,18 +320,22 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         inca_wind_speed, inca_wind_bearing = wind_from_components(
             inca_latest("UU")[0], inca_latest("VV")[0]
         )
+        # INCA (observation-anchored hourly analysis) beats the 15-min nowcast
+        # for thermodynamic fields and wind: the nowcast extrapolates from an
+        # analysis ~2 h behind, lagging diurnal ramps by up to ~2 °C (verified
+        # 2026-07-16 against TAWES station observations).
         temperature = chain(
-            now_value("t2m"),
             inca_latest("T2M")[0],
+            now_value("t2m"),
             arome.temperature if arome else None,
         )
         humidity = chain(
-            now_value("rh2m"),
             inca_latest("RH2M")[0],
+            now_value("rh2m"),
             arome.humidity if arome else None,
         )
         wind_speed = chain(
-            now_value("ff"), inca_wind_speed, arome.wind_speed if arome else None
+            inca_wind_speed, now_value("ff"), arome.wind_speed if arome else None
         )
         gust = chain(now_value("fx"), arome.wind_gust_speed if arome else None)
         cloud = chain(arome.cloud_coverage if arome else None)
@@ -358,13 +366,13 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
             apparent_temperature=apparent_temperature(
                 temperature, humidity, wind_speed
             ),
-            dew_point=chain(now_value("td"), inca_latest("TD2M")[0]),
+            dew_point=chain(inca_latest("TD2M")[0], now_value("td")),
             humidity=humidity,
             pressure_hpa=round(p0 / 100.0, 1) if p0 is not None else None,
             wind_speed=wind_speed,
             wind_bearing=chain(
-                now_value("dd"),
                 inca_wind_bearing,
+                now_value("dd"),
                 arome.wind_bearing if arome else None,
             ),
             wind_gust_speed=gust,
