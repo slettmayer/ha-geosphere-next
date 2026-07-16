@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0
+
+- Chore: enable the HACS brands check now that `geosphere_next` is in home-assistant/brands — the integration shows the GeoSphere Austria icon in the HA UI and is ready for a HACS default-store submission
+
 ## 0.4.0
 
 - Chore: migrate the test harness to Python 3.14 + pytest-homeassistant-custom-component 0.13.346 (HA 2026.7.2)

@@ -47,9 +47,6 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # Remove once the domain is merged into home-assistant/brands
-          # (required before a HACS default-store submission).
-          ignore: brands
 
   gate:
     name: gate
