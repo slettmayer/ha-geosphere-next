@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+- Add: hourly forecast dew point, derived from AROME temperature + humidity via the Magnus formula
+- Fix: the daily forecast no longer shows a misleading partial "today" built only from evening hours — days now need at least 3 daytime hours (06:00–17:59 local) to be included
+- Docs: FAQ on the deterministic AROME model (no precipitation probability) and the daily-forecast horizon
+
 ## 0.1.2
 
 - Fix: the hourly forecast now includes the current, in-progress hour instead of starting at the next full hour, matching OpenWeatherMap and the Open-Meteo AROME view

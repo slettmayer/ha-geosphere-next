@@ -38,9 +38,11 @@ async def test_forecast_processing(
     assert first.condition == "rainy"
     # tcc 0.0 -> 0 %
     assert first.cloud_coverage == 0
-    # Jul 15 now keeps 6 evening hours (18:00-23:00 local), so it survives
-    # aggregation alongside the two full days Jul 16 and Jul 17.
-    assert len(data.daily) == 3
+    # Magnus from t2m 28.6 / rh2m 50.1.
+    assert first.dew_point == pytest.approx(17.2)
+    # Jul 15 has only evening hours left (18:00-23:00 local, no daytime
+    # hours), so it is dropped; the full days Jul 16 and Jul 17 remain.
+    assert len(data.daily) == 2
     assert data.snow_limit == pytest.approx(3371.9)
     assert data.current is first
 

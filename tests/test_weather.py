@@ -42,7 +42,7 @@ async def test_get_forecasts_hourly_and_daily(
     freezer.move_to(FROZEN_NOW)
     await _setup(hass, mock_config_entry)
 
-    for forecast_type, expected_len in (("hourly", 57), ("daily", 3)):
+    for forecast_type, expected_len in (("hourly", 57), ("daily", 2)):
         response = await hass.services.async_call(
             WEATHER_DOMAIN,
             SERVICE_GET_FORECASTS,
@@ -66,3 +66,6 @@ async def test_get_forecasts_hourly_and_daily(
     )[ENTITY_ID]["forecast"]
     assert hourly[0]["datetime"] == "2026-07-15T16:00:00+00:00"
     assert hourly[0]["precipitation"] == 0.48
+    # Magnus dew point from t2m 28.6 / rh2m 50.1 (service output is converted,
+    # so the key is dew_point, not native_dew_point).
+    assert hourly[0]["dew_point"] == 17.2
