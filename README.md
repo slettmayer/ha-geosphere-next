@@ -14,9 +14,11 @@ coordinate:
 | Hourly forecast (+60 h) | AROME `nwp-v1-1h-2500m` | 2.5 km, model runs every 3 h |
 | Current temperature, humidity, dew point, wind, MSL pressure, global radiation, 1 h precipitation | INCA analysis `inca-v1-1h-1km` | 1 km, hourly (observation-anchored) |
 | Current precipitation type/rate, wind gusts; fallback for the INCA fields | INCA nowcast `nowcast-v1-15min-1km` | 1 km, 15 min |
+| Air quality (optional): NO₂, O₃, PM10, PM2.5 (+73 h hourly) | WRF-Chem `chem-v2-1h-3km` | 3 km, model runs daily |
+| Air quality (optional): daily European Air Quality Index | WRF-Chem `chem_aqi-v1-1d-3km` | 3 km, model runs daily |
 
 No API key required. The default polling intervals use ~7 requests/hour of the
-API's 240 requests/hour budget.
+API's 240 requests/hour budget (~9 with air quality enabled).
 
 ## Entities
 
@@ -27,9 +29,11 @@ API's 240 requests/hour budget.
   hour), condition, global radiation, snow limit.
 - **Disabled by default**: CAPE, raw precipitation-type code, raw GeoSphere
   weather-symbol code (diagnostic).
+- **Optional** (off by default, see [Air quality](#air-quality-optional)):
+  nitrogen dioxide, ozone, PM10, PM2.5, air quality index.
 
-Not available from GeoSphere: UV index, visibility, air pollution — keep
-another source if you need those.
+Not available from GeoSphere: UV index, visibility, and the trace pollutants
+CO, SO₂, NH₃, NO — keep another source if you need those.
 
 ## Installation
 
@@ -51,6 +55,36 @@ Settings → Devices & Services → GeoSphere Austria Next → Configure:
 - **Current conditions update interval** (default 15 min)
 - **Forecast update interval** (default 30 min — the AROME model itself only
   reruns every 3 h)
+- **Air quality sensors** (default off) — see below
+
+## Air quality (optional)
+
+Enabling the **Air quality sensors** option adds five sensors from GeoSphere's
+WRF-Chem chemical weather forecast (3 km grid, one model run per day, about
+2 extra API requests per hour):
+
+- **Nitrogen dioxide, ozone, PM10, PM2.5** (µg/m³) — the current value comes
+  from the forecast hour closest to now; the full +73 h hourly forecast is
+  exposed as a `forecast` attribute on each sensor (excluded from the
+  recorder, so it does not grow the database).
+- **Air quality index** — the daily index computed by GeoSphere on the
+  thresholds of the
+  [European Air Quality Index](https://airindex.eea.europa.eu/) (EEA), with
+  `today` / `tomorrow` / `in_2_days` attributes:
+
+  | Value | Meaning |
+  |---|---|
+  | 1 | very good |
+  | 2 | good |
+  | 3 | fair |
+  | 4 | moderate |
+  | 5 | poor |
+  | 6 | very poor / extremely poor |
+
+The chem model covers central Europe (a superset of the AROME domain), so air
+quality works for every location this integration accepts. Note that these are
+*model forecast* values, not station measurements — expect them to track, but
+not exactly match, the nearest monitoring station.
 
 ## How the weather condition is derived
 

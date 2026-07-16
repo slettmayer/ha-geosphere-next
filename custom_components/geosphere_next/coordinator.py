@@ -29,11 +29,16 @@ from .condition import (
     wind_from_components,
 )
 from .const import (
+    AIR_QUALITY_INTERVAL_MINUTES,
     AROME_PARAMETERS,
+    CHEM_AQI_PARAMETERS,
+    CHEM_PARAMETERS,
     CONF_CURRENT_INTERVAL,
     CONF_FORECAST_INTERVAL,
     CONF_HAS_NOWCAST,
     DATASET_AROME,
+    DATASET_CHEM,
+    DATASET_CHEM_AQI,
     DATASET_INCA,
     DATASET_NOWCAST,
     DEFAULT_CURRENT_INTERVAL_MINUTES,
@@ -46,6 +51,7 @@ from .const import (
     PT_NO_PRECIPITATION,
 )
 from .models import (
+    AirQualityData,
     CurrentConditions,
     ForecastData,
     GeoSphereResponse,
@@ -64,6 +70,7 @@ class GeoSphereNextData:
     client: GeoSphereApiClient
     forecast: GeoSphereForecastCoordinator
     current: GeoSphereCurrentCoordinator
+    air_quality: GeoSphereAirQualityCoordinator | None = None
 
 
 def _percent(value: float | None) -> float | None:
@@ -399,3 +406,95 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
                 night=night,
             ),
         )
+
+
+# Maps AirQualityData pollutant keys to the chem dataset parameter names.
+CHEM_POLLUTANTS = {
+    "no2": "no2surf",
+    "o3": "o3surf",
+    "pm10": "pm10surf",
+    "pm25": "pm25surf",
+}
+
+
+class GeoSphereAirQualityCoordinator(TimestampDataUpdateCoordinator[AirQualityData]):
+    """Fetches the WRF-Chem pollutant forecast and the daily European AQI."""
+
+    config_entry: GeoSphereNextConfigEntry
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: GeoSphereNextConfigEntry,
+        client: GeoSphereApiClient,
+    ) -> None:
+        super().__init__(
+            hass,
+            _LOGGER,
+            config_entry=config_entry,
+            name=f"{DOMAIN} air quality",
+            update_interval=timedelta(minutes=AIR_QUALITY_INTERVAL_MINUTES),
+        )
+        self._client = client
+        self.latitude: float = config_entry.data[CONF_LATITUDE]
+        self.longitude: float = config_entry.data[CONF_LONGITUDE]
+
+    async def _async_update_data(self) -> AirQualityData:
+        try:
+            chem = await self._client.get_timeseries(
+                *DATASET_CHEM,
+                parameters=CHEM_PARAMETERS,
+                latitude=self.latitude,
+                longitude=self.longitude,
+            )
+        except GeoSphereRateLimitError as err:
+            raise UpdateFailed(
+                f"GeoSphere rate limit hit: {err}", retry_after=err.retry_after
+            ) from err
+        except GeoSphereApiError as err:
+            raise UpdateFailed(f"Air-quality update failed: {err}") from err
+
+        # The daily AQI is a nice-to-have on top of the pollutant series;
+        # its failure must not take the concentration sensors down.
+        aqi: GeoSphereResponse | None = None
+        try:
+            aqi = await self._client.get_timeseries(
+                *DATASET_CHEM_AQI,
+                parameters=CHEM_AQI_PARAMETERS,
+                latitude=self.latitude,
+                longitude=self.longitude,
+            )
+        except GeoSphereApiError as err:
+            _LOGGER.warning("AQI update failed, keeping pollutants only: %s", err)
+
+        return self._process(chem, aqi)
+
+    def _process(
+        self, chem: GeoSphereResponse, aqi: GeoSphereResponse | None
+    ) -> AirQualityData:
+        now = dt_util.utcnow()
+        data = AirQualityData(reference_time=chem.reference_time)
+
+        if chem.timestamps:
+            now_index = min(
+                range(len(chem.timestamps)),
+                key=lambda i: abs((chem.timestamps[i] - now).total_seconds()),
+            )
+            for key, parameter in CHEM_POLLUTANTS.items():
+                setattr(data, key, chem.value_at(parameter, now_index))
+                data.forecast[key] = list(
+                    zip(chem.timestamps, chem.series(parameter), strict=True)
+                )
+
+        if aqi is not None:
+            # Daily stamps are 00:00 UTC; match by local calendar day.
+            today = dt_util.now().date()
+            values: dict[int, int] = {}
+            for ts, value in zip(aqi.timestamps, aqi.series("aqi"), strict=True):
+                if value is not None:
+                    values[(dt_util.as_local(ts).date() - today).days] = int(value)
+            data.aqi_today = values.get(0)
+            data.aqi_tomorrow = values.get(1)
+            data.aqi_in_2_days = values.get(2)
+
+        return data

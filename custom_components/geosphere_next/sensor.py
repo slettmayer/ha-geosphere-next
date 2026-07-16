@@ -12,6 +12,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import (
+    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
     DEGREE,
     PERCENTAGE,
     EntityCategory,
@@ -27,9 +28,13 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import ATTRIBUTION
-from .coordinator import GeoSphereCurrentCoordinator, GeoSphereNextConfigEntry
+from .coordinator import (
+    GeoSphereAirQualityCoordinator,
+    GeoSphereCurrentCoordinator,
+    GeoSphereNextConfigEntry,
+)
 from .entity import device_info
-from .models import CurrentConditions
+from .models import AirQualityData, CurrentConditions
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -178,6 +183,85 @@ SENSORS: tuple[GeoSphereSensorEntityDescription, ...] = (
 )
 
 
+def _pollutant_forecast(
+    data: AirQualityData, key: str
+) -> dict[str, list[dict[str, float | str | None]]]:
+    return {
+        "forecast": [
+            {"datetime": ts.isoformat(), "value": value}
+            for ts, value in data.forecast.get(key, [])
+        ]
+    }
+
+
+@dataclass(frozen=True, kw_only=True)
+class GeoSphereAirQualitySensorEntityDescription(SensorEntityDescription):
+    """Air-quality sensor description with value and attribute extractors."""
+
+    value_fn: Callable[[AirQualityData], float | int | None]
+    attributes_fn: Callable[[AirQualityData], dict[str, object]]
+
+
+AIR_QUALITY_SENSORS: tuple[GeoSphereAirQualitySensorEntityDescription, ...] = (
+    GeoSphereAirQualitySensorEntityDescription(
+        key="nitrogen_dioxide",
+        translation_key="nitrogen_dioxide",
+        device_class=SensorDeviceClass.NITROGEN_DIOXIDE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        suggested_display_precision=1,
+        value_fn=lambda data: data.no2,
+        attributes_fn=lambda data: _pollutant_forecast(data, "no2"),
+    ),
+    GeoSphereAirQualitySensorEntityDescription(
+        key="ozone",
+        translation_key="ozone",
+        device_class=SensorDeviceClass.OZONE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        suggested_display_precision=1,
+        value_fn=lambda data: data.o3,
+        attributes_fn=lambda data: _pollutant_forecast(data, "o3"),
+    ),
+    GeoSphereAirQualitySensorEntityDescription(
+        key="pm10",
+        translation_key="pm10",
+        device_class=SensorDeviceClass.PM10,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        suggested_display_precision=1,
+        value_fn=lambda data: data.pm10,
+        attributes_fn=lambda data: _pollutant_forecast(data, "pm10"),
+    ),
+    GeoSphereAirQualitySensorEntityDescription(
+        key="pm25",
+        translation_key="pm25",
+        device_class=SensorDeviceClass.PM25,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        suggested_display_precision=1,
+        value_fn=lambda data: data.pm25,
+        attributes_fn=lambda data: _pollutant_forecast(data, "pm25"),
+    ),
+    GeoSphereAirQualitySensorEntityDescription(
+        key="air_quality_index",
+        translation_key="air_quality_index",
+        device_class=SensorDeviceClass.AQI,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+        value_fn=lambda data: data.aqi_today,
+        attributes_fn=lambda data: {
+            "today": data.aqi_today,
+            "tomorrow": data.aqi_tomorrow,
+            "in_2_days": data.aqi_in_2_days,
+        },
+    ),
+)
+
+# Consumed by __init__ to clean the entity registry when the option is off.
+AIR_QUALITY_SENSOR_KEYS = tuple(description.key for description in AIR_QUALITY_SENSORS)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: GeoSphereNextConfigEntry,
@@ -185,9 +269,15 @@ async def async_setup_entry(
 ) -> None:
     """Set up the sensor platform."""
     coordinator = entry.runtime_data.current
-    async_add_entities(
+    entities: list[SensorEntity] = [
         GeoSphereSensor(coordinator, entry, description) for description in SENSORS
-    )
+    ]
+    if (air_quality := entry.runtime_data.air_quality) is not None:
+        entities.extend(
+            GeoSphereAirQualitySensor(air_quality, entry, description)
+            for description in AIR_QUALITY_SENSORS
+        )
+    async_add_entities(entities)
 
 
 class GeoSphereSensor(CoordinatorEntity[GeoSphereCurrentCoordinator], SensorEntity):
@@ -211,3 +301,34 @@ class GeoSphereSensor(CoordinatorEntity[GeoSphereCurrentCoordinator], SensorEnti
     @property
     def native_value(self) -> float | int | str | None:
         return self.entity_description.value_fn(self.coordinator.data)
+
+
+class GeoSphereAirQualitySensor(
+    CoordinatorEntity[GeoSphereAirQualityCoordinator], SensorEntity
+):
+    """An air-quality sensor backed by the air-quality coordinator."""
+
+    entity_description: GeoSphereAirQualitySensorEntityDescription
+    _attr_has_entity_name = True
+    _attr_attribution = ATTRIBUTION
+    # The ~61-entry hourly forecast is for dashboards, not for history.
+    _unrecorded_attributes = frozenset({"forecast"})
+
+    def __init__(
+        self,
+        coordinator: GeoSphereAirQualityCoordinator,
+        entry: GeoSphereNextConfigEntry,
+        description: GeoSphereAirQualitySensorEntityDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = f"{entry.entry_id}-{description.key}"
+        self._attr_device_info = device_info(entry)
+
+    @property
+    def native_value(self) -> float | int | None:
+        return self.entity_description.value_fn(self.coordinator.data)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        return self.entity_description.attributes_fn(self.coordinator.data)

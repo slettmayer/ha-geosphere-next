@@ -16,6 +16,7 @@ from homeassistant.const import CONF_LATITUDE, CONF_LOCATION, CONF_LONGITUDE, CO
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     LocationSelector,
     NumberSelector,
     NumberSelectorConfig,
@@ -28,6 +29,7 @@ from .api import (
     GeoSphereOutOfDomainError,
 )
 from .const import (
+    CONF_AIR_QUALITY,
     CONF_CURRENT_INTERVAL,
     CONF_FORECAST_INTERVAL,
     CONF_HAS_NOWCAST,
@@ -164,6 +166,10 @@ class GeoSphereNextOptionsFlow(OptionsFlowWithReload):
                             unit_of_measurement="min",
                         )
                     ),
+                    vol.Required(
+                        CONF_AIR_QUALITY,
+                        default=options.get(CONF_AIR_QUALITY, False),
+                    ): BooleanSelector(),
                 }
             ),
         )

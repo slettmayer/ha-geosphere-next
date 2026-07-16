@@ -24,14 +24,16 @@
   "options": {
     "step": {
       "init": {
-        "title": "Update intervals",
+        "title": "Options",
         "data": {
           "current_interval": "Current conditions update interval",
-          "forecast_interval": "Forecast update interval"
+          "forecast_interval": "Forecast update interval",
+          "air_quality": "Air quality sensors"
         },
         "data_description": {
           "current_interval": "How often the nowcast is polled. The AROME model itself only updates every 3 hours.",
-          "forecast_interval": "How often the AROME forecast is polled."
+          "forecast_interval": "How often the AROME forecast is polled.",
+          "air_quality": "Adds NO₂, O₃, PM10, PM2.5 and a daily European Air Quality Index from GeoSphere's WRF-Chem forecast (about 2 extra API requests per hour)."
         }
       }
     }
@@ -53,7 +55,12 @@
       "snow_limit": { "name": "Snow limit" },
       "cape": { "name": "CAPE" },
       "precipitation_type": { "name": "Precipitation type code" },
-      "weather_symbol": { "name": "Weather symbol code" }
+      "weather_symbol": { "name": "Weather symbol code" },
+      "nitrogen_dioxide": { "name": "Nitrogen dioxide" },
+      "ozone": { "name": "Ozone" },
+      "pm10": { "name": "PM10" },
+      "pm25": { "name": "PM2.5" },
+      "air_quality_index": { "name": "Air quality index" }
     }
   }
 }

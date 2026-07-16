@@ -1,0 +1,32 @@
+{
+  "reference_time": "2026-07-15T00:00+00:00",
+  "media_type": "application/json",
+  "type": "FeatureCollection",
+  "version": "v1",
+  "timestamps": [
+    "2026-07-15T00:00+00:00",
+    "2026-07-16T00:00+00:00",
+    "2026-07-17T00:00+00:00"
+  ],
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          16.37578582763672,
+          48.22446823120117
+        ]
+      },
+      "properties": {
+        "parameters": {
+          "aqi": {
+            "name": "Air quality index",
+            "unit": "1",
+            "data": [4.0, 3.0, 2.0]
+          }
+        }
+      }
+    }
+  ]
+}

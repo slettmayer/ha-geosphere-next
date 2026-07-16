@@ -14,6 +14,7 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
 )
 
 from custom_components.geosphere_next.const import (
+    CONF_AIR_QUALITY,
     CONF_CURRENT_INTERVAL,
     CONF_FORECAST_INTERVAL,
     CONF_HAS_NOWCAST,
@@ -134,10 +135,15 @@ async def test_options_flow(hass: HomeAssistant, mock_config_entry, mock_api) ->
         assert result["type"] is FlowResultType.FORM
         result = await hass.config_entries.options.async_configure(
             result["flow_id"],
-            {CONF_CURRENT_INTERVAL: 10, CONF_FORECAST_INTERVAL: 60},
+            {
+                CONF_CURRENT_INTERVAL: 10,
+                CONF_FORECAST_INTERVAL: 60,
+                CONF_AIR_QUALITY: True,
+            },
         )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert mock_config_entry.options == {
         CONF_CURRENT_INTERVAL: 10,
         CONF_FORECAST_INTERVAL: 60,
+        CONF_AIR_QUALITY: True,
     }

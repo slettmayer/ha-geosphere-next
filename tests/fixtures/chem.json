@@ -1,0 +1,52 @@
+{
+  "reference_time": "2026-07-15T00:00+00:00",
+  "media_type": "application/json",
+  "type": "FeatureCollection",
+  "version": "v1",
+  "timestamps": [
+    "2026-07-15T15:00+00:00",
+    "2026-07-15T16:00+00:00",
+    "2026-07-15T17:00+00:00",
+    "2026-07-15T18:00+00:00",
+    "2026-07-15T19:00+00:00",
+    "2026-07-15T20:00+00:00",
+    "2026-07-15T21:00+00:00",
+    "2026-07-15T22:00+00:00"
+  ],
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          16.37578582763672,
+          48.22446823120117
+        ]
+      },
+      "properties": {
+        "parameters": {
+          "no2surf": {
+            "name": "Nitrogen dioxide concentration close to the surface (lowest model level)",
+            "unit": "ug m-3",
+            "data": [3.9, 4.7, 5.5, 5.6, 6.2, 7.1, 8.0, 8.4]
+          },
+          "o3surf": {
+            "name": "Ozone concentration close to the surface (lowest model level)",
+            "unit": "ug m-3",
+            "data": [128.0, 122.5, 109.0, 103.4, 96.1, 88.3, 80.2, 74.6]
+          },
+          "pm10surf": {
+            "name": "PM10 concentration close to the surface (lowest model level)",
+            "unit": "ug m-3",
+            "data": [8.5, 7.5, 6.8, 6.6, 6.9, 7.2, 7.8, 8.1]
+          },
+          "pm25surf": {
+            "name": "PM2.5 concentration close to the surface (lowest model level)",
+            "unit": "ug m-3",
+            "data": [5.8, 4.9, 4.3, 4.2, 4.4, 4.7, 5.1, 5.3]
+          }
+        }
+      }
+    }
+  ]
+}
