@@ -23,16 +23,83 @@ API's 240 requests/hour budget (~11 with air quality enabled).
 
 ## Entities
 
-- **Weather entity** with current conditions plus an hourly forecast
-  (`weather.get_forecasts`), including a stepped precipitation probability
-  from the C-LAEF ensemble. No daily forecast — see the FAQ for both.
-- **Sensors**: temperature, apparent temperature, dew point, humidity, pressure
-  (MSL), wind speed / gusts / direction, cloud coverage, precipitation (last
-  hour), condition, global radiation, snow limit.
-- **Disabled by default**: CAPE, raw precipitation-type code, raw GeoSphere
-  weather-symbol code (diagnostic).
-- **Optional** (off by default, see [Air quality](#air-quality-optional)):
-  nitrogen dioxide, ozone, PM10, PM2.5, air quality index.
+Everything is grouped under a single service device named after your
+configured location. Entity IDs follow Home Assistant's usual pattern —
+`weather.<location>` and `sensor.<location>_<name>` (e.g.
+`sensor.home_temperature`).
+
+### Weather entity
+
+One `weather.<location>` entity carrying the current state plus an hourly
+forecast. It exposes no daily forecast (hourly-only — see the FAQ).
+
+| Attribute | Description | Source |
+|---|---|---|
+| `state` (condition) | HA weather condition (`sunny`, `cloudy`, `rainy`, …), derived from physical parameters — see [below](#how-the-weather-condition-is-derived) | INCA → nowcast → AROME |
+| `temperature` | Current air temperature | INCA analysis |
+| `apparent_temperature` | "Feels like" temperature | INCA analysis |
+| `dew_point` | Current dew point | INCA analysis |
+| `humidity` | Relative humidity (%) | INCA analysis |
+| `pressure` | Mean-sea-level pressure (hPa) | INCA analysis |
+| `wind_speed` | Current wind speed | INCA analysis |
+| `wind_bearing` | Wind direction (°) | INCA analysis |
+| `wind_gust_speed` | Current wind gusts | INCA nowcast |
+| `cloud_coverage` | Cloud cover (%) | AROME |
+
+The hourly forecast is read with the `weather.get_forecasts` service (`type:
+hourly`). Each of the ~60 forecast hours carries: `datetime`, `condition`,
+`temperature`, `dew_point`, `humidity`, `precipitation`,
+`precipitation_probability` (a stepped 0 / 30 / 70 / 95 % estimate from the
+C-LAEF ensemble — see the FAQ), `wind_speed`, `wind_bearing`,
+`wind_gust_speed`, and `cloud_coverage`. All forecast values come from AROME
+except the probability (C-LAEF ensemble).
+
+### Current-condition sensors (enabled by default)
+
+| Sensor | Description | Unit |
+|---|---|---|
+| `temperature` | Current air temperature | °C |
+| `apparent_temperature` | "Feels like" temperature | °C |
+| `dew_point` | Temperature at which air saturates | °C |
+| `humidity` | Relative humidity | % |
+| `pressure` | Mean-sea-level (MSL) pressure | hPa |
+| `wind_speed` | Current wind speed | m/s |
+| `wind_gust_speed` | Peak wind gust speed | m/s |
+| `wind_bearing` (Wind direction) | Direction the wind blows *from* | ° |
+| `cloud_coverage` | Fraction of sky covered by cloud | % |
+| `precipitation_1h` (Precipitation, last hour) | Rain/snow accumulated over the last hour | mm |
+| `condition` | The derived HA condition as a plain text sensor | — |
+| `global_radiation` | Downward shortwave (solar) irradiance | W/m² |
+| `snow_limit` | Altitude of the rain/snow line | m |
+
+Values are merged from INCA analysis → INCA nowcast → AROME forecast with a
+per-field fallback chain, so an individual field stays populated even when its
+preferred dataset is briefly unavailable.
+
+### Advanced / diagnostic sensors (disabled by default)
+
+Enable these per-entity in Home Assistant if you want them.
+
+| Sensor | Description | Unit |
+|---|---|---|
+| `cape` | Convective Available Potential Energy — thunderstorm-potential indicator used in the condition derivation | J/kg |
+| `precipitation_type` | Raw GeoSphere precipitation-type code (diagnostic) | — |
+| `weather_symbol` | Raw GeoSphere weather-symbol code (diagnostic; the HA condition is derived independently — see the FAQ) | — |
+
+### Air-quality sensors (optional)
+
+Off by default. Enable the **Air quality sensors** option (see
+[Air quality](#air-quality-optional)) to add these five sensors from the
+WRF-Chem forecast. Each pollutant sensor also exposes its full +73 h hourly
+forecast as a `forecast` attribute (excluded from the recorder).
+
+| Sensor | Description | Unit |
+|---|---|---|
+| `nitrogen_dioxide` | NO₂ concentration | µg/m³ |
+| `ozone` | O₃ concentration | µg/m³ |
+| `pm10` | Particulate matter ≤ 10 µm | µg/m³ |
+| `pm25` | Particulate matter ≤ 2.5 µm | µg/m³ |
+| `air_quality_index` | Daily European Air Quality Index (1 = very good … 6 = extremely poor); carries `today` / `tomorrow` / `in_2_days` attributes | 1–6 |
 
 Not available from GeoSphere: UV index, visibility, and the trace pollutants
 CO, SO₂, NH₃, NO — keep another source if you need those.
