@@ -14,8 +14,8 @@ context window on content that may not be relevant to the task. The architecture
 - **Directory-scoped `AGENTS.md`** (with a sibling `CLAUDE.md` pointer) — loaded when working in that directory.
 
 This gives the agent the right information at the right time without burning context on irrelevant detail.
-CodeRabbit reviews against these docs and requests changes when they go stale — so keeping them current is
-enforced, not optional.
+Update these docs in the same pull request as the code change that affects them: stale docs mislead every
+future session, and a wrong doc is worse than a missing one.
 
 ## File Locations and Scope
 
@@ -59,7 +59,7 @@ enforced, not optional.
 - **`/AGENTS.md`**: <150 lines — if larger, content is leaking in that belongs in `docs/`.
 - **`/docs/**/*.md`**: <300 lines per file — split into focused files if larger.
 - **Directory-scoped `AGENTS.md`**: <100 lines — tightly scoped.
-- **Line length**: keep every line **under 200 characters** (org coding guideline; CodeRabbit flags it).
+- **Line length**: keep every line **under 200 characters** so diffs stay reviewable.
   Hard-wrap prose; indent bullet continuations; never wrap a table row — shorten the cell instead.
 
 ## Checklist: Adding a New Doc
@@ -90,5 +90,5 @@ enforced, not optional.
 | Using absolute paths in links | Use relative paths so links work regardless of clone location |
 | Duplicating content across docs | Put it in one place, cross-reference from others |
 | Letting a doc grow unbounded | Split into focused files when it exceeds ~300 lines |
-| A line over 200 characters | Hard-wrap it (org guideline; CodeRabbit flags it) |
+| A line over 200 characters | Hard-wrap it at a sentence or clause boundary |
 | Bloating `docs/domain/OVERVIEW.md` with detail | Split into a per-concept file and index it; keep OVERVIEW an index |

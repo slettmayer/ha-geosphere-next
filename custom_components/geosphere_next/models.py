@@ -101,7 +101,7 @@ class AirQualityData:
 
 @dataclass(slots=True)
 class CurrentConditions:
-    """Merged current conditions (nowcast → INCA → AROME fallback chain)."""
+    """Merged current conditions (INCA → nowcast → AROME fallback chain)."""
 
     observed_at: datetime | None = None
     temperature: float | None = None
