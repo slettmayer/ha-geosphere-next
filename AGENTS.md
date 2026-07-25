@@ -3,8 +3,8 @@
 
 > **Editing this guide:** `AGENTS.md` is the single source of truth for project context, read by all AI
 > coding agents and humans. Keep it concise — put detail in `docs/` and link it. When you change code that
-> alters documented behavior, update the matching `docs/` file in the **same PR** (CodeRabbit enforces this
-> — see [docs/README.md](docs/README.md)).
+> alters documented behavior, update the matching `docs/` file in the **same PR** — see
+> [docs/README.md](docs/README.md) for the doc-structure contract.
 
 ## Quick Reference
 - **Build**: none — pure Python custom component distributed via HACS
