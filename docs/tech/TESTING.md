@@ -28,9 +28,13 @@ Document the test framework, fixtures, patterns, and commands for the test suite
   time-dependent assertions.
 
 ### Organization
-- One test file per source module: `test_api.py`, `test_condition.py`,
-  `test_config_flow.py`, `test_coordinator.py`, `test_sensor.py`,
-  `test_weather.py`, `test_air_quality.py`.
+- Test files track behavior areas, usually one per source module: `test_api.py`,
+  `test_condition.py`, `test_config_flow.py`, `test_coordinator.py`,
+  `test_sensor.py`, `test_weather.py`. The exception is `test_air_quality.py`,
+  which keeps the optional air-quality feature readable in isolation even though
+  its sensors are declared in `sensor.py`.
+- `models.py` (plain dataclasses) and `entity.py` (the shared entity base) have no
+  dedicated test file — both are exercised through the platform tests.
 - Functions are `test_<behavior>` with descriptive snake_case names.
 - Pure functions (`condition.py`) use `@pytest.mark.parametrize` table-driven
   cases; coordinator/integration tests arrange via a `_setup(hass, entry)` helper
@@ -68,8 +72,11 @@ assembly, air-quality processing, and condition derivation.
   need refreshed fixtures.
 - Time-frozen tests assume the fixture timestamps stay consistent with the frozen
   clock.
+- `diagnostics.py` has no test coverage, so its coordinate redaction (`TO_REDACT`
+  over `entry_data` and the forecast payload) is unverified by the suite.
 
 ## Extension Guidelines
-- Add a test file mirroring any new source module.
+- Add a test file mirroring any new source module, or extend the closest
+  behavior-area file when the code lands in an existing module.
 - Record a new fixture rather than hand-writing GeoJSON; wire it in `mock_api`.
 - For pure logic, prefer a parametrized case in `test_condition.py`.
