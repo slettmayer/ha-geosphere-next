@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.1
+
+- Bump dependency (Dependabot)
+
 ## 0.8.0
 
 - Add: hourly precipitation probability in the weather forecast, derived from GeoSphere's C-LAEF ensemble precipitation percentiles (`ensemble-v1-1h-2500m`). The API exposes only p10/p50/p90 — no member fractions — so the probability is a stepped, ensemble-backed estimate (0 / 30 / 70 / 95 %); see the README FAQ. Adds ~2 API requests/hour; an ensemble fetch failure degrades to no probability instead of breaking the forecast
