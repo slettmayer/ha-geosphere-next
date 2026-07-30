@@ -59,5 +59,5 @@ Dependabot PRs are auto-bumped: a workflow increments the patch version in `mani
 ### Code Style
 
 - Enforced by [Ruff](https://docs.astral.sh/ruff/) — runs in CI
-- Run locally: `pip install ruff && ruff check . --fix && ruff format .`
+- Run locally: `pip install -r requirements_lint.txt && ruff check . --fix && ruff format .`
 - See `pyproject.toml` for rule configuration

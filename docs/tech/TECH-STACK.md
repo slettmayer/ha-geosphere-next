@@ -40,7 +40,16 @@ test this Home Assistant custom integration.
 - **pytest-homeassistant-custom-component** (pinned, tracks HA core) — brings
   pytest, `MockConfigEntry`, `AiohttpClientMocker`, `freezegun`, and the
   `enable_custom_integrations` fixture.
-- **ruff** — linter + formatter.
+
+### Lint dependencies (`requirements_lint.txt`)
+- **ruff** — linter + formatter, pinned with `==`.
+
+Two files rather than one so the Ruff job does not install Home Assistant to run
+a linter. The `==` matters: with a `>=` floor pip resolves whatever is newest, so
+the pin describes the version rather than choosing it. That is how CI ran ruff
+0.16.0 — which expanded the default rule set from 59 rules to 413 — for a week
+before anyone chose it. Dependabot's `pip` ecosystem bumps the pin, and the bump
+PR is where a breaking release now surfaces.
 
 ### Tooling
 - **Ruff** — lint + format; config in `pyproject.toml` (line length 88, rule set

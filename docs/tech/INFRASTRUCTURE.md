@@ -22,7 +22,9 @@ and release automation in `.github/workflows/`.
 ### Validate (`validate.yml`)
 Runs on push to `main`, on every PR, weekly (`cron: 0 4 * * 1`), and manual
 dispatch. Four parallel jobs plus an aggregate gate:
-- **ruff** — `ruff check .` and `ruff format . --check`.
+- **ruff** — `pip install -r requirements_lint.txt` then `ruff check .` and
+  `ruff format . --check`. The pin is exact, so a ruff release cannot change the
+  verdict without a Dependabot PR.
 - **pytest** — `pip install -r requirements_test.txt` then `pytest tests/ -v`.
 - **hassfest** — `home-assistant/actions/hassfest@master` (HA manifest/schema
   validator).
