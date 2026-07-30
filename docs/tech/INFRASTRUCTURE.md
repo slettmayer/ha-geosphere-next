@@ -65,8 +65,9 @@ prefixes. Every changelog entry ships with a `manifest.json` version bump.
 
 ## Dependencies
 - GitHub Actions; `manifest.json` `codeowners: ["@slettmayer"]`.
-- Dependabot workflow needs `GH_ACTION_APP_ID` / `GH_ACTION_APP_PRIVATE_KEY`
-  secrets.
+- Dependabot workflow needs `GH_ACTION_APP_CLIENT_ID` / `GH_ACTION_APP_PRIVATE_KEY`
+  secrets, in both the Actions and Dependabot stores. The client ID (`Iv23li…`)
+  is not the numeric App ID — `create-github-app-token` deprecated `app-id`.
 
 ## Design Decisions
 - Release is fully automated off the manifest version — the changelog is the
