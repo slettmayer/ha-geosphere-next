@@ -22,6 +22,25 @@ def test_wind_sensors_are_natively_kmh() -> None:
         ), key
 
 
+def test_outlook_sensors_carry_no_state_class() -> None:
+    """Forecast predictions must stay out of the recorder's long-term statistics."""
+    from custom_components.geosphere_next.sensor import OUTLOOK_SENSORS
+
+    for description in OUTLOOK_SENSORS:
+        assert description.state_class is None, description.key
+
+
+def test_current_condition_sensors_keep_their_state_class() -> None:
+    """Genuine measurements are still statistics-worthy."""
+    from homeassistant.components.sensor import SensorStateClass
+
+    from custom_components.geosphere_next.sensor import SENSORS
+
+    by_key = {description.key: description for description in SENSORS}
+    for key in ("wind_speed", "wind_gust_speed", "cape", "cin"):
+        assert by_key[key].state_class == SensorStateClass.MEASUREMENT, key
+
+
 async def test_sensor_values(
     hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
 ) -> None:

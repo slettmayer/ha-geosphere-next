@@ -292,12 +292,14 @@ AIR_QUALITY_SENSORS: tuple[GeoSphereAirQualitySensorEntityDescription, ...] = (
 # Consumed by __init__ to clean the entity registry when the option is off.
 AIR_QUALITY_SENSOR_KEYS = tuple(description.key for description in AIR_QUALITY_SENSORS)
 
+# These are forecast *predictions*, not measurements, so they deliberately
+# carry no `state_class`: long-term statistics over a prediction would mix
+# future values into the recorder's history of what actually happened.
 OUTLOOK_SENSORS: tuple[GeoSphereOutlookSensorEntityDescription, ...] = (
     GeoSphereOutlookSensorEntityDescription(
         key="wind_gust_max_1h",
         translation_key="wind_gust_max_1h",
         device_class=SensorDeviceClass.WIND_SPEED,
-        state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
         suggested_display_precision=0,
         value_fn=lambda data, now: _kmh(
@@ -308,7 +310,6 @@ OUTLOOK_SENSORS: tuple[GeoSphereOutlookSensorEntityDescription, ...] = (
         key="wind_gust_max_12h",
         translation_key="wind_gust_max_12h",
         device_class=SensorDeviceClass.WIND_SPEED,
-        state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
         suggested_display_precision=0,
         value_fn=lambda data, now: _kmh(
@@ -325,7 +326,6 @@ OUTLOOK_SENSORS: tuple[GeoSphereOutlookSensorEntityDescription, ...] = (
     GeoSphereOutlookSensorEntityDescription(
         key="cape_max_12h",
         translation_key="cape_max_12h",
-        state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement="J/kg",
         suggested_display_precision=0,
         entity_category=EntityCategory.DIAGNOSTIC,
