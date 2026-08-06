@@ -54,6 +54,7 @@
       "global_radiation": { "name": "Global radiation" },
       "snow_limit": { "name": "Snow limit" },
       "cape": { "name": "CAPE" },
+      "cin": { "name": "Convective inhibition" },
       "precipitation_type": { "name": "Precipitation type code" },
       "weather_symbol": { "name": "Weather symbol code" },
       "nitrogen_dioxide": { "name": "Nitrogen dioxide" },

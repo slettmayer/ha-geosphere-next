@@ -8,6 +8,7 @@
       "global_radiation": { "default": "mdi:weather-sunny" },
       "snow_limit": { "default": "mdi:snowflake-thermometer" },
       "cape": { "default": "mdi:weather-lightning" },
+      "cin": { "default": "mdi:arrow-collapse-down" },
       "precipitation_type": { "default": "mdi:weather-rainy" },
       "weather_symbol": { "default": "mdi:code-tags" },
       "nitrogen_dioxide": { "default": "mdi:molecule" },

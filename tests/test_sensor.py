@@ -54,7 +54,7 @@ async def test_diagnostic_sensors_disabled_by_default(
     from homeassistant.helpers import entity_registry as er
 
     registry = er.async_get(hass)
-    for key in ("cape", "precipitation_type", "weather_symbol"):
+    for key in ("cape", "cin", "precipitation_type", "weather_symbol"):
         entry = registry.async_get_entity_id(
             "sensor", "geosphere_next", f"{mock_config_entry.entry_id}-{key}"
         )

@@ -167,6 +167,16 @@ SENSORS: tuple[GeoSphereSensorEntityDescription, ...] = (
         value_fn=lambda data: data.cape,
     ),
     GeoSphereSensorEntityDescription(
+        key="cin",
+        translation_key="cin",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="J/kg",
+        suggested_display_precision=0,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda data: data.cin,
+    ),
+    GeoSphereSensorEntityDescription(
         key="precipitation_type",
         translation_key="precipitation_type",
         entity_category=EntityCategory.DIAGNOSTIC,
