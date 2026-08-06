@@ -11,6 +11,9 @@
 - Fix: `thunderstorm_expected_1h` reports `unknown` instead of `off` when the forecast window holds no usable hour, so a data gap is no longer indistinguishable from "no storm"
 - Fix: the gust and CAPE outlook sensors no longer carry a `state_class`, keeping predicted values out of Home Assistant's long-term statistics
 - Fix: the weather entity's hourly forecast no longer keeps already-elapsed hours between refreshes; the list is re-filtered to the current hour onward on every read and re-pushed to forecast subscribers at each hour boundary
+## 0.8.3
+
+- Bump dependency (Dependabot)
 
 ## 0.8.2
 
