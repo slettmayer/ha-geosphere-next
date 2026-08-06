@@ -1,5 +1,11 @@
 {
   "entity": {
+    "binary_sensor": {
+      "thunderstorm_expected_1h": {
+        "default": "mdi:weather-lightning",
+        "state": { "off": "mdi:weather-cloudy" }
+      }
+    },
     "sensor": {
       "apparent_temperature": { "default": "mdi:thermometer-lines" },
       "dew_point": { "default": "mdi:water-thermometer" },

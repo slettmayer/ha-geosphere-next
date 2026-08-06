@@ -18,7 +18,7 @@ from .coordinator import (
 )
 from .sensor import AIR_QUALITY_SENSOR_KEYS
 
-PLATFORMS = [Platform.SENSOR, Platform.WEATHER]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR, Platform.WEATHER]
 
 
 async def async_setup_entry(

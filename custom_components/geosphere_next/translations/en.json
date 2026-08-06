@@ -39,6 +39,9 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "thunderstorm_expected_1h": { "name": "Thunderstorm expected next hour" }
+    },
     "sensor": {
       "temperature": { "name": "Temperature" },
       "apparent_temperature": { "name": "Apparent temperature" },
