@@ -38,6 +38,32 @@ def load_fixture(name: str) -> dict:
     return json.loads((FIXTURES / name).read_text())
 
 
+def stormy_arome(
+    *,
+    indexes: tuple[int, ...] = (1,),
+    cape: float = 1500.0,
+    cin: float = 0.0,
+    cloud: float | None = None,
+) -> dict:
+    """The recorded AROME fixture with a synthetic storm patched into it.
+
+    SYNTHETIC, derived from `arome.json` — the recording peaks at 528 J/kg
+    CAPE and so never crosses `THUNDER_CAPE_JKG`, which leaves every thunder
+    "on" path untestable. `indexes` are into the fixture's 58 hourly stamps
+    (1 = 2026-07-15T16:00Z, the in-progress hour at the tests' frozen clock).
+    `cloud` optionally overrides `tcc` (0-1 scale) for those hours, which the
+    dry-thunder branch of `derive_condition` requires.
+    """
+    payload = load_fixture("arome.json")
+    parameters = payload["features"][0]["properties"]["parameters"]
+    for index in indexes:
+        parameters["cape"]["data"][index] = cape
+        parameters["cin"]["data"][index] = cin
+        if cloud is not None:
+            parameters["tcc"]["data"][index] = cloud
+    return payload
+
+
 @pytest.fixture
 def mock_config_entry() -> MockConfigEntry:
     return MockConfigEntry(

@@ -5,6 +5,12 @@ from __future__ import annotations
 import pytest
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.core import HomeAssistant
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant_custom_component.test_util.aiohttp import (
+    AiohttpClientMocker,
+)
+
+from custom_components.geosphere_next.const import CONF_FORECAST_INTERVAL
 
 FROZEN_NOW = "2026-07-15T16:00:00+00:00"
 
@@ -158,3 +164,61 @@ async def test_outlook_entity_ids_match_their_keys(
         )
         assert entry_id is not None, key
         assert entry_id == f"sensor.geosphere_next_{key}", key
+
+
+async def test_outlook_gust_horizons_differ(
+    hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
+) -> None:
+    """A second clock where the 1 h and 12 h peaks are genuinely different.
+
+    At the 16:00Z clock the fixture's peak gust sits in the in-progress hour,
+    inside both windows — so swapping the two horizons would go unnoticed.
+    At 2026-07-16T04:00Z the 1 h window (04:00-05:00) peaks at 3.314 m/s
+    (11.93 km/h) while the 12 h window peaks at 6.030 m/s (21.71 km/h) in the
+    13:00Z hour.
+    """
+    freezer.move_to("2026-07-16T04:00:00+00:00")
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    gust_1h = hass.states.get("sensor.geosphere_next_wind_gust_max_1h")
+    assert float(gust_1h.state) == pytest.approx(11.93, abs=0.01)
+
+    gust_12h = hass.states.get("sensor.geosphere_next_wind_gust_max_12h")
+    assert float(gust_12h.state) == pytest.approx(21.71, abs=0.01)
+    assert gust_12h.attributes["peak_time"] == "2026-07-16T13:00:00+00:00"
+
+
+async def test_outlook_window_re_evaluates_on_the_hour(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_api: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The window must follow the clock, not only coordinator refreshes."""
+    freezer.move_to(FROZEN_NOW)
+    mock_config_entry.add_to_hass(hass)
+    # The longest allowed forecast interval: no data refresh within the hour.
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={CONF_FORECAST_INTERVAL: 180}
+    )
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    def arome_calls() -> int:
+        return sum("nwp-v1-1h-2500m" in str(call[1]) for call in mock_api.mock_calls)
+
+    baseline = arome_calls()
+    gust_1h = hass.states.get("sensor.geosphere_next_wind_gust_max_1h")
+    assert float(gust_1h.state) == pytest.approx(38.65, abs=0.01)
+
+    # The 16:00Z hour has elapsed; the window is now 17:00-18:00 (6.203 m/s).
+    freezer.move_to("2026-07-15T17:00:05+00:00")
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    gust_1h = hass.states.get("sensor.geosphere_next_wind_gust_max_1h")
+    assert float(gust_1h.state) == pytest.approx(22.33, abs=0.01)
+    # ...and no forecast fetch happened in between.
+    assert arome_calls() == baseline

@@ -17,23 +17,23 @@ from homeassistant.util import dt as dt_util
 
 from .const import ATTRIBUTION, OUTLOOK_SHORT_HORIZON_HOURS
 from .coordinator import GeoSphereForecastCoordinator, GeoSphereNextConfigEntry
-from .entity import device_info
+from .entity import HourBoundaryRefreshMixin, device_info
 from .models import ForecastData
-from .outlook import thunderstorm_within
+from .outlook import thunderstorm_outlook
 
 
 @dataclass(frozen=True, kw_only=True)
 class GeoSphereBinarySensorEntityDescription(BinarySensorEntityDescription):
     """Binary sensor description with a value extractor."""
 
-    value_fn: Callable[[ForecastData, datetime], bool]
+    value_fn: Callable[[ForecastData, datetime], bool | None]
 
 
 BINARY_SENSORS: tuple[GeoSphereBinarySensorEntityDescription, ...] = (
     GeoSphereBinarySensorEntityDescription(
         key="thunderstorm_expected_1h",
         translation_key="thunderstorm_expected_1h",
-        value_fn=lambda data, now: thunderstorm_within(
+        value_fn=lambda data, now: thunderstorm_outlook(
             data.hourly, OUTLOOK_SHORT_HORIZON_HOURS, now
         ),
     ),
@@ -53,9 +53,15 @@ async def async_setup_entry(
 
 
 class GeoSphereBinarySensor(
-    CoordinatorEntity[GeoSphereForecastCoordinator], BinarySensorEntity
+    HourBoundaryRefreshMixin,
+    CoordinatorEntity[GeoSphereForecastCoordinator],
+    BinarySensorEntity,
 ):
-    """A forecast-outlook binary sensor backed by the forecast coordinator."""
+    """A forecast-outlook binary sensor backed by the forecast coordinator.
+
+    The window is re-evaluated on every hour boundary as well as on
+    coordinator updates — see `HourBoundaryRefreshMixin`.
+    """
 
     entity_description: GeoSphereBinarySensorEntityDescription
     _attr_has_entity_name = True
@@ -73,5 +79,12 @@ class GeoSphereBinarySensor(
         self._attr_device_info = device_info(entry)
 
     @property
-    def is_on(self) -> bool:
+    def is_on(self) -> bool | None:
+        """Tri-state: None (unknown) when there is no usable forecast window.
+
+        A data gap must not read as a confident "off" — a downstream
+        `is_state(..., 'off')` template would treat it as "no storm".
+        """
+        if self.coordinator.data is None:
+            return None
         return self.entity_description.value_fn(self.coordinator.data, dt_util.utcnow())

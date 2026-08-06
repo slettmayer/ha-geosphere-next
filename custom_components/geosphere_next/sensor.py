@@ -40,7 +40,7 @@ from .coordinator import (
     GeoSphereForecastCoordinator,
     GeoSphereNextConfigEntry,
 )
-from .entity import device_info
+from .entity import HourBoundaryRefreshMixin, device_info
 from .models import AirQualityData, CurrentConditions, ForecastData
 from .outlook import max_cape, max_gust, next_thunderstorm
 
@@ -423,9 +423,15 @@ class GeoSphereAirQualitySensor(
 
 
 class GeoSphereOutlookSensor(
-    CoordinatorEntity[GeoSphereForecastCoordinator], SensorEntity
+    HourBoundaryRefreshMixin,
+    CoordinatorEntity[GeoSphereForecastCoordinator],
+    SensorEntity,
 ):
-    """A forecast-outlook sensor backed by the forecast coordinator."""
+    """A forecast-outlook sensor backed by the forecast coordinator.
+
+    The window is re-evaluated on every hour boundary as well as on
+    coordinator updates — see `HourBoundaryRefreshMixin`.
+    """
 
     entity_description: GeoSphereOutlookSensorEntityDescription
     _attr_has_entity_name = True
