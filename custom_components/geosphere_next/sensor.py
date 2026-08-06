@@ -29,7 +29,11 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .const import ATTRIBUTION
+from .const import (
+    ATTRIBUTION,
+    OUTLOOK_LONG_HORIZON_HOURS,
+    OUTLOOK_SHORT_HORIZON_HOURS,
+)
 from .coordinator import (
     GeoSphereAirQualityCoordinator,
     GeoSphereCurrentCoordinator,
@@ -296,7 +300,9 @@ OUTLOOK_SENSORS: tuple[GeoSphereOutlookSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
         suggested_display_precision=0,
-        value_fn=lambda data, now: _kmh(max_gust(data.hourly, 1, now)[0]),
+        value_fn=lambda data, now: _kmh(
+            max_gust(data.hourly, OUTLOOK_SHORT_HORIZON_HOURS, now)[0]
+        ),
     ),
     GeoSphereOutlookSensorEntityDescription(
         key="wind_gust_max_12h",
@@ -305,11 +311,13 @@ OUTLOOK_SENSORS: tuple[GeoSphereOutlookSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
         suggested_display_precision=0,
-        value_fn=lambda data, now: _kmh(max_gust(data.hourly, 12, now)[0]),
+        value_fn=lambda data, now: _kmh(
+            max_gust(data.hourly, OUTLOOK_LONG_HORIZON_HOURS, now)[0]
+        ),
         attributes_fn=lambda data, now: {
             "peak_time": (
                 peak.isoformat()
-                if (peak := max_gust(data.hourly, 12, now)[1])
+                if (peak := max_gust(data.hourly, OUTLOOK_LONG_HORIZON_HOURS, now)[1])
                 else None
             )
         },
@@ -322,7 +330,9 @@ OUTLOOK_SENSORS: tuple[GeoSphereOutlookSensorEntityDescription, ...] = (
         suggested_display_precision=0,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        value_fn=lambda data, now: max_cape(data.hourly, 12, now),
+        value_fn=lambda data, now: max_cape(
+            data.hourly, OUTLOOK_LONG_HORIZON_HOURS, now
+        ),
     ),
     GeoSphereOutlookSensorEntityDescription(
         key="next_thunderstorm",

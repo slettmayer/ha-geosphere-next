@@ -92,6 +92,12 @@ FOG_MIN_TCC_PCT = 87.5
 # Rain/snow split when the nowcast precipitation-type code is unknown.
 SNOW_MAX_T2M_C = 1.0
 
+# Forecast-outlook horizons (see outlook.py). The window rounds up to whole
+# hourly steps, so an N-hour horizon spans the in-progress hour plus N more.
+# The entity keys/ids keep their literal "1h"/"12h" spelling.
+OUTLOOK_SHORT_HORIZON_HOURS = 1
+OUTLOOK_LONG_HORIZON_HOURS = 12
+
 # Nowcast `pt` (precipitation type): 255 = no precipitation. The remaining
 # code table is undocumented; codes are therefore only used as a
 # "precipitating" signal, with rain/snow decided by temperature.

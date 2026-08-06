@@ -15,7 +15,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .const import ATTRIBUTION
+from .const import ATTRIBUTION, OUTLOOK_SHORT_HORIZON_HOURS
 from .coordinator import GeoSphereForecastCoordinator, GeoSphereNextConfigEntry
 from .entity import device_info
 from .models import ForecastData
@@ -33,7 +33,9 @@ BINARY_SENSORS: tuple[GeoSphereBinarySensorEntityDescription, ...] = (
     GeoSphereBinarySensorEntityDescription(
         key="thunderstorm_expected_1h",
         translation_key="thunderstorm_expected_1h",
-        value_fn=lambda data, now: thunderstorm_within(data.hourly, 1, now),
+        value_fn=lambda data, now: thunderstorm_within(
+            data.hourly, OUTLOOK_SHORT_HORIZON_HOURS, now
+        ),
     ),
 )
 
