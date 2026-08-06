@@ -99,6 +99,21 @@ def test_next_thunderstorm_none_when_calm() -> None:
     assert next_thunderstorm([_hour(0, condition="sunny")], NOW) == (None, None)
 
 
+def test_next_thunderstorm_includes_the_in_progress_hour() -> None:
+    """A storm in the hour already under way must not be skipped.
+
+    NOW is 16:30 and the in-progress hour is stamped 16:00, so a naive
+    `hour.datetime < now` floor would drop it.
+    """
+    hourly = [
+        _hour(0, condition="lightning", cape=1600.0),
+        _hour(3, condition="cloudy"),
+    ]
+    when, cape = next_thunderstorm(hourly, NOW)
+    assert when == datetime(2026, 7, 15, 16, 0, tzinfo=UTC)
+    assert cape == 1600.0
+
+
 def test_thunderstorm_within() -> None:
     hourly = [_hour(0, condition="cloudy"), _hour(5, condition="lightning")]
     assert thunderstorm_within(hourly, 1, NOW) is False
