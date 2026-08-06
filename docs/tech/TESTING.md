@@ -29,10 +29,11 @@ Document the test framework, fixtures, patterns, and commands for the test suite
 
 ### Organization
 - Test files track behavior areas, usually one per source module: `test_api.py`,
-  `test_condition.py`, `test_config_flow.py`, `test_coordinator.py`,
-  `test_sensor.py`, `test_weather.py`. The exception is `test_air_quality.py`,
-  which keeps the optional air-quality feature readable in isolation even though
-  its sensors are declared in `sensor.py`.
+  `test_binary_sensor.py`, `test_condition.py`, `test_config_flow.py`,
+  `test_coordinator.py`, `test_outlook.py`, `test_sensor.py`, `test_weather.py`.
+  The exception is `test_air_quality.py`, which keeps the optional air-quality
+  feature readable in isolation even though its sensors are declared in
+  `sensor.py`.
 - `models.py` (plain dataclasses) and `entity.py` (the shared entity base) have no
   dedicated test file — both are exercised through the platform tests.
 - Functions are `test_<behavior>` with descriptive snake_case names.
@@ -49,6 +50,10 @@ Document the test framework, fixtures, patterns, and commands for the test suite
 - `auto_enable_custom_integrations` — autouse fixture enabling custom-integration
   loading.
 - `load_fixture(name)` — reads `tests/fixtures/*.json`.
+- `stormy_arome(...)` — a *synthetic* copy of `arome.json` with CAPE/CIN (and
+  optionally `tcc`) patched into chosen hours. The recording peaks at 528 J/kg
+  CAPE, so the thunder `on` paths would otherwise be untestable; patching the
+  recorded payload keeps every other field real.
 - Recorded fixtures include the happy path (`arome.json`, `ensemble.json`,
   `nowcast.json`, `inca.json`, `chem.json`, `chem_aqi.json`), metadata files, and
   edge cases (`arome_out_of_domain.json`, `nowcast_out_of_domain.json`,
@@ -71,7 +76,8 @@ assembly, air-quality processing, and condition derivation.
 - Fixtures are point-in-time snapshots; a GeoSphere response-shape change would
   need refreshed fixtures.
 - Time-frozen tests assume the fixture timestamps stay consistent with the frozen
-  clock.
+  clock. Outlook tests use two clocks (16:00Z on 2026-07-15 and 04:00Z the next
+  day) so the 1 h and 12 h horizons cannot be swapped unnoticed.
 - `diagnostics.py` has no test coverage, so its coordinate redaction (`TO_REDACT`
   over `entry_data` and the forecast payload) is unverified by the suite.
 

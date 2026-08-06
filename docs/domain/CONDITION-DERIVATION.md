@@ -39,10 +39,17 @@ speed, `night`. Precedence:
 7. cloud ≤ 12.5 % → `clear-night` (night) or `sunny`
 8. cloud ≤ 62.5 % → `partlycloudy`, else `cloudy`
 
-**Thunder** (`_is_thunder`) requires CAPE ≥ 1000 J/kg **and** `cin > -50` J/kg.
+**Thunder** (`is_thunder`) requires CAPE ≥ 1000 J/kg **and** `cin > -50` J/kg.
 AROME publishes `cin` as negative J/kg (0.0 = uncapped, more negative = a
 stronger lid); a missing `cin` is treated as uncapped, so behaviour degrades
 to CAPE-only when the parameter is absent.
+
+`outlook.py` reuses `is_thunder` for the storm-outlook entities, where it
+carries a second job: an hour counts as a thunderstorm hour when its derived
+condition starts with `lightning` **or** `is_thunder` holds and the hour is
+forecast to produce ≥ `PRECIP_MIN_MM` of precipitation. That second branch
+exists because rules 1-2 above return `snowy` / `snowy-rainy` before thunder
+is ever considered (thundersnow) and rule 4 returns None without cloud data.
 
 Thresholds are named constants in `const.py` (`THUNDER_CAPE_JKG`,
 `CAP_CIN_JKG`, `PRECIP_MIN_MM`, `POURING_MM_PER_H`, `WINDY_GUST_MS`,

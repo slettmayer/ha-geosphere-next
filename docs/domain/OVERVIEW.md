@@ -36,8 +36,10 @@ it publishes and the external dataset API it consumes.
   raw `sy` symbol code). Five forecast-outlook entities — `wind_gust_max_1h`,
   `wind_gust_max_12h`, `cape_max_12h` (diagnostic, disabled by default),
   `next_thunderstorm`, and the `thunderstorm_expected_1h` binary sensor — are
-  backed by the forecast coordinator and refresh on its interval. Entity
-  platforms: `weather.py`, `sensor.py`, `binary_sensor.py`.
+  backed by the forecast coordinator: their data refreshes on its interval,
+  while their `now`-anchored window is additionally re-evaluated at every full
+  hour (`entity.py: HourBoundaryRefreshMixin`). Entity platforms:
+  `weather.py`, `sensor.py`, `binary_sensor.py`.
 - **Config/options surface (HA config flow)** — location onboarding and options
   (update intervals, air-quality toggle) via `config_flow.py`. See
   [../tech/ARCHITECTURE.md](../tech/ARCHITECTURE.md).

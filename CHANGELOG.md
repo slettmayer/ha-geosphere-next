@@ -2,21 +2,14 @@
 
 ## 0.9.0
 
-### Added
-- Storm-outlook entities: max wind gust for the next hour and next 12 hours,
-  next expected thunderstorm (timestamp), thunderstorm expected within the
-  next hour (binary), and max CAPE for the next 12 hours (diagnostic,
-  disabled by default).
-- Convective inhibition (`cin`) is now fetched from AROME and exposed as a
-  diagnostic sensor (disabled by default).
-
-### Changed
-- **Behaviour change.** Thunder derivation now requires weak convective
-  inhibition (`cin > -50` J/kg) in addition to CAPE >= 1000 J/kg. High CAPE
-  under a strong cap no longer produces `lightning` / `lightning-rainy`.
-  A missing `cin` is treated as uncapped, matching previous behaviour.
-- Wind speed and wind gust sensors are now natively km/h. Displayed values
-  are unchanged on metric systems; history is continuous.
+- Add: storm-outlook entities — max wind gust for the next hour and the next 12 hours, next expected thunderstorm (timestamp), thunderstorm expected within the next hour (binary), and max CAPE for the next 12 hours (diagnostic, disabled by default). Horizons round up to whole hourly steps, so a "1 hour" window covers the in-progress hour plus the next one (an event up to ~2 h out), and `next_thunderstorm` can sit up to 59 min in the past while a storm is already under way — see the README
+- Add: convective inhibition (`cin`) is now fetched from AROME and exposed as a diagnostic sensor (disabled by default)
+- Change: **behaviour change.** Thunder derivation now requires weak convective inhibition (`cin > -50` J/kg) in addition to CAPE ≥ 1000 J/kg. High CAPE under a strong cap no longer produces `lightning` / `lightning-rainy`. A missing `cin` is treated as uncapped, matching previous behaviour
+- Change: wind speed and wind gust sensors are now natively km/h. Displayed values are unchanged on metric systems; history is continuous
+- Fix: the storm outlook no longer misses thundersnow or hours with missing cloud data — an hour also counts as a thunderstorm when the CAPE/CIN predicate holds and precipitation is forecast for it; dry high-CAPE afternoons still do not
+- Fix: outlook windows are re-evaluated at every full hour, so a "next hour" value can no longer describe an hour that has already elapsed when the forecast interval is long
+- Fix: `thunderstorm_expected_1h` reports `unknown` instead of `off` when the forecast window holds no usable hour, so a data gap is no longer indistinguishable from "no storm"
+- Fix: the gust and CAPE outlook sensors no longer carry a `state_class`, keeping predicted values out of Home Assistant's long-term statistics
 
 ## 0.8.2
 
