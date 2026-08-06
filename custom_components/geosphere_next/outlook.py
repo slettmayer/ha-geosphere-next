@@ -126,18 +126,6 @@ def next_thunderstorm(
     return None, None
 
 
-def thunderstorm_within(
-    hourly: list[HourlyForecast], hours: int, now: datetime
-) -> bool:
-    """True when any hour in the horizon carries thunder.
-
-    The horizon rounds up to whole hourly steps — see `_window`. Returns a
-    plain bool; `thunderstorm_outlook` is the tri-state variant that can say
-    "no data".
-    """
-    return any(_is_lightning(hour) for hour in _window(hourly, hours, now))
-
-
 def thunderstorm_outlook(
     hourly: list[HourlyForecast], hours: int, now: datetime
 ) -> bool | None:

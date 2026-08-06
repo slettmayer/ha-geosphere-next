@@ -10,7 +10,6 @@ from custom_components.geosphere_next.outlook import (
     max_gust,
     next_thunderstorm,
     thunderstorm_outlook,
-    thunderstorm_within,
 )
 
 NOW = datetime(2026, 7, 15, 16, 30, tzinfo=UTC)
@@ -117,12 +116,6 @@ def test_next_thunderstorm_includes_the_in_progress_hour() -> None:
     assert cape == 1600.0
 
 
-def test_thunderstorm_within() -> None:
-    hourly = [_hour(0, condition="cloudy"), _hour(5, condition="lightning")]
-    assert thunderstorm_within(hourly, 1, NOW) is False
-    assert thunderstorm_within(hourly, 12, NOW) is True
-
-
 def test_thundersnow_is_detected_despite_the_snowy_condition() -> None:
     """`derive_condition` returns `snowy` before it ever checks thunder.
 
@@ -130,14 +123,13 @@ def test_thundersnow_is_detected_despite_the_snowy_condition() -> None:
     thundersnow hour — the condition string alone would miss it.
     """
     hourly = [_hour(0, condition="snowy", cape=1500.0, cin=0.0, precipitation=0.8)]
-    assert thunderstorm_within(hourly, 1, NOW) is True
     assert next_thunderstorm(hourly, NOW)[0] == datetime(2026, 7, 15, 16, 0, tzinfo=UTC)
 
 
 def test_thunder_is_detected_when_cloud_cover_is_missing() -> None:
     """`derive_condition` returns None without `tcc`, hiding a real storm."""
     hourly = [_hour(0, condition=None, cape=1500.0, cin=0.0, precipitation=0.5)]
-    assert thunderstorm_within(hourly, 1, NOW) is True
+    assert thunderstorm_outlook(hourly, 1, NOW) is True
 
 
 def test_dry_high_cape_without_precipitation_is_not_a_storm() -> None:
@@ -151,14 +143,14 @@ def test_dry_high_cape_without_precipitation_is_not_a_storm() -> None:
         _hour(0, condition="partlycloudy", cape=2500.0, cin=0.0, precipitation=0.0),
         _hour(1, condition="sunny", cape=3000.0, cin=0.0, precipitation=None),
     ]
-    assert thunderstorm_within(hourly, 1, NOW) is False
+    assert thunderstorm_outlook(hourly, 1, NOW) is False
     assert next_thunderstorm(hourly, NOW) == (None, None)
 
 
 def test_capped_cape_with_precipitation_is_not_a_storm() -> None:
     """A strong lid (cin <= -50) blocks convection even with rain falling."""
     hourly = [_hour(0, condition="snowy", cape=2500.0, cin=-80.0, precipitation=1.0)]
-    assert thunderstorm_within(hourly, 1, NOW) is False
+    assert thunderstorm_outlook(hourly, 1, NOW) is False
 
 
 def test_thunderstorm_outlook_is_unknown_without_usable_hours() -> None:
