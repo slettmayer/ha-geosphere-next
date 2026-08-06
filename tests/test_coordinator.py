@@ -12,7 +12,14 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
 )
 
-from .conftest import AROME_URL, ENSEMBLE_URL, INCA_URL, NOWCAST_URL, load_fixture
+from .conftest import (
+    AROME_URL,
+    ENSEMBLE_URL,
+    INCA_URL,
+    NOWCAST_URL,
+    load_fixture,
+    stormy_arome,
+)
 
 FROZEN_NOW = "2026-07-15T16:00:00+00:00"
 
@@ -177,3 +184,65 @@ async def test_inca_refresh_keyed_on_data_age(
     freezer.tick(timedelta(minutes=40))
     await coordinator.async_refresh()
     assert inca_calls() == baseline + 1
+
+
+async def test_cin_is_populated_from_the_response(
+    hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
+) -> None:
+    """`cin` must actually arrive, not silently degrade to all-None.
+
+    `GeoSphereResponse.series()` returns `[None] * len(timestamps)` for an
+    absent parameter and the thunder gate treats None as uncapped, so a
+    renamed or typo'd `cin` key would turn the gate into a no-op with a green
+    suite. The recorded fixture's `cin` ranges -49.5..0.0 J/kg.
+    """
+    freezer.move_to(FROZEN_NOW)
+    await _setup(hass, mock_config_entry)
+    values = [hour.cin for hour in mock_config_entry.runtime_data.forecast.data.hourly]
+
+    assert any(value is not None for value in values)
+    assert min(value for value in values if value is not None) == pytest.approx(-49.5)
+    assert max(value for value in values if value is not None) == pytest.approx(0.0)
+    # And it reaches the current conditions, whose `cin` comes from AROME.
+    assert mock_config_entry.runtime_data.current.data.cin is not None
+    # The mocker ignores the query string, so also pin that `cin` is requested
+    # — dropping it from AROME_PARAMETERS would otherwise stay invisible here.
+    arome_urls = [
+        str(call[1])
+        for call in mock_api.mock_calls
+        if "nwp-v1-1h-2500m" in str(call[1])
+    ]
+    assert arome_urls
+    assert all("cin" in url for url in arome_urls)
+
+
+@pytest.mark.parametrize(
+    ("cin", "expected"),
+    [
+        # Uncapped: ample CAPE plus rain derives a thunderstorm...
+        (0.0, "lightning-rainy"),
+        # ...while a strong lid (below -CAP_CIN_JKG) keeps it plain rain.
+        (-80.0, "rainy"),
+    ],
+)
+async def test_cin_gate_changes_the_derived_condition(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+    cin: float,
+    expected: str,
+) -> None:
+    """End-to-end proof that the gate is wired, not just unit-tested.
+
+    Hour 1 of the fixture (16:00Z) carries 0.48 mm of precipitation; only its
+    CAPE and CIN are patched.
+    """
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=stormy_arome(indexes=(1,), cin=cin))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await _setup(hass, mock_config_entry)
+
+    assert mock_config_entry.runtime_data.forecast.data.hourly[0].condition == expected
