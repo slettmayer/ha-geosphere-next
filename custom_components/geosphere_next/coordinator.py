@@ -218,6 +218,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
             snow = _diff(response.series("snow_acc"), i)
             cloud = _percent(response.value_at("tcc", i))
             cape = response.value_at("cape", i)
+            cin = response.value_at("cin", i)
             temperature = response.value_at("t2m", i)
             humidity = response.value_at("rh2m", i)
             hourly.append(
@@ -234,6 +235,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                     wind_gust_speed=gust_speed,
                     cloud_coverage=cloud,
                     cape=cape,
+                    cin=cin,
                     dew_point=dew_point_from_t_rh(temperature, humidity),
                     precipitation_probability=pop_by_ts.get(ts),
                     condition=derive_condition(
@@ -241,6 +243,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                         snow,
                         cloud,
                         cape,
+                        cin,
                         gust_speed,
                         is_night(self.latitude, self.longitude, ts),
                     ),
@@ -404,6 +407,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         gust = chain(now_value("fx"), arome.wind_gust_speed if arome else None)
         cloud = chain(arome.cloud_coverage if arome else None)
         cape = arome.cape if arome else None
+        cin = arome.cin if arome else None
 
         p0, _ = inca_latest("P0")
         rr_1h, observed_at = inca_latest("RR")
@@ -450,6 +454,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
             global_radiation=inca_latest("GL")[0],
             snow_limit=forecast_data.snow_limit if forecast_data else None,
             cape=cape,
+            cin=cin,
             weather_symbol=forecast_data.weather_symbol if forecast_data else None,
             condition=derive_current_condition(
                 precipitation_type=precipitation_type,
@@ -459,6 +464,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
                 wind_speed=wind_speed,
                 cloud_coverage=cloud,
                 cape=cape,
+                cin=cin,
                 gust_speed=gust,
                 night=night,
             ),

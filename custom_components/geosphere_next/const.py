@@ -34,6 +34,7 @@ AROME_PARAMETERS = (
     "snowlmt",
     "grad",
     "cape",
+    "cin",
     "sy",
 )
 # C-LAEF ensemble precipitation percentiles (per-hour amounts, kg m-2; the
@@ -73,6 +74,10 @@ POP_DRY_PCT = 0
 
 # Condition-derivation thresholds (see condition.py)
 THUNDER_CAPE_JKG = 1000.0
+# Convective inhibition cap. AROME publishes `cin` as NEGATIVE J/kg: 0.0 means
+# uncapped, more negative means a stronger lid. CAPE only counts as thunder
+# potential when inhibition is weaker than this magnitude.
+CAP_CIN_JKG = 50.0
 PRECIP_MIN_MM = 0.1
 POURING_MM_PER_H = 4.0
 WINDY_GUST_MS = 15.0

@@ -15,6 +15,7 @@ from astral import Observer
 from astral.sun import elevation as solar_elevation
 
 from .const import (
+    CAP_CIN_JKG,
     CLEAR_TCC_PCT,
     CLOUDY_TCC_PCT,
     FOG_HEURISTIC_ENABLED,
@@ -71,24 +72,36 @@ def dew_point_from_t_rh(
     return round(b * gamma / (a - gamma), 1)
 
 
+def _is_thunder(cape: float | None, cin: float | None) -> bool:
+    """True when CAPE is sufficient AND convective inhibition is weak enough.
+
+    AROME publishes `cin` as negative J/kg (0.0 = uncapped). A missing value is
+    treated as uncapped so behaviour degrades to the pre-CIN logic.
+    """
+    if cape is None or cape < THUNDER_CAPE_JKG:
+        return False
+    return cin is None or cin > -CAP_CIN_JKG
+
+
 def derive_condition(
     precipitation: float | None,
     snow: float | None,
     cloud_coverage: float | None,
     cape: float | None,
+    cin: float | None,
     gust_speed: float | None,
     night: bool,
 ) -> str | None:
     """Derive an HA condition from physical parameters (per forecast hour).
 
-    precipitation/snow in mm per hour, cloud_coverage in %, cape in J/kg,
-    gust_speed in m/s.
+    precipitation/snow in mm per hour, cloud_coverage in %, cape and cin in
+    J/kg (cin negative), gust_speed in m/s.
     """
     precip = precipitation or 0.0
     snowfall = snow or 0.0
     rain = max(precip - snowfall, 0.0)
     tcc = cloud_coverage
-    thunder = cape is not None and cape >= THUNDER_CAPE_JKG
+    thunder = _is_thunder(cape, cin)
 
     if snowfall >= PRECIP_MIN_MM and rain >= PRECIP_MIN_MM:
         return "snowy-rainy"
@@ -122,6 +135,7 @@ def derive_current_condition(
     wind_speed: float | None,
     cloud_coverage: float | None,
     cape: float | None,
+    cin: float | None,
     gust_speed: float | None,
     night: bool,
 ) -> str | None:
@@ -136,7 +150,7 @@ def derive_current_condition(
         precipitation_type is not None and precipitation_type != PT_NO_PRECIPITATION
     ) or rate >= PRECIP_MIN_MM
     if precipitating:
-        thunder = cape is not None and cape >= THUNDER_CAPE_JKG
+        thunder = _is_thunder(cape, cin)
         snow_likely = temperature is not None and temperature <= SNOW_MAX_T2M_C
         if snow_likely:
             return "snowy"
@@ -157,4 +171,4 @@ def derive_current_condition(
     ):
         return "fog"
 
-    return derive_condition(0.0, 0.0, cloud_coverage, cape, gust_speed, night)
+    return derive_condition(0.0, 0.0, cloud_coverage, cape, cin, gust_speed, night)
