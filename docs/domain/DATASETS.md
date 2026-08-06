@@ -31,7 +31,17 @@ as `grid_latitude` / `grid_longitude`, which differs from the requested point.
   (humidity), `u10m` / `v10m` (wind components), `ugust` / `vgust` (gust
   components), `tcc` (cloud cover, 0–1), `rr_acc` / `snow_acc` (run-accumulated
   precipitation / snow), `snowlmt` (snow limit, m), `grad` (global radiation),
-  `cape` (J/kg), `sy` (proprietary weather-symbol code).
+  `cape` (J/kg), `cin` (convective inhibition, J/kg), `sy` (proprietary
+  weather-symbol code).
+
+  AROME publishes `cin` in J/kg as a negative quantity; the observed range in
+  the recorded fixture is −49.5 to 0.0, where 0.0 means uncapped and more
+  negative means a stronger lid. It gates the thunder decision in
+  [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md) — see that doc for the
+  threshold.
+
+  AROME declares CAPE's unit as `m2 s-2`, which is dimensionally identical to
+  J/kg, so the `J/kg` label this integration uses is numerically correct.
 - **C-LAEF ensemble** — `("forecast", "ensemble-v1-1h-2500m")`. Probabilistic
   companion, 2.5 km-class grid, model reruns every 12 h, ~61 h length. Publishes
   only three precipitation percentiles per hour (`ENSEMBLE_PARAMETERS`:

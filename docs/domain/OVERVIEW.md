@@ -32,8 +32,12 @@ it publishes and the external dataset API it consumes.
   `sensor` entities, all grouped under one HA `SERVICE` device
   (`entity.py: device_info`). Current-condition sensors are backed by the current
   coordinator; five optional air-quality sensors by the air-quality coordinator.
-  Some sensors are disabled-by-default diagnostics (CAPE, raw `pt` code, raw `sy`
-  symbol code). Entity platforms: `weather.py`, `sensor.py`.
+  Some sensors are disabled-by-default diagnostics (CAPE, CIN, raw `pt` code,
+  raw `sy` symbol code). Five forecast-outlook entities — `wind_gust_max_1h`,
+  `wind_gust_max_12h`, `cape_max_12h` (diagnostic, disabled by default),
+  `next_thunderstorm`, and the `thunderstorm_expected_1h` binary sensor — are
+  backed by the forecast coordinator and refresh on its interval. Entity
+  platforms: `weather.py`, `sensor.py`, `binary_sensor.py`.
 - **Config/options surface (HA config flow)** — location onboarding and options
   (update intervals, air-quality toggle) via `config_flow.py`. See
   [../tech/ARCHITECTURE.md](../tech/ARCHITECTURE.md).
@@ -71,6 +75,8 @@ it publishes and the external dataset API it consumes.
   transition.
 - **CAPE** — Convective Available Potential Energy (J/kg); thunder/lightning
   signal (threshold 1000 J/kg).
+- **CIN** — Convective inhibition (J/kg); AROME publishes it as a negative
+  value (0.0 = uncapped), gating the thunder decision (`cin > -50` J/kg).
 - **European Air Quality Index** — EEA 1–6 scale (1 very good … 6 very poor).
 - **`rr_acc` / `snow_acc`** — run-accumulated AROME totals; hourly values via
   differencing.

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.9.0
+
+### Added
+- Storm-outlook entities: max wind gust for the next hour and next 12 hours,
+  next expected thunderstorm (timestamp), thunderstorm expected within the
+  next hour (binary), and max CAPE for the next 12 hours (diagnostic,
+  disabled by default).
+- Convective inhibition (`cin`) is now fetched from AROME and exposed as a
+  diagnostic sensor (disabled by default).
+
+### Changed
+- **Behaviour change.** Thunder derivation now requires weak convective
+  inhibition (`cin > -50` J/kg) in addition to CAPE >= 1000 J/kg. High CAPE
+  under a strong cap no longer produces `lightning` / `lightning-rainy`.
+  A missing `cin` is treated as uncapped, matching previous behaviour.
+- Wind speed and wind gust sensors are now natively km/h. Displayed values
+  are unchanged on metric systems; history is continuous.
+
 ## 0.8.2
 
 - Bump dependency (Dependabot)

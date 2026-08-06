@@ -63,8 +63,8 @@ except the probability (C-LAEF ensemble).
 | `dew_point` | Temperature at which air saturates | °C |
 | `humidity` | Relative humidity | % |
 | `pressure` | Mean-sea-level (MSL) pressure | hPa |
-| `wind_speed` | Current wind speed | m/s |
-| `wind_gust_speed` | Peak wind gust speed | m/s |
+| `wind_speed` | Current wind speed | km/h |
+| `wind_gust_speed` | Peak wind gust speed | km/h |
 | `wind_bearing` (Wind direction) | Direction the wind blows *from* | ° |
 | `cloud_coverage` | Fraction of sky covered by cloud | % |
 | `precipitation_1h` (Precipitation, last hour) | Rain/snow accumulated over the last hour | mm |
@@ -74,7 +74,10 @@ except the probability (C-LAEF ensemble).
 
 Values are merged from INCA analysis → INCA nowcast → AROME forecast with a
 per-field fallback chain, so an individual field stays populated even when its
-preferred dataset is briefly unavailable.
+preferred dataset is briefly unavailable. `wind_speed` and `wind_gust_speed`
+are natively km/h (Home Assistant converts for imperial units); the
+`weather.<location>` entity's `wind_speed` / `wind_gust_speed` attributes stay
+natively m/s, matching HA's weather-platform convention.
 
 ### Advanced / diagnostic sensors (disabled by default)
 
@@ -83,8 +86,28 @@ Enable these per-entity in Home Assistant if you want them.
 | Sensor | Description | Unit |
 |---|---|---|
 | `cape` | Convective Available Potential Energy — thunderstorm-potential indicator used in the condition derivation | J/kg |
+| `cin` | Convective inhibition — negative J/kg, `0` = uncapped; gates the thunder decision so capped high-CAPE air does not read as a storm | J/kg |
 | `precipitation_type` | Raw GeoSphere precipitation-type code (diagnostic) | — |
 | `weather_symbol` | Raw GeoSphere weather-symbol code (diagnostic; the HA condition is derived independently — see the FAQ) | — |
+
+### Storm outlook (enabled by default, except `cape_max_12h`)
+
+Forecast-derived signals scanned from the AROME hourly series — pure window
+scans, deliberately threshold-free: what counts as "too windy" or "storm
+risk" is your automation's policy, not this integration's.
+
+| Sensor | Description | Unit |
+|---|---|---|
+| `wind_gust_max_1h` | Peak forecast wind gust over the next hour | km/h |
+| `wind_gust_max_12h` | Peak forecast wind gust over the next 12 hours; carries a `peak_time` attribute | km/h |
+| `cape_max_12h` | Peak CAPE over the next 12 hours (diagnostic, disabled by default) | J/kg |
+| `next_thunderstorm` | Timestamp of the first forecast hour classified as a thunderstorm (`unknown` if none in the ~57 h horizon); carries a `cape` attribute for that hour | — |
+| `thunderstorm_expected_1h` (binary sensor) | On when any hour in the next hour is classified as a thunderstorm | — |
+
+Gust maxima are natively km/h, matching the current-condition wind sensors.
+All outlook values refresh on the forecast coordinator's update interval
+(default 30 min, configurable — see [Options](#options)), so the 1-hour
+signals carry 30-minute granularity, not minute-by-minute precision.
 
 ### Air-quality sensors (optional)
 
