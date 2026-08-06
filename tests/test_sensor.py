@@ -113,3 +113,29 @@ async def test_cape_max_is_diagnostic_and_disabled(
     assert entry is not None
     assert registry.async_get(entry).disabled_by is not None
     assert hass.states.get("sensor.geosphere_next_cape_max_12h") is None
+
+
+async def test_outlook_entity_ids_match_their_keys(
+    hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
+) -> None:
+    """Entity ids are derived from the translated name, so a rename can silently
+    move them. Plan 2's templates address these by id — pin them."""
+    freezer.move_to(FROZEN_NOW)
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
+    for key in (
+        "wind_gust_max_1h",
+        "wind_gust_max_12h",
+        "cape_max_12h",
+        "next_thunderstorm",
+    ):
+        entry_id = registry.async_get_entity_id(
+            "sensor", "geosphere_next", f"{mock_config_entry.entry_id}-{key}"
+        )
+        assert entry_id is not None, key
+        assert entry_id == f"sensor.geosphere_next_{key}", key
