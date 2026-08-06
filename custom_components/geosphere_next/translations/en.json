@@ -61,7 +61,11 @@
       "ozone": { "name": "Ozone" },
       "pm10": { "name": "PM10" },
       "pm25": { "name": "PM2.5" },
-      "air_quality_index": { "name": "Air quality index" }
+      "air_quality_index": { "name": "Air quality index" },
+      "wind_gust_max_1h": { "name": "Wind gust max 1h" },
+      "wind_gust_max_12h": { "name": "Wind gust max 12h" },
+      "cape_max_12h": { "name": "Max CAPE next 12 hours" },
+      "next_thunderstorm": { "name": "Next thunderstorm" }
     }
   }
 }

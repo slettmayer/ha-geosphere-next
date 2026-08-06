@@ -15,7 +15,11 @@
       "ozone": { "default": "mdi:molecule" },
       "pm10": { "default": "mdi:blur" },
       "pm25": { "default": "mdi:blur" },
-      "air_quality_index": { "default": "mdi:air-filter" }
+      "air_quality_index": { "default": "mdi:air-filter" },
+      "wind_gust_max_1h": { "default": "mdi:weather-windy" },
+      "wind_gust_max_12h": { "default": "mdi:weather-windy" },
+      "cape_max_12h": { "default": "mdi:weather-lightning" },
+      "next_thunderstorm": { "default": "mdi:weather-lightning-rainy" }
     }
   }
 }

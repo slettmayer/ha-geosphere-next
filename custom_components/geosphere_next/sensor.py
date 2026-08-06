@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -26,15 +27,18 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import ATTRIBUTION
 from .coordinator import (
     GeoSphereAirQualityCoordinator,
     GeoSphereCurrentCoordinator,
+    GeoSphereForecastCoordinator,
     GeoSphereNextConfigEntry,
 )
 from .entity import device_info
-from .models import AirQualityData, CurrentConditions
+from .models import AirQualityData, CurrentConditions, ForecastData
+from .outlook import max_cape, max_gust, next_thunderstorm
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -47,6 +51,14 @@ class GeoSphereSensorEntityDescription(SensorEntityDescription):
 def _kmh(value: float | None) -> float | None:
     """Convert m/s (internal model units) to km/h at the entity boundary."""
     return None if value is None else value * 3.6
+
+
+@dataclass(frozen=True, kw_only=True)
+class GeoSphereOutlookSensorEntityDescription(SensorEntityDescription):
+    """Forecast-outlook sensor description; value_fn also receives `now`."""
+
+    value_fn: Callable[[ForecastData, datetime], float | datetime | None]
+    attributes_fn: Callable[[ForecastData, datetime], dict[str, object]] | None = None
 
 
 SENSORS: tuple[GeoSphereSensorEntityDescription, ...] = (
@@ -276,6 +288,53 @@ AIR_QUALITY_SENSORS: tuple[GeoSphereAirQualitySensorEntityDescription, ...] = (
 # Consumed by __init__ to clean the entity registry when the option is off.
 AIR_QUALITY_SENSOR_KEYS = tuple(description.key for description in AIR_QUALITY_SENSORS)
 
+OUTLOOK_SENSORS: tuple[GeoSphereOutlookSensorEntityDescription, ...] = (
+    GeoSphereOutlookSensorEntityDescription(
+        key="wind_gust_max_1h",
+        translation_key="wind_gust_max_1h",
+        device_class=SensorDeviceClass.WIND_SPEED,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
+        suggested_display_precision=0,
+        value_fn=lambda data, now: _kmh(max_gust(data.hourly, 1, now)[0]),
+    ),
+    GeoSphereOutlookSensorEntityDescription(
+        key="wind_gust_max_12h",
+        translation_key="wind_gust_max_12h",
+        device_class=SensorDeviceClass.WIND_SPEED,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
+        suggested_display_precision=0,
+        value_fn=lambda data, now: _kmh(max_gust(data.hourly, 12, now)[0]),
+        attributes_fn=lambda data, now: {
+            "peak_time": (
+                peak.isoformat()
+                if (peak := max_gust(data.hourly, 12, now)[1])
+                else None
+            )
+        },
+    ),
+    GeoSphereOutlookSensorEntityDescription(
+        key="cape_max_12h",
+        translation_key="cape_max_12h",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="J/kg",
+        suggested_display_precision=0,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda data, now: max_cape(data.hourly, 12, now),
+    ),
+    GeoSphereOutlookSensorEntityDescription(
+        key="next_thunderstorm",
+        translation_key="next_thunderstorm",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda data, now: next_thunderstorm(data.hourly, now)[0],
+        attributes_fn=lambda data, now: {
+            "cape": next_thunderstorm(data.hourly, now)[1]
+        },
+    ),
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -287,6 +346,10 @@ async def async_setup_entry(
     entities: list[SensorEntity] = [
         GeoSphereSensor(coordinator, entry, description) for description in SENSORS
     ]
+    entities.extend(
+        GeoSphereOutlookSensor(entry.runtime_data.forecast, entry, description)
+        for description in OUTLOOK_SENSORS
+    )
     if (air_quality := entry.runtime_data.air_quality) is not None:
         entities.extend(
             GeoSphereAirQualitySensor(air_quality, entry, description)
@@ -347,3 +410,36 @@ class GeoSphereAirQualitySensor(
     @property
     def extra_state_attributes(self) -> dict[str, object]:
         return self.entity_description.attributes_fn(self.coordinator.data)
+
+
+class GeoSphereOutlookSensor(
+    CoordinatorEntity[GeoSphereForecastCoordinator], SensorEntity
+):
+    """A forecast-outlook sensor backed by the forecast coordinator."""
+
+    entity_description: GeoSphereOutlookSensorEntityDescription
+    _attr_has_entity_name = True
+    _attr_attribution = ATTRIBUTION
+
+    def __init__(
+        self,
+        coordinator: GeoSphereForecastCoordinator,
+        entry: GeoSphereNextConfigEntry,
+        description: GeoSphereOutlookSensorEntityDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = f"{entry.entry_id}-{description.key}"
+        self._attr_device_info = device_info(entry)
+
+    @property
+    def native_value(self) -> float | datetime | None:
+        return self.entity_description.value_fn(self.coordinator.data, dt_util.utcnow())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        if self.entity_description.attributes_fn is None:
+            return {}
+        return self.entity_description.attributes_fn(
+            self.coordinator.data, dt_util.utcnow()
+        )
