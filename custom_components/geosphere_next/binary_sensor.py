@@ -29,6 +29,9 @@ class GeoSphereBinarySensorEntityDescription(BinarySensorEntityDescription):
     value_fn: Callable[[ForecastData, datetime], bool | None]
 
 
+# The 1-hour horizon rounds up to whole hourly steps (see `outlook._window`
+# and the README): it covers the in-progress hour plus the next one, so this
+# can turn on for a storm ~2 h out.
 BINARY_SENSORS: tuple[GeoSphereBinarySensorEntityDescription, ...] = (
     GeoSphereBinarySensorEntityDescription(
         key="thunderstorm_expected_1h",

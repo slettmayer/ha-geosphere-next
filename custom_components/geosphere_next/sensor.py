@@ -295,6 +295,10 @@ AIR_QUALITY_SENSOR_KEYS = tuple(description.key for description in AIR_QUALITY_S
 # These are forecast *predictions*, not measurements, so they deliberately
 # carry no `state_class`: long-term statistics over a prediction would mix
 # future values into the recorder's history of what actually happened.
+#
+# The "1h" / "12h" horizons round up to whole hourly steps (see
+# `outlook._window` and the README): a 1-hour window covers the in-progress
+# hour plus the next one, so these sensors can report an event ~2 h ahead.
 OUTLOOK_SENSORS: tuple[GeoSphereOutlookSensorEntityDescription, ...] = (
     GeoSphereOutlookSensorEntityDescription(
         key="wind_gust_max_1h",
