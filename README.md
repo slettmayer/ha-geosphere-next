@@ -54,6 +54,10 @@ C-LAEF ensemble — see the FAQ), `wind_speed`, `wind_bearing`,
 `wind_gust_speed`, and `cloud_coverage`. All forecast values come from AROME
 except the probability (C-LAEF ensemble).
 
+The list is re-filtered to the current hour onward on every read, not just at
+fetch time — so it never carries already-elapsed hours even at the 180-minute
+forecast interval — and re-pushed to any live subscribers at every full hour.
+
 ### Current-condition sensors (enabled by default)
 
 | Sensor | Description | Unit |

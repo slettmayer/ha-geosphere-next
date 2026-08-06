@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from homeassistant.components.weather import (
     ATTR_FORECAST_CLOUD_COVERAGE,
     ATTR_FORECAST_CONDITION,
@@ -27,6 +29,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .const import ATTRIBUTION
 from .coordinator import (
@@ -34,7 +37,7 @@ from .coordinator import (
     GeoSphereForecastCoordinator,
     GeoSphereNextConfigEntry,
 )
-from .entity import device_info
+from .entity import HourBoundaryRefreshMixin, device_info
 
 
 async def async_setup_entry(
@@ -47,17 +50,22 @@ async def async_setup_entry(
 
 
 class GeoSphereWeather(
+    HourBoundaryRefreshMixin,
     CoordinatorWeatherEntity[
         GeoSphereCurrentCoordinator,
         GeoSphereForecastCoordinator,
         GeoSphereForecastCoordinator,
-    ]
+    ],
 ):
     """Weather entity backed by the current + forecast coordinators.
 
     Hourly forecast only: AROME's ~60 h horizon yields at most 2-3 aggregable
     local days, and the HA frontend only renders forecast arrays with more
     than 2 entries — a daily tab would intermittently spin forever.
+
+    The hourly list is re-filtered to "current hour onward" on every hour
+    boundary as well as on coordinator refresh — see `HourBoundaryRefreshMixin`
+    and the `_handle_hour_boundary` override below.
     """
 
     _attr_has_entity_name = True
@@ -124,6 +132,13 @@ class GeoSphereWeather(
         coordinator = self.forecast_coordinators["hourly"]
         if coordinator is None or coordinator.data is None:
             return None
+        # The coordinator trims to "current hour onward" at fetch time only;
+        # between refreshes (interval up to 180 min) that list can still hold
+        # up to 3 stale leading hours. Re-floor here on every read. The
+        # in-progress hour is stamped at the top of the current hour — earlier
+        # than `now` — and must survive: HA's weather cards expect that "now"
+        # bucket to be present, so the floor is `start`, not `now`.
+        start = dt_util.utcnow().replace(minute=0, second=0, microsecond=0)
         return [
             Forecast(
                 {
@@ -143,4 +158,24 @@ class GeoSphereWeather(
                 }
             )
             for hour in coordinator.data.hourly
+            if hour.datetime >= start
         ]
+
+    @callback
+    def _handle_hour_boundary(self, now: datetime) -> None:
+        """Push the re-filtered hourly forecast to subscribers at the tick.
+
+        `HourBoundaryRefreshMixin`'s default calls `async_write_ha_state()`,
+        which only refreshes entity state/attributes. The hourly forecast is
+        delivered to the frontend through a separate push channel — the
+        `weather/subscribe_forecast` websocket subscription — which only
+        reacts to `async_update_listeners()`. Mirrors how
+        `CoordinatorWeatherEntity._handle_forecast_update` schedules that call
+        on a coordinator refresh.
+        """
+        coordinator = self.forecast_coordinators["hourly"]
+        if coordinator is None or coordinator.config_entry is None:
+            return
+        coordinator.config_entry.async_create_task(
+            self.hass, self.async_update_listeners(("hourly",))
+        )
