@@ -44,6 +44,11 @@ class GeoSphereSensorEntityDescription(SensorEntityDescription):
     value_fn: Callable[[CurrentConditions], float | int | str | None]
 
 
+def _kmh(value: float | None) -> float | None:
+    """Convert m/s (internal model units) to km/h at the entity boundary."""
+    return None if value is None else value * 3.6
+
+
 SENSORS: tuple[GeoSphereSensorEntityDescription, ...] = (
     GeoSphereSensorEntityDescription(
         key="temperature",
@@ -95,18 +100,18 @@ SENSORS: tuple[GeoSphereSensorEntityDescription, ...] = (
         translation_key="wind_speed",
         device_class=SensorDeviceClass.WIND_SPEED,
         state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=UnitOfSpeed.METERS_PER_SECOND,
+        native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
         suggested_display_precision=1,
-        value_fn=lambda data: data.wind_speed,
+        value_fn=lambda data: _kmh(data.wind_speed),
     ),
     GeoSphereSensorEntityDescription(
         key="wind_gust_speed",
         translation_key="wind_gust_speed",
         device_class=SensorDeviceClass.WIND_SPEED,
         state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=UnitOfSpeed.METERS_PER_SECOND,
+        native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
         suggested_display_precision=1,
-        value_fn=lambda data: data.wind_gust_speed,
+        value_fn=lambda data: _kmh(data.wind_gust_speed),
     ),
     GeoSphereSensorEntityDescription(
         key="wind_bearing",

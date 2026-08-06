@@ -9,6 +9,19 @@ from homeassistant.core import HomeAssistant
 FROZEN_NOW = "2026-07-15T16:00:00+00:00"
 
 
+def test_wind_sensors_are_natively_kmh() -> None:
+    """Wind sensors carry km/h natively rather than relying on unit conversion."""
+    from homeassistant.const import UnitOfSpeed
+
+    from custom_components.geosphere_next.sensor import SENSORS
+
+    by_key = {description.key: description for description in SENSORS}
+    for key in ("wind_speed", "wind_gust_speed"):
+        assert (
+            by_key[key].native_unit_of_measurement == UnitOfSpeed.KILOMETERS_PER_HOUR
+        ), key
+
+
 async def test_sensor_values(
     hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
 ) -> None:
