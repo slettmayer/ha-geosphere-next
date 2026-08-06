@@ -4,4 +4,4 @@
 # The pin must be `==`. A `>=` floor lets pip resolve whatever is newest, which
 # is how CI ran ruff 0.16.0 -- a release that expanded the default rule set from
 # 59 rules to 413 -- for a week before anyone chose it.
-ruff==0.16.0
+ruff==0.16.1
