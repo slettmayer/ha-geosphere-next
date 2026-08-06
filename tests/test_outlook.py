@@ -9,6 +9,7 @@ from custom_components.geosphere_next.outlook import (
     max_cape,
     max_gust,
     next_thunderstorm,
+    thunderstorm_outlook,
     thunderstorm_within,
 )
 
@@ -20,6 +21,8 @@ def _hour(
     *,
     gust: float | None = None,
     cape: float | None = None,
+    cin: float | None = None,
+    precipitation: float | None = None,
     condition: str | None = None,
 ) -> HourlyForecast:
     """One forecast hour at the top of the hour, `offset_hours` from 16:00Z."""
@@ -30,14 +33,14 @@ def _hour(
         templow=None,
         temphigh=None,
         humidity=None,
-        precipitation=None,
+        precipitation=precipitation,
         snow=None,
         wind_speed=None,
         wind_bearing=None,
         wind_gust_speed=gust,
         cloud_coverage=None,
         cape=cape,
-        cin=None,
+        cin=cin,
         condition=condition,
     )
 
@@ -118,3 +121,58 @@ def test_thunderstorm_within() -> None:
     hourly = [_hour(0, condition="cloudy"), _hour(5, condition="lightning")]
     assert thunderstorm_within(hourly, 1, NOW) is False
     assert thunderstorm_within(hourly, 12, NOW) is True
+
+
+def test_thundersnow_is_detected_despite_the_snowy_condition() -> None:
+    """`derive_condition` returns `snowy` before it ever checks thunder.
+
+    A snow hour with ample CAPE, weak inhibition and precipitation is a
+    thundersnow hour — the condition string alone would miss it.
+    """
+    hourly = [_hour(0, condition="snowy", cape=1500.0, cin=0.0, precipitation=0.8)]
+    assert thunderstorm_within(hourly, 1, NOW) is True
+    assert next_thunderstorm(hourly, NOW)[0] == datetime(2026, 7, 15, 16, 0, tzinfo=UTC)
+
+
+def test_thunder_is_detected_when_cloud_cover_is_missing() -> None:
+    """`derive_condition` returns None without `tcc`, hiding a real storm."""
+    hourly = [_hour(0, condition=None, cape=1500.0, cin=0.0, precipitation=0.5)]
+    assert thunderstorm_within(hourly, 1, NOW) is True
+
+
+def test_dry_high_cape_without_precipitation_is_not_a_storm() -> None:
+    """The false-positive guard: CAPE alone is a routine summer afternoon.
+
+    Vienna reaches CAPE >= 1000 J/kg with weak inhibition on many days that
+    produce no storm; without forecast precipitation the model is not saying
+    convection is happening.
+    """
+    hourly = [
+        _hour(0, condition="partlycloudy", cape=2500.0, cin=0.0, precipitation=0.0),
+        _hour(1, condition="sunny", cape=3000.0, cin=0.0, precipitation=None),
+    ]
+    assert thunderstorm_within(hourly, 1, NOW) is False
+    assert next_thunderstorm(hourly, NOW) == (None, None)
+
+
+def test_capped_cape_with_precipitation_is_not_a_storm() -> None:
+    """A strong lid (cin <= -50) blocks convection even with rain falling."""
+    hourly = [_hour(0, condition="snowy", cape=2500.0, cin=-80.0, precipitation=1.0)]
+    assert thunderstorm_within(hourly, 1, NOW) is False
+
+
+def test_thunderstorm_outlook_is_unknown_without_usable_hours() -> None:
+    """An empty or undecidable window must not read as a confident "no storm"."""
+    assert thunderstorm_outlook([], 1, NOW) is None
+    # Hours exist but carry neither a condition nor CAPE.
+    assert thunderstorm_outlook([_hour(0), _hour(1)], 1, NOW) is None
+    # Only hours outside the window -> nothing to judge.
+    assert thunderstorm_outlook([_hour(6, condition="sunny")], 1, NOW) is None
+
+
+def test_thunderstorm_outlook_distinguishes_no_storm_from_no_data() -> None:
+    hourly = [_hour(0, condition="cloudy"), _hour(5, condition="lightning")]
+    assert thunderstorm_outlook(hourly, 1, NOW) is False
+    assert thunderstorm_outlook(hourly, 12, NOW) is True
+    # CAPE alone (no derived condition) is still a decidable hour.
+    assert thunderstorm_outlook([_hour(0, cape=10.0)], 1, NOW) is False

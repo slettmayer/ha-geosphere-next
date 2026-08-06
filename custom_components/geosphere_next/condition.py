@@ -72,7 +72,7 @@ def dew_point_from_t_rh(
     return round(b * gamma / (a - gamma), 1)
 
 
-def _is_thunder(cape: float | None, cin: float | None) -> bool:
+def is_thunder(cape: float | None, cin: float | None) -> bool:
     """True when CAPE is sufficient AND convective inhibition is weak enough.
 
     AROME publishes `cin` as negative J/kg (0.0 = uncapped). A missing value is
@@ -101,7 +101,7 @@ def derive_condition(
     snowfall = snow or 0.0
     rain = max(precip - snowfall, 0.0)
     tcc = cloud_coverage
-    thunder = _is_thunder(cape, cin)
+    thunder = is_thunder(cape, cin)
 
     if snowfall >= PRECIP_MIN_MM and rain >= PRECIP_MIN_MM:
         return "snowy-rainy"
@@ -150,7 +150,7 @@ def derive_current_condition(
         precipitation_type is not None and precipitation_type != PT_NO_PRECIPITATION
     ) or rate >= PRECIP_MIN_MM
     if precipitating:
-        thunder = _is_thunder(cape, cin)
+        thunder = is_thunder(cape, cin)
         snow_likely = temperature is not None and temperature <= SNOW_MAX_T2M_C
         if snow_likely:
             return "snowy"
