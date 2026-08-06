@@ -86,7 +86,7 @@ Enable these per-entity in Home Assistant if you want them.
 | Sensor | Description | Unit |
 |---|---|---|
 | `cape` | Convective Available Potential Energy — thunderstorm-potential indicator used in the condition derivation | J/kg |
-| `cin` | Convective inhibition — negative J/kg, `0` = uncapped; gates the thunder decision so capped high-CAPE air does not read as a storm | J/kg |
+| `cin` (entity id: `convective_inhibition`) | Convective inhibition — negative J/kg, `0` = uncapped; gates the thunder decision so capped high-CAPE air does not read as a storm | J/kg |
 | `precipitation_type` | Raw GeoSphere precipitation-type code (diagnostic) | — |
 | `weather_symbol` | Raw GeoSphere weather-symbol code (diagnostic; the HA condition is derived independently — see the FAQ) | — |
 
@@ -102,12 +102,16 @@ risk" is your automation's policy, not this integration's.
 | `wind_gust_max_12h` | Peak forecast wind gust over the next 12 hours; carries a `peak_time` attribute | km/h |
 | `cape_max_12h` | Peak CAPE over the next 12 hours (diagnostic, disabled by default) | J/kg |
 | `next_thunderstorm` | Timestamp of the first forecast hour classified as a thunderstorm (`unknown` if none in the ~57 h horizon); carries a `cape` attribute for that hour | — |
-| `thunderstorm_expected_1h` (binary sensor) | On when any hour in the next hour is classified as a thunderstorm | — |
+| `thunderstorm_expected_1h` (binary sensor; entity id: `thunderstorm_expected_next_hour`) | On when any hour in the next hour is classified as a thunderstorm | — |
 
 Gust maxima are natively km/h, matching the current-condition wind sensors.
 All outlook values refresh on the forecast coordinator's update interval
 (default 30 min, configurable — see [Options](#options)), so the 1-hour
-signals carry 30-minute granularity, not minute-by-minute precision.
+signals carry 30-minute granularity, not minute-by-minute precision. Home
+Assistant derives entity ids from the translated display name, not the
+sensor key above — that is why `cin` and `thunderstorm_expected_1h` end up
+as `convective_inhibition` and `thunderstorm_expected_next_hour`; the other
+four outlook sensors' entity ids match their keys.
 
 ### Air-quality sensors (optional)
 
