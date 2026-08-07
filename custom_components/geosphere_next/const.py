@@ -34,6 +34,7 @@ AROME_PARAMETERS = (
     "snowlmt",
     "grad",
     "cape",
+    "cin",
     "sy",
 )
 # C-LAEF ensemble precipitation percentiles (per-hour amounts, kg m-2; the
@@ -73,6 +74,15 @@ POP_DRY_PCT = 0
 
 # Condition-derivation thresholds (see condition.py)
 THUNDER_CAPE_JKG = 1000.0
+# Convective inhibition cap. AROME publishes `cin` as NEGATIVE J/kg: 0.0 means
+# uncapped, more negative means a stronger lid. CAPE only counts as thunder
+# potential when inhibition is weaker than this magnitude.
+# The recorded fixture's strongest lid is -49.5 J/kg, just inside this
+# boundary, so the gate suppresses nothing on the only real sample we have and
+# is exercised only by synthetic test values. 50 J/kg is a standard boundary
+# for weak inhibition; discrimination against real capped situations is
+# unconfirmed — see docs/domain/DATASETS.md.
+CAP_CIN_JKG = 50.0
 PRECIP_MIN_MM = 0.1
 POURING_MM_PER_H = 4.0
 WINDY_GUST_MS = 15.0
@@ -86,6 +96,12 @@ FOG_MAX_WIND_MS = 2.0
 FOG_MIN_TCC_PCT = 87.5
 # Rain/snow split when the nowcast precipitation-type code is unknown.
 SNOW_MAX_T2M_C = 1.0
+
+# Forecast-outlook horizons (see outlook.py). The window rounds up to whole
+# hourly steps, so an N-hour horizon spans the in-progress hour plus N more.
+# The entity keys/ids keep their literal "1h"/"12h" spelling.
+OUTLOOK_SHORT_HORIZON_HOURS = 1
+OUTLOOK_LONG_HORIZON_HOURS = 12
 
 # Nowcast `pt` (precipitation type): 255 = no precipitation. The remaining
 # code table is undocumented; codes are therefore only used as a

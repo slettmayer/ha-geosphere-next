@@ -26,22 +26,36 @@ the module import-free.
 
 ### `derive_condition` (per forecast hour)
 
-Inputs: hourly precipitation, snow, cloud cover (`tcc` %), CAPE, gust speed,
-`night`. Precedence:
+Inputs: hourly precipitation, snow, cloud cover (`tcc` %), CAPE, CIN, gust
+speed, `night`. Precedence:
 
 1. snow ≥ 0.1 mm and rain ≥ 0.1 mm → `snowy-rainy`
 2. snow ≥ 0.1 mm → `snowy`
-3. precipitation ≥ 0.1 mm → `lightning-rainy` (CAPE ≥ 1000 J/kg), else `pouring`
+3. precipitation ≥ 0.1 mm → `lightning-rainy` (thunder), else `pouring`
    (≥ 4 mm/h), else `rainy`
 4. cloud unknown → `None`
-5. thunder (CAPE ≥ 1000) and cloud ≥ 60 % → `lightning`
+5. thunder and cloud ≥ 60 % → `lightning`
 6. gust ≥ 15 m/s → `windy-variant` (cloud ≥ 60 %) or `windy`
 7. cloud ≤ 12.5 % → `clear-night` (night) or `sunny`
 8. cloud ≤ 62.5 % → `partlycloudy`, else `cloudy`
 
+**Thunder** (`is_thunder`) requires CAPE ≥ 1000 J/kg **and** `cin > -50` J/kg.
+AROME publishes `cin` as negative J/kg (0.0 = uncapped, more negative = a
+stronger lid); a missing `cin` is treated as uncapped, so behaviour degrades
+to CAPE-only when the parameter is absent. The −50 J/kg boundary is not yet
+confirmed against real capped data — every value in the recorded fixture is
+weaker than it; see [DATASETS.md](DATASETS.md).
+
+`outlook.py` reuses `is_thunder` for the storm-outlook entities, where it
+carries a second job: an hour counts as a thunderstorm hour when its derived
+condition starts with `lightning` **or** `is_thunder` holds and the hour is
+forecast to produce ≥ `PRECIP_MIN_MM` of precipitation. That second branch
+exists because rules 1-2 above return `snowy` / `snowy-rainy` before thunder
+is ever considered (thundersnow) and rule 4 returns None without cloud data.
+
 Thresholds are named constants in `const.py` (`THUNDER_CAPE_JKG`,
-`PRECIP_MIN_MM`, `POURING_MM_PER_H`, `WINDY_GUST_MS`, `CLOUDY_TCC_PCT`,
-`CLEAR_TCC_PCT`, `WINDY_CLOUD_TCC_PCT`).
+`CAP_CIN_JKG`, `PRECIP_MIN_MM`, `POURING_MM_PER_H`, `WINDY_GUST_MS`,
+`CLOUDY_TCC_PCT`, `CLEAR_TCC_PCT`, `WINDY_CLOUD_TCC_PCT`).
 
 ### `derive_current_condition` (now)
 

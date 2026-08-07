@@ -64,6 +64,7 @@ from .models import (
     GeoSphereResponse,
     HourlyForecast,
 )
+from .outlook import hour_at
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -218,6 +219,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
             snow = _diff(response.series("snow_acc"), i)
             cloud = _percent(response.value_at("tcc", i))
             cape = response.value_at("cape", i)
+            cin = response.value_at("cin", i)
             temperature = response.value_at("t2m", i)
             humidity = response.value_at("rh2m", i)
             hourly.append(
@@ -234,6 +236,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                     wind_gust_speed=gust_speed,
                     cloud_coverage=cloud,
                     cape=cape,
+                    cin=cin,
                     dew_point=dew_point_from_t_rh(temperature, humidity),
                     precipitation_probability=pop_by_ts.get(ts),
                     condition=derive_condition(
@@ -241,6 +244,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                         snow,
                         cloud,
                         cape,
+                        cin,
                         gust_speed,
                         is_night(self.latitude, self.longitude, ts),
                     ),
@@ -354,8 +358,19 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         self, nowcast: GeoSphereResponse | None, inca: GeoSphereResponse | None
     ) -> CurrentConditions:
         now = dt_util.utcnow()
-        arome = self._forecast.data.current if self._forecast.data else None
         forecast_data = self._forecast.data
+        # The AROME-sourced fields must follow the clock rather than the
+        # forecast fetch: this coordinator runs every 15 min by default while
+        # the forecast one can be up to 180 min apart. The step-0 snapshot —
+        # the hour that was in progress when the forecast was last fetched —
+        # can therefore be hours old. Cloud cover, CAPE and CIN have no other
+        # source, and all three feed the derived condition, so the reported
+        # condition would go stale with it. Pick the hour covering `now`
+        # instead, degrading to that snapshot only when the series no longer
+        # covers now at all.
+        arome: HourlyForecast | None = None
+        if forecast_data is not None:
+            arome = hour_at(forecast_data.hourly, now) or forecast_data.current
 
         def now_value(name: str) -> float | None:
             if nowcast is None or not nowcast.timestamps:
@@ -404,6 +419,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         gust = chain(now_value("fx"), arome.wind_gust_speed if arome else None)
         cloud = chain(arome.cloud_coverage if arome else None)
         cape = arome.cape if arome else None
+        cin = arome.cin if arome else None
 
         p0, _ = inca_latest("P0")
         rr_1h, observed_at = inca_latest("RR")
@@ -450,6 +466,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
             global_radiation=inca_latest("GL")[0],
             snow_limit=forecast_data.snow_limit if forecast_data else None,
             cape=cape,
+            cin=cin,
             weather_symbol=forecast_data.weather_symbol if forecast_data else None,
             condition=derive_current_condition(
                 precipitation_type=precipitation_type,
@@ -459,6 +476,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
                 wind_speed=wind_speed,
                 cloud_coverage=cloud,
                 cape=cape,
+                cin=cin,
                 gust_speed=gust,
                 night=night,
             ),

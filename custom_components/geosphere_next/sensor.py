@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -23,18 +24,25 @@ from homeassistant.const import (
     UnitOfSpeed,
     UnitOfTemperature,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
-from .const import ATTRIBUTION
+from .const import (
+    ATTRIBUTION,
+    OUTLOOK_LONG_HORIZON_HOURS,
+    OUTLOOK_SHORT_HORIZON_HOURS,
+)
 from .coordinator import (
     GeoSphereAirQualityCoordinator,
     GeoSphereCurrentCoordinator,
+    GeoSphereForecastCoordinator,
     GeoSphereNextConfigEntry,
 )
-from .entity import device_info
-from .models import AirQualityData, CurrentConditions
+from .entity import HourBoundaryRefreshMixin, device_info
+from .models import AirQualityData, CurrentConditions, ForecastData
+from .outlook import max_cape, max_gust, next_thunderstorm
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -42,6 +50,19 @@ class GeoSphereSensorEntityDescription(SensorEntityDescription):
     """Sensor description with a value extractor."""
 
     value_fn: Callable[[CurrentConditions], float | int | str | None]
+
+
+def _kmh(value: float | None) -> float | None:
+    """Convert m/s (internal model units) to km/h at the entity boundary."""
+    return None if value is None else value * 3.6
+
+
+@dataclass(frozen=True, kw_only=True)
+class GeoSphereOutlookSensorEntityDescription(SensorEntityDescription):
+    """Forecast-outlook sensor description; value_fn also receives `now`."""
+
+    value_fn: Callable[[ForecastData, datetime], float | datetime | None]
+    attributes_fn: Callable[[ForecastData, datetime], dict[str, object]] | None = None
 
 
 SENSORS: tuple[GeoSphereSensorEntityDescription, ...] = (
@@ -95,18 +116,18 @@ SENSORS: tuple[GeoSphereSensorEntityDescription, ...] = (
         translation_key="wind_speed",
         device_class=SensorDeviceClass.WIND_SPEED,
         state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=UnitOfSpeed.METERS_PER_SECOND,
+        native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
         suggested_display_precision=1,
-        value_fn=lambda data: data.wind_speed,
+        value_fn=lambda data: _kmh(data.wind_speed),
     ),
     GeoSphereSensorEntityDescription(
         key="wind_gust_speed",
         translation_key="wind_gust_speed",
         device_class=SensorDeviceClass.WIND_SPEED,
         state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=UnitOfSpeed.METERS_PER_SECOND,
+        native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
         suggested_display_precision=1,
-        value_fn=lambda data: data.wind_gust_speed,
+        value_fn=lambda data: _kmh(data.wind_gust_speed),
     ),
     GeoSphereSensorEntityDescription(
         key="wind_bearing",
@@ -165,6 +186,16 @@ SENSORS: tuple[GeoSphereSensorEntityDescription, ...] = (
         suggested_display_precision=0,
         entity_registry_enabled_default=False,
         value_fn=lambda data: data.cape,
+    ),
+    GeoSphereSensorEntityDescription(
+        key="cin",
+        translation_key="cin",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="J/kg",
+        suggested_display_precision=0,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda data: data.cin,
     ),
     GeoSphereSensorEntityDescription(
         key="precipitation_type",
@@ -261,6 +292,63 @@ AIR_QUALITY_SENSORS: tuple[GeoSphereAirQualitySensorEntityDescription, ...] = (
 # Consumed by __init__ to clean the entity registry when the option is off.
 AIR_QUALITY_SENSOR_KEYS = tuple(description.key for description in AIR_QUALITY_SENSORS)
 
+# These are forecast *predictions*, not measurements, so they deliberately
+# carry no `state_class`: long-term statistics over a prediction would mix
+# future values into the recorder's history of what actually happened.
+#
+# The "1h" / "12h" horizons round up to whole hourly steps (see
+# `outlook._window` and the README): a 1-hour window covers the in-progress
+# hour plus the next one, so these sensors can report an event ~2 h ahead.
+OUTLOOK_SENSORS: tuple[GeoSphereOutlookSensorEntityDescription, ...] = (
+    GeoSphereOutlookSensorEntityDescription(
+        key="wind_gust_max_1h",
+        translation_key="wind_gust_max_1h",
+        device_class=SensorDeviceClass.WIND_SPEED,
+        native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
+        suggested_display_precision=0,
+        value_fn=lambda data, now: _kmh(
+            max_gust(data.hourly, OUTLOOK_SHORT_HORIZON_HOURS, now)[0]
+        ),
+    ),
+    GeoSphereOutlookSensorEntityDescription(
+        key="wind_gust_max_12h",
+        translation_key="wind_gust_max_12h",
+        device_class=SensorDeviceClass.WIND_SPEED,
+        native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
+        suggested_display_precision=0,
+        value_fn=lambda data, now: _kmh(
+            max_gust(data.hourly, OUTLOOK_LONG_HORIZON_HOURS, now)[0]
+        ),
+        attributes_fn=lambda data, now: {
+            "peak_time": (
+                peak.isoformat()
+                if (peak := max_gust(data.hourly, OUTLOOK_LONG_HORIZON_HOURS, now)[1])
+                else None
+            )
+        },
+    ),
+    GeoSphereOutlookSensorEntityDescription(
+        key="cape_max_12h",
+        translation_key="cape_max_12h",
+        native_unit_of_measurement="J/kg",
+        suggested_display_precision=0,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda data, now: max_cape(
+            data.hourly, OUTLOOK_LONG_HORIZON_HOURS, now
+        ),
+    ),
+    GeoSphereOutlookSensorEntityDescription(
+        key="next_thunderstorm",
+        translation_key="next_thunderstorm",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda data, now: next_thunderstorm(data.hourly, now)[0],
+        attributes_fn=lambda data, now: {
+            "cape": next_thunderstorm(data.hourly, now)[1]
+        },
+    ),
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -272,6 +360,10 @@ async def async_setup_entry(
     entities: list[SensorEntity] = [
         GeoSphereSensor(coordinator, entry, description) for description in SENSORS
     ]
+    entities.extend(
+        GeoSphereOutlookSensor(entry.runtime_data.forecast, entry, description)
+        for description in OUTLOOK_SENSORS
+    )
     if (air_quality := entry.runtime_data.air_quality) is not None:
         entities.extend(
             GeoSphereAirQualitySensor(air_quality, entry, description)
@@ -332,3 +424,75 @@ class GeoSphereAirQualitySensor(
     @property
     def extra_state_attributes(self) -> dict[str, object]:
         return self.entity_description.attributes_fn(self.coordinator.data)
+
+
+class GeoSphereOutlookSensor(
+    HourBoundaryRefreshMixin,
+    CoordinatorEntity[GeoSphereForecastCoordinator],
+    SensorEntity,
+):
+    """A forecast-outlook sensor backed by the forecast coordinator.
+
+    State and attributes are computed together, from one scan at one sample of
+    the clock, whenever the coordinator updates or an hour boundary passes —
+    see `_refresh_outlook` and `HourBoundaryRefreshMixin`.
+    """
+
+    entity_description: GeoSphereOutlookSensorEntityDescription
+    _attr_has_entity_name = True
+    _attr_attribution = ATTRIBUTION
+
+    def __init__(
+        self,
+        coordinator: GeoSphereForecastCoordinator,
+        entry: GeoSphereNextConfigEntry,
+        description: GeoSphereOutlookSensorEntityDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = f"{entry.entry_id}-{description.key}"
+        self._attr_device_info = device_info(entry)
+        # Populate before the platform performs its first state write.
+        self._refresh_outlook()
+
+    @callback
+    def _refresh_outlook(self) -> None:
+        """Recompute state and attributes from a single sample of the clock.
+
+        Sampling `dt_util.utcnow()` once per property let a write that straddles
+        an hour boundary publish, say, a `cape` attribute belonging to a
+        different hour than the `next_thunderstorm` timestamp beside it. One
+        sample for both makes that impossible — and scans the series once
+        instead of twice.
+
+        Within a clock hour the answer is invariant: every scan floors `now` to
+        the top of the hour, and the window end (`now + hours`) only crosses a
+        top-of-hour stamp when the hour itself changes. So recomputing on
+        coordinator updates and at each hour boundary is equivalent to
+        recomputing on every read, without carrying a stale `now`.
+
+        `None` / `{}` when there is no forecast to scan, matching
+        `GeoSphereBinarySensor.is_on`. Unreachable while
+        `async_config_entry_first_refresh` guarantees data.
+        """
+        data = self.coordinator.data
+        if data is None:
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = {}
+            return
+        now = dt_util.utcnow()
+        self._attr_native_value = self.entity_description.value_fn(data, now)
+        attributes_fn = self.entity_description.attributes_fn
+        self._attr_extra_state_attributes = (
+            {} if attributes_fn is None else attributes_fn(data, now)
+        )
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self._refresh_outlook()
+        super()._handle_coordinator_update()
+
+    @callback
+    def _handle_hour_boundary(self, now: datetime) -> None:
+        self._refresh_outlook()
+        super()._handle_hour_boundary(now)

@@ -26,12 +26,31 @@ as `grid_latitude` / `grid_longitude`, which differs from the requested point.
 
 - **AROME** — `("forecast", "nwp-v1-1h-2500m")`. Deterministic NWP model, 2.5 km
   grid, model reruns every 3 h, ~60 h hourly horizon. The primary forecast source
-  and the ultimate current-conditions fallback (its "step 0" hour). Parameters
+  and the ultimate current-conditions fallback (its hour covering now). Parameters
   (`AROME_PARAMETERS`): `t2m`, `mnt2m`, `mxt2m` (temp / min / max), `rh2m`
   (humidity), `u10m` / `v10m` (wind components), `ugust` / `vgust` (gust
   components), `tcc` (cloud cover, 0–1), `rr_acc` / `snow_acc` (run-accumulated
   precipitation / snow), `snowlmt` (snow limit, m), `grad` (global radiation),
-  `cape` (J/kg), `sy` (proprietary weather-symbol code).
+  `cape` (J/kg), `cin` (convective inhibition, J/kg), `sy` (proprietary
+  weather-symbol code).
+
+  AROME publishes `cin` in J/kg as a negative quantity; the observed range in
+  the recorded fixture is −49.5 to 0.0, where 0.0 means uncapped and more
+  negative means a stronger lid. It gates the thunder decision in
+  [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md) — see that doc for the
+  threshold.
+
+  That threshold (`CAP_CIN_JKG = 50.0`, i.e. thunder needs `cin > -50`) sits
+  just outside every value in the fixture: the strongest recorded lid is
+  −49.5. On this sample the gate therefore suppresses nothing, and it is
+  exercised only by synthetic test values. 50 J/kg is a defensible boundary
+  for weak inhibition and a single 57-hour July recording is not evidence the
+  threshold is wrong, but real-world discrimination is unconfirmed. A fixture
+  recorded during a genuinely capped situation (a capped spring/summer
+  airmass, `cin` well below −50) would be worth capturing.
+
+  AROME declares CAPE's unit as `m2 s-2`, which is dimensionally identical to
+  J/kg, so the `J/kg` label this integration uses is numerically correct.
 - **C-LAEF ensemble** — `("forecast", "ensemble-v1-1h-2500m")`. Probabilistic
   companion, 2.5 km-class grid, model reruns every 12 h, ~61 h length. Publishes
   only three precipitation percentiles per hour (`ENSEMBLE_PARAMETERS`:

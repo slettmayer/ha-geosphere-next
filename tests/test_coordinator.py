@@ -12,7 +12,14 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
 )
 
-from .conftest import AROME_URL, ENSEMBLE_URL, INCA_URL, NOWCAST_URL, load_fixture
+from .conftest import (
+    AROME_URL,
+    ENSEMBLE_URL,
+    INCA_URL,
+    NOWCAST_URL,
+    load_fixture,
+    stormy_arome,
+)
 
 FROZEN_NOW = "2026-07-15T16:00:00+00:00"
 
@@ -177,3 +184,121 @@ async def test_inca_refresh_keyed_on_data_age(
     freezer.tick(timedelta(minutes=40))
     await coordinator.async_refresh()
     assert inca_calls() == baseline + 1
+
+
+async def test_cin_is_populated_from_the_response(
+    hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
+) -> None:
+    """`cin` must actually arrive, not silently degrade to all-None.
+
+    `GeoSphereResponse.series()` returns `[None] * len(timestamps)` for an
+    absent parameter and the thunder gate treats None as uncapped, so a
+    renamed or typo'd `cin` key would turn the gate into a no-op with a green
+    suite. The recorded fixture's `cin` ranges -49.5..0.0 J/kg.
+    """
+    freezer.move_to(FROZEN_NOW)
+    await _setup(hass, mock_config_entry)
+    values = [hour.cin for hour in mock_config_entry.runtime_data.forecast.data.hourly]
+
+    assert any(value is not None for value in values)
+    assert min(value for value in values if value is not None) == pytest.approx(-49.5)
+    assert max(value for value in values if value is not None) == pytest.approx(0.0)
+    # And it reaches the current conditions, whose `cin` comes from AROME.
+    assert mock_config_entry.runtime_data.current.data.cin is not None
+    # The mocker ignores the query string, so also pin that `cin` is requested
+    # — dropping it from AROME_PARAMETERS would otherwise stay invisible here.
+    arome_urls = [
+        str(call[1])
+        for call in mock_api.mock_calls
+        if "nwp-v1-1h-2500m" in str(call[1])
+    ]
+    assert arome_urls
+    assert all("cin" in url for url in arome_urls)
+
+
+@pytest.mark.parametrize(
+    ("cin", "expected"),
+    [
+        # Uncapped: ample CAPE plus rain derives a thunderstorm...
+        (0.0, "lightning-rainy"),
+        # ...while a strong lid (below -CAP_CIN_JKG) keeps it plain rain.
+        (-80.0, "rainy"),
+    ],
+)
+async def test_cin_gate_changes_the_derived_condition(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+    cin: float,
+    expected: str,
+) -> None:
+    """End-to-end proof that the gate is wired, not just unit-tested.
+
+    Hour 1 of the fixture (16:00Z) carries 0.48 mm of precipitation; only its
+    CAPE and CIN are patched.
+    """
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=stormy_arome(indexes=(1,), cin=cin))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await _setup(hass, mock_config_entry)
+
+    assert mock_config_entry.runtime_data.forecast.data.hourly[0].condition == expected
+
+
+async def test_current_arome_fields_follow_the_clock(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_api: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """AROME-sourced current fields track the hour, not the forecast fetch.
+
+    The current coordinator runs every 15 min while the forecast one can be
+    180 min apart, so reading the "step 0" snapshot captured at fetch time
+    would leave cloud cover, CAPE and CIN — and with them the derived
+    condition — up to 3 h stale.
+    """
+    freezer.move_to(FROZEN_NOW)
+    await _setup(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data.current
+
+    def arome_calls() -> int:
+        return sum("nwp-v1-1h-2500m" in str(call[1]) for call in mock_api.mock_calls)
+
+    baseline = arome_calls()
+    # Fixture hour 16:00Z: tcc 0.0 -> 0 %, cape 61.7, cin 0.0.
+    assert coordinator.data.cloud_coverage == 0
+    assert coordinator.data.cape == pytest.approx(61.7)
+    assert coordinator.data.cin == pytest.approx(0.0)
+
+    # Three hours on, without refetching the forecast: hour 19:00Z carries
+    # tcc 0.8 -> 80 %, cape 106.2, cin -49.5.
+    freezer.move_to("2026-07-15T19:30:00+00:00")
+    await coordinator.async_refresh()
+    assert arome_calls() == baseline
+    assert coordinator.data.cloud_coverage == 80
+    assert coordinator.data.cape == pytest.approx(106.2)
+    assert coordinator.data.cin == pytest.approx(-49.5)
+
+
+async def test_current_falls_back_when_the_forecast_aged_out(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_api: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Past the end of the series there is no matching hour — keep step 0."""
+    freezer.move_to(FROZEN_NOW)
+    await _setup(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data.current
+    step_zero = mock_config_entry.runtime_data.forecast.data.current
+
+    # The fixture ends at 2026-07-18T00:00Z; nothing covers this hour.
+    freezer.move_to("2026-07-19T12:30:00+00:00")
+    await coordinator.async_refresh()
+    assert coordinator.data.cloud_coverage == step_zero.cloud_coverage
+    assert coordinator.data.cape == step_zero.cape
+    assert coordinator.data.cin == step_zero.cin

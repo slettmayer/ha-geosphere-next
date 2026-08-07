@@ -26,20 +26,22 @@ layered flow and an isolated pure-logic core. All code lives flat in
 api.py        HTTP + GeoJSON parsing            (homeassistant-free)
 models.py     dataclasses (data shapes)         (homeassistant-free)
 condition.py  pure derivation + met. math       (homeassistant-free)
+outlook.py    forecast-window scans (gust/storm) (homeassistant-free)
 const.py      datasets, parameters, thresholds  (single source of truth)
    │
 coordinator.py  fetch / cache / difference / merge  → model dataclasses
    │
-entity.py / sensor.py / weather.py  HA platform surface
+entity.py / sensor.py / binary_sensor.py / weather.py  HA platform surface
 config_flow.py  onboarding + options
 __init__.py     setup / unload / entity cleanup
 diagnostics.py  redacted state dump
 ```
 
 The `api.py` + `models.py` core is deliberately import-free of `homeassistant`
-so it can become a standalone PyPI package later; `condition.py` is likewise pure
-for testability (it duplicates HA's `ATTR_CONDITION_*` string literals rather
-than importing them).
+so it can become a standalone PyPI package later; `condition.py` and
+`outlook.py` are likewise pure for testability (`condition.py` duplicates HA's
+`ATTR_CONDITION_*` string literals rather than importing them, and `outlook.py`
+depends only on `condition.py`, `const.py`, and `models.py`).
 
 ### Data flow
 
@@ -81,6 +83,16 @@ reads `entity_description.value_fn(coordinator.data)`. All entities share one
 `SERVICE` `DeviceInfo` from `entity.py`. Unique IDs: `{entry_id}` (weather),
 `{entry_id}-{key}` (sensors).
 
+The forecast-outlook entities (`OUTLOOK_SENSORS` in `sensor.py`,
+`BINARY_SENSORS` in `binary_sensor.py`) follow the same shape but take a
+`value_fn(data, now)` and delegate to `outlook.py`. Because their answers are
+anchored on `now` rather than on the coordinator payload alone, they also mix
+in `entity.HourBoundaryRefreshMixin`, which re-writes their state at hh:00:05
+so an elapsed hour never lingers in a "next hour" window.
+`GeoSphereOutlookSensor` recomputes its state and its attributes together in
+`_refresh_outlook` — on coordinator updates and at each hour boundary — so both
+always come from one scan at one sample of the clock.
+
 ### Config flow
 
 `GeoSphereNextConfigFlow` (location picker) probes AROME (domain check) and the
@@ -114,4 +126,5 @@ off triggers registry cleanup in `__init__._remove_air_quality_entities`.
   `__init__.py`.
 - Add a new data source by declaring a `DATASET_*` tuple in `const.py` and
   consuming it in the owning coordinator.
-- Keep `api.py` / `models.py` / `condition.py` free of `homeassistant` imports.
+- Keep `api.py` / `models.py` / `condition.py` / `outlook.py` free of
+  `homeassistant` imports.

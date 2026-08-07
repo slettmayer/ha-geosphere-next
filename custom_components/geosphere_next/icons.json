@@ -1,5 +1,11 @@
 {
   "entity": {
+    "binary_sensor": {
+      "thunderstorm_expected_1h": {
+        "default": "mdi:weather-lightning",
+        "state": { "off": "mdi:weather-cloudy" }
+      }
+    },
     "sensor": {
       "apparent_temperature": { "default": "mdi:thermometer-lines" },
       "dew_point": { "default": "mdi:water-thermometer" },
@@ -8,13 +14,18 @@
       "global_radiation": { "default": "mdi:weather-sunny" },
       "snow_limit": { "default": "mdi:snowflake-thermometer" },
       "cape": { "default": "mdi:weather-lightning" },
+      "cin": { "default": "mdi:arrow-collapse-down" },
       "precipitation_type": { "default": "mdi:weather-rainy" },
       "weather_symbol": { "default": "mdi:code-tags" },
       "nitrogen_dioxide": { "default": "mdi:molecule" },
       "ozone": { "default": "mdi:molecule" },
       "pm10": { "default": "mdi:blur" },
       "pm25": { "default": "mdi:blur" },
-      "air_quality_index": { "default": "mdi:air-filter" }
+      "air_quality_index": { "default": "mdi:air-filter" },
+      "wind_gust_max_1h": { "default": "mdi:weather-windy" },
+      "wind_gust_max_12h": { "default": "mdi:weather-windy" },
+      "cape_max_12h": { "default": "mdi:weather-lightning" },
+      "next_thunderstorm": { "default": "mdi:weather-lightning-rainy" }
     }
   }
 }

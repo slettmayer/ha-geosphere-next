@@ -27,7 +27,8 @@ Standard Home Assistant integration skeleton, all code flat in
 `custom_components/geosphere_next/`. Internal layering: `api.py` (HTTP + GeoJSON
 parsing) and `models.py` (dataclasses) form a `homeassistant`-free core;
 `coordinator.py` fetches, caches, differences, and merges datasets into models;
-`condition.py` derives HA conditions from physical parameters (also pure);
+`condition.py` derives HA conditions from physical parameters and `outlook.py`
+scans the forecast series for storm/gust outlooks (both pure);
 `const.py` catalogs datasets, parameters, and thresholds; `sensor.py` /
 `weather.py` / `entity.py` are the HA platform surface; `config_flow.py` handles
 onboarding and options. Three `DataUpdateCoordinator`s (forecast, current, air
@@ -41,7 +42,7 @@ configured lat/lon. See [ARCHITECTURE.md](docs/tech/ARCHITECTURE.md).
 - No runtime PyPI requirements; HACS-distributed. See [TECH-STACK.md](docs/tech/TECH-STACK.md).
 
 ## Core Conventions
-- Keep `api.py`, `models.py`, and `condition.py` free of `homeassistant` imports (future PyPI extraction + testability).
+- Keep `api.py`, `models.py`, `condition.py`, and `outlook.py` free of `homeassistant` imports (future PyPI extraction + testability).
 - All datasets, parameters, and thresholds live in `const.py` — never inline literals.
 - Classes use the `GeoSphere*` prefix; private helpers are `_`-prefixed; derived logic is `derive_*`.
 - Sensors are declared as entity descriptions with a `value_fn`, read by one generic entity class per group (`GeoSphereSensor` / `GeoSphereAirQualitySensor`).

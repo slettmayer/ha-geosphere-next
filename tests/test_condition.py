@@ -17,31 +17,36 @@ from custom_components.geosphere_next.condition import (
 
 
 @pytest.mark.parametrize(
-    ("precip", "snow", "tcc", "cape", "gust", "night", "expected"),
+    ("precip", "snow", "tcc", "cape", "cin", "gust", "night", "expected"),
     [
         # clear / cloud buckets
-        (0.0, 0.0, 0.0, 0.0, 0.0, False, "sunny"),
-        (0.0, 0.0, 0.0, 0.0, 0.0, True, "clear-night"),
-        (0.0, 0.0, 12.5, None, None, False, "sunny"),
-        (0.0, 0.0, 40.0, 0.0, 0.0, False, "partlycloudy"),
-        (0.0, 0.0, 62.5, 0.0, 0.0, False, "partlycloudy"),
-        (0.0, 0.0, 80.0, 0.0, 0.0, True, "cloudy"),
+        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, False, "sunny"),
+        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, True, "clear-night"),
+        (0.0, 0.0, 12.5, None, None, None, False, "sunny"),
+        (0.0, 0.0, 40.0, 0.0, 0.0, 0.0, False, "partlycloudy"),
+        (0.0, 0.0, 62.5, 0.0, 0.0, 0.0, False, "partlycloudy"),
+        (0.0, 0.0, 80.0, 0.0, 0.0, 0.0, True, "cloudy"),
         # precipitation
-        (0.5, 0.0, 90.0, 0.0, 0.0, False, "rainy"),
-        (4.0, 0.0, 90.0, 0.0, 0.0, False, "pouring"),
-        (0.5, 0.0, 90.0, 1500.0, 0.0, False, "lightning-rainy"),
-        (0.5, 0.5, 90.0, 0.0, 0.0, False, "snowy"),
-        (1.0, 0.3, 90.0, 0.0, 0.0, False, "snowy-rainy"),
+        (0.5, 0.0, 90.0, 0.0, 0.0, 0.0, False, "rainy"),
+        (4.0, 0.0, 90.0, 0.0, 0.0, 0.0, False, "pouring"),
+        (0.5, 0.0, 90.0, 1500.0, 0.0, 0.0, False, "lightning-rainy"),
+        (0.5, 0.5, 90.0, 0.0, 0.0, 0.0, False, "snowy"),
+        (1.0, 0.3, 90.0, 0.0, 0.0, 0.0, False, "snowy-rainy"),
         # dry thunder / wind
-        (0.0, 0.0, 80.0, 1500.0, 0.0, False, "lightning"),
-        (0.0, 0.0, 30.0, 0.0, 16.0, False, "windy"),
-        (0.0, 0.0, 80.0, 0.0, 16.0, False, "windy-variant"),
+        (0.0, 0.0, 80.0, 1500.0, 0.0, 0.0, False, "lightning"),
+        (0.0, 0.0, 30.0, 0.0, 0.0, 16.0, False, "windy"),
+        (0.0, 0.0, 80.0, 0.0, 0.0, 16.0, False, "windy-variant"),
         # missing cloud data
-        (0.0, 0.0, None, 0.0, 0.0, False, None),
+        (0.0, 0.0, None, 0.0, 0.0, 0.0, False, None),
+        # capped: ample CAPE but strong inhibition -> no thunder
+        (0.0, 0.0, 80.0, 1500.0, -80.0, 0.0, False, "cloudy"),
+        (0.5, 0.0, 90.0, 1500.0, -80.0, 0.0, False, "rainy"),
+        # missing CIN degrades to the pre-CIN behaviour
+        (0.0, 0.0, 80.0, 1500.0, None, 0.0, False, "lightning"),
     ],
 )
-def test_derive_condition(precip, snow, tcc, cape, gust, night, expected) -> None:
-    assert derive_condition(precip, snow, tcc, cape, gust, night) == expected
+def test_derive_condition(precip, snow, tcc, cape, cin, gust, night, expected) -> None:
+    assert derive_condition(precip, snow, tcc, cape, cin, gust, night) == expected
 
 
 def test_current_condition_pt_override_rain() -> None:
@@ -55,6 +60,7 @@ def test_current_condition_pt_override_rain() -> None:
             wind_speed=3.0,
             cloud_coverage=10.0,  # cloud says clear, pt wins
             cape=0.0,
+            cin=0.0,
             gust_speed=5.0,
             night=False,
         )
@@ -72,6 +78,7 @@ def test_current_condition_pt_override_snow_by_temperature() -> None:
             wind_speed=3.0,
             cloud_coverage=100.0,
             cape=0.0,
+            cin=0.0,
             gust_speed=5.0,
             night=False,
         )
@@ -89,6 +96,7 @@ def test_current_condition_no_precip_falls_through() -> None:
             wind_speed=3.0,
             cloud_coverage=5.0,
             cape=0.0,
+            cin=0.0,
             gust_speed=5.0,
             night=False,
         )
@@ -106,6 +114,7 @@ def test_current_condition_fog() -> None:
             wind_speed=0.5,
             cloud_coverage=100.0,
             cape=0.0,
+            cin=0.0,
             gust_speed=1.0,
             night=False,
         )

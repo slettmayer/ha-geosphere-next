@@ -21,7 +21,10 @@ stepped precipitation probability.
 runs at the forecast interval (default 30 min; the AROME model itself only reruns
 every 3 h). Each cycle fetches AROME (required) and the C-LAEF ensemble
 (optional), then `_process` builds a list of `HourlyForecast` entries plus a
-`current` step-0 snapshot, `snow_limit`, and the raw `weather_symbol`.
+`current` step-0 snapshot, `snow_limit`, and the raw `weather_symbol`. The
+current-conditions coordinator picks its AROME hour out of `hourly` by the
+clock and only falls back to `current` when the series no longer covers now —
+see [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md).
 
 ### Hourly processing
 
