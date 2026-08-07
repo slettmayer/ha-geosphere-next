@@ -40,6 +40,15 @@ as `grid_latitude` / `grid_longitude`, which differs from the requested point.
   [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md) — see that doc for the
   threshold.
 
+  That threshold (`CAP_CIN_JKG = 50.0`, i.e. thunder needs `cin > -50`) sits
+  just outside every value in the fixture: the strongest recorded lid is
+  −49.5. On this sample the gate therefore suppresses nothing, and it is
+  exercised only by synthetic test values. 50 J/kg is a defensible boundary
+  for weak inhibition and a single 57-hour July recording is not evidence the
+  threshold is wrong, but real-world discrimination is unconfirmed. A fixture
+  recorded during a genuinely capped situation (a capped spring/summer
+  airmass, `cin` well below −50) would be worth capturing.
+
   AROME declares CAPE's unit as `m2 s-2`, which is dimensionally identical to
   J/kg, so the `J/kg` label this integration uses is numerically correct.
 - **C-LAEF ensemble** — `("forecast", "ensemble-v1-1h-2500m")`. Probabilistic

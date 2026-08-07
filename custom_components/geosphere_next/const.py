@@ -77,6 +77,11 @@ THUNDER_CAPE_JKG = 1000.0
 # Convective inhibition cap. AROME publishes `cin` as NEGATIVE J/kg: 0.0 means
 # uncapped, more negative means a stronger lid. CAPE only counts as thunder
 # potential when inhibition is weaker than this magnitude.
+# The recorded fixture's strongest lid is -49.5 J/kg, just inside this
+# boundary, so the gate suppresses nothing on the only real sample we have and
+# is exercised only by synthetic test values. 50 J/kg is a standard boundary
+# for weak inhibition; discrimination against real capped situations is
+# unconfirmed — see docs/domain/DATASETS.md.
 CAP_CIN_JKG = 50.0
 PRECIP_MIN_MM = 0.1
 POURING_MM_PER_H = 4.0

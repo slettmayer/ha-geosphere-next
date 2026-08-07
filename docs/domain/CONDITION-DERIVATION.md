@@ -42,7 +42,9 @@ speed, `night`. Precedence:
 **Thunder** (`is_thunder`) requires CAPE ≥ 1000 J/kg **and** `cin > -50` J/kg.
 AROME publishes `cin` as negative J/kg (0.0 = uncapped, more negative = a
 stronger lid); a missing `cin` is treated as uncapped, so behaviour degrades
-to CAPE-only when the parameter is absent.
+to CAPE-only when the parameter is absent. The −50 J/kg boundary is not yet
+confirmed against real capped data — every value in the recorded fixture is
+weaker than it; see [DATASETS.md](DATASETS.md).
 
 `outlook.py` reuses `is_thunder` for the storm-outlook entities, where it
 carries a second job: an hour counts as a thunderstorm hour when its derived
