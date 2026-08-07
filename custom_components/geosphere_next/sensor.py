@@ -454,11 +454,22 @@ class GeoSphereOutlookSensor(
 
     @property
     def native_value(self) -> float | datetime | None:
+        """`None` (unknown) when there is no forecast to scan.
+
+        Guarded like `GeoSphereBinarySensor.is_on`: unreachable while
+        `async_config_entry_first_refresh` guarantees data, but the two classes
+        are otherwise identical and must not disagree about it.
+        """
+        if self.coordinator.data is None:
+            return None
         return self.entity_description.value_fn(self.coordinator.data, dt_util.utcnow())
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:
-        if self.entity_description.attributes_fn is None:
+        if (
+            self.coordinator.data is None
+            or self.entity_description.attributes_fn is None
+        ):
             return {}
         return self.entity_description.attributes_fn(
             self.coordinator.data, dt_util.utcnow()
