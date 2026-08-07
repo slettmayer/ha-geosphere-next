@@ -26,7 +26,7 @@ as `grid_latitude` / `grid_longitude`, which differs from the requested point.
 
 - **AROME** — `("forecast", "nwp-v1-1h-2500m")`. Deterministic NWP model, 2.5 km
   grid, model reruns every 3 h, ~60 h hourly horizon. The primary forecast source
-  and the ultimate current-conditions fallback (its "step 0" hour). Parameters
+  and the ultimate current-conditions fallback (its hour covering now). Parameters
   (`AROME_PARAMETERS`): `t2m`, `mnt2m`, `mxt2m` (temp / min / max), `rh2m`
   (humidity), `u10m` / `v10m` (wind components), `ugust` / `vgust` (gust
   components), `tcc` (cloud cover, 0–1), `rr_acc` / `snow_acc` (run-accumulated

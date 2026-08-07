@@ -20,8 +20,16 @@ chain it applies.
 `GeoSphereCurrentCoordinator` (`custom_components/geosphere_next/coordinator.py`)
 runs at the current-conditions interval (default 15 min). Each cycle it fetches
 the nowcast (if `has_nowcast`), obtains the cached-or-refreshed INCA analysis,
-and reads the forecast coordinator's "step 0" AROME snapshot, then merges them in
-`_merge` into a `CurrentConditions` dataclass (`models.py`).
+and picks the AROME hour covering `now`, then merges them in `_merge` into a
+`CurrentConditions` dataclass (`models.py`).
+
+The AROME hour is selected per merge with `outlook.hour_at(hourly, now)`, which
+matches the top-of-hour floor of `now` — not the `ForecastData.current` snapshot
+taken when the forecast was fetched. The forecast coordinator can run up to
+180 min apart while this one runs every 15 min, so reading that snapshot would
+leave the AROME-only fields (cloud cover, CAPE, CIN) — and with them the derived
+condition — hours stale. When the series does not cover `now` at all (a forecast
+that has aged out entirely), the merge degrades to `ForecastData.current`.
 
 ### Per-field preference chain
 
@@ -29,13 +37,17 @@ and reads the forecast coordinator's "step 0" AROME snapshot, then merges them i
 value. The order encodes which source is trusted most for each field:
 
 - **Temperature, humidity, wind speed, wind bearing**:
-  INCA analysis → nowcast → AROME step 0.
+  INCA analysis → nowcast → AROME current hour.
 - **Dew point**: INCA analysis → nowcast only (no AROME fallback).
-- **Wind gust**: nowcast → AROME step 0.
+- **Wind gust**: nowcast → AROME current hour.
 - **MSL pressure**: INCA `P0` (Pa) only, converted to hPa.
 - **Global radiation**: INCA `GL` only.
-- **Cloud coverage, CAPE, snow limit, weather symbol**: AROME (via the forecast
-  coordinator) only — the nowcast/INCA products do not carry them.
+- **Cloud coverage, CAPE, CIN**: the AROME current hour only — the
+  nowcast/INCA products do not carry them.
+- **Snow limit, weather symbol**: `ForecastData.snow_limit` /
+  `.weather_symbol`, which the forecast coordinator computes once per fetch
+  from its first future hour. Unlike the fields above these are not re-picked
+  per hour, so they age with the forecast interval.
 - **1 h precipitation**: INCA `RR`; if absent, sum the last four 15-min nowcast
   `rr` buckets at/before now.
 - **Precipitation type / `is_precipitating`**: nowcast `pt` (255 = none).
@@ -60,12 +72,12 @@ each cycle retries until the next analysis appears. INCA is queried with a
 [../tech/ARCHITECTURE.md](../tech/ARCHITECTURE.md)) and stored in `entry.data`.
 INCA and the nowcast share the Austria-only grid, so when `has_nowcast` is
 `False` (inside the AROME domain but outside Austria) both are skipped and
-current conditions degrade to the AROME step-0 snapshot. If no source is
+current conditions degrade to the AROME current hour. If no source is
 available at all, `_async_update_data` raises `UpdateFailed`.
 
 ## Dependencies
 - `GeoSphereForecastCoordinator` — injected into the current coordinator's
-  constructor to supply AROME fallback values (`current`, `snow_limit`,
+  constructor to supply AROME fallback values (`hourly`, `current`, `snow_limit`,
   `weather_symbol`).
 - INCA analysis and nowcast datasets — see [DATASETS.md](DATASETS.md).
 

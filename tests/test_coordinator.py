@@ -246,3 +246,59 @@ async def test_cin_gate_changes_the_derived_condition(
     await _setup(hass, mock_config_entry)
 
     assert mock_config_entry.runtime_data.forecast.data.hourly[0].condition == expected
+
+
+async def test_current_arome_fields_follow_the_clock(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_api: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """AROME-sourced current fields track the hour, not the forecast fetch.
+
+    The current coordinator runs every 15 min while the forecast one can be
+    180 min apart, so reading the "step 0" snapshot captured at fetch time
+    would leave cloud cover, CAPE and CIN — and with them the derived
+    condition — up to 3 h stale.
+    """
+    freezer.move_to(FROZEN_NOW)
+    await _setup(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data.current
+
+    def arome_calls() -> int:
+        return sum("nwp-v1-1h-2500m" in str(call[1]) for call in mock_api.mock_calls)
+
+    baseline = arome_calls()
+    # Fixture hour 16:00Z: tcc 0.0 -> 0 %, cape 61.7, cin 0.0.
+    assert coordinator.data.cloud_coverage == 0
+    assert coordinator.data.cape == pytest.approx(61.7)
+    assert coordinator.data.cin == pytest.approx(0.0)
+
+    # Three hours on, without refetching the forecast: hour 19:00Z carries
+    # tcc 0.8 -> 80 %, cape 106.2, cin -49.5.
+    freezer.move_to("2026-07-15T19:30:00+00:00")
+    await coordinator.async_refresh()
+    assert arome_calls() == baseline
+    assert coordinator.data.cloud_coverage == 80
+    assert coordinator.data.cape == pytest.approx(106.2)
+    assert coordinator.data.cin == pytest.approx(-49.5)
+
+
+async def test_current_falls_back_when_the_forecast_aged_out(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_api: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Past the end of the series there is no matching hour — keep step 0."""
+    freezer.move_to(FROZEN_NOW)
+    await _setup(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data.current
+    step_zero = mock_config_entry.runtime_data.forecast.data.current
+
+    # The fixture ends at 2026-07-18T00:00Z; nothing covers this hour.
+    freezer.move_to("2026-07-19T12:30:00+00:00")
+    await coordinator.async_refresh()
+    assert coordinator.data.cloud_coverage == step_zero.cloud_coverage
+    assert coordinator.data.cape == step_zero.cape
+    assert coordinator.data.cin == step_zero.cin

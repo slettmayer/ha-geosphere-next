@@ -43,6 +43,23 @@ def _window(
     return [hour for hour in hourly if start <= hour.datetime <= end]
 
 
+def hour_at(hourly: list[HourlyForecast], now: datetime) -> HourlyForecast | None:
+    """The forecast hour covering `now` — the in-progress hour.
+
+    Matches on the top-of-hour floor of `now`, because the series is stamped at
+    the top of each hour and its first entry is the hour already under way (so
+    it is earlier than `now` by up to 59 minutes).
+
+    Returns `None` when the series does not cover `now` at all — e.g. a
+    forecast that has aged out entirely, or one that has not reached `now` yet.
+    """
+    start = now.replace(minute=0, second=0, microsecond=0)
+    for hour in hourly:
+        if hour.datetime == start:
+            return hour
+    return None
+
+
 def _is_lightning(hour: HourlyForecast) -> bool:
     """True when the hour reads as a thunderstorm hour.
 

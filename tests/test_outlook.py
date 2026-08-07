@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from custom_components.geosphere_next.models import HourlyForecast
 from custom_components.geosphere_next.outlook import (
+    hour_at,
     max_cape,
     max_gust,
     next_thunderstorm,
@@ -168,3 +169,28 @@ def test_thunderstorm_outlook_distinguishes_no_storm_from_no_data() -> None:
     assert thunderstorm_outlook(hourly, 12, NOW) is True
     # CAPE alone (no derived condition) is still a decidable hour.
     assert thunderstorm_outlook([_hour(0, cape=10.0)], 1, NOW) is False
+
+
+def test_hour_at_selects_the_in_progress_hour() -> None:
+    """NOW is 16:30; the hour stamped 16:00 is the one covering it."""
+    hourly = [_hour(0, cape=100.0), _hour(1, cape=200.0)]
+    selected = hour_at(hourly, NOW)
+    assert selected is not None
+    assert selected.datetime == datetime(2026, 7, 15, 16, 0, tzinfo=UTC)
+    assert selected.cape == 100.0
+
+
+def test_hour_at_follows_the_clock() -> None:
+    """Later in the day the same series yields the hour then in progress."""
+    hourly = [_hour(offset, cape=float(offset)) for offset in range(6)]
+    selected = hour_at(hourly, NOW + timedelta(hours=3))
+    assert selected is not None
+    assert selected.datetime == datetime(2026, 7, 15, 19, 0, tzinfo=UTC)
+    assert selected.cape == 3.0
+
+
+def test_hour_at_returns_none_without_a_match() -> None:
+    """An empty series, one that aged out, and one not yet reached."""
+    assert hour_at([], NOW) is None
+    assert hour_at([_hour(-3), _hour(-2)], NOW) is None
+    assert hour_at([_hour(2), _hour(3)], NOW) is None
