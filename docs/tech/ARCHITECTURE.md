@@ -89,6 +89,9 @@ The forecast-outlook entities (`OUTLOOK_SENSORS` in `sensor.py`,
 anchored on `now` rather than on the coordinator payload alone, they also mix
 in `entity.HourBoundaryRefreshMixin`, which re-writes their state at hh:00:05
 so an elapsed hour never lingers in a "next hour" window.
+`GeoSphereOutlookSensor` recomputes its state and its attributes together in
+`_refresh_outlook` — on coordinator updates and at each hour boundary — so both
+always come from one scan at one sample of the clock.
 
 ### Config flow
 

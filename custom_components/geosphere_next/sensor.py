@@ -24,7 +24,7 @@ from homeassistant.const import (
     UnitOfSpeed,
     UnitOfTemperature,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
@@ -433,8 +433,9 @@ class GeoSphereOutlookSensor(
 ):
     """A forecast-outlook sensor backed by the forecast coordinator.
 
-    The window is re-evaluated on every hour boundary as well as on
-    coordinator updates — see `HourBoundaryRefreshMixin`.
+    State and attributes are computed together, from one scan at one sample of
+    the clock, whenever the coordinator updates or an hour boundary passes —
+    see `_refresh_outlook` and `HourBoundaryRefreshMixin`.
     """
 
     entity_description: GeoSphereOutlookSensorEntityDescription
@@ -451,26 +452,47 @@ class GeoSphereOutlookSensor(
         self.entity_description = description
         self._attr_unique_id = f"{entry.entry_id}-{description.key}"
         self._attr_device_info = device_info(entry)
+        # Populate before the platform performs its first state write.
+        self._refresh_outlook()
 
-    @property
-    def native_value(self) -> float | datetime | None:
-        """`None` (unknown) when there is no forecast to scan.
+    @callback
+    def _refresh_outlook(self) -> None:
+        """Recompute state and attributes from a single sample of the clock.
 
-        Guarded like `GeoSphereBinarySensor.is_on`: unreachable while
-        `async_config_entry_first_refresh` guarantees data, but the two classes
-        are otherwise identical and must not disagree about it.
+        Sampling `dt_util.utcnow()` once per property let a write that straddles
+        an hour boundary publish, say, a `cape` attribute belonging to a
+        different hour than the `next_thunderstorm` timestamp beside it. One
+        sample for both makes that impossible — and scans the series once
+        instead of twice.
+
+        Within a clock hour the answer is invariant: every scan floors `now` to
+        the top of the hour, and the window end (`now + hours`) only crosses a
+        top-of-hour stamp when the hour itself changes. So recomputing on
+        coordinator updates and at each hour boundary is equivalent to
+        recomputing on every read, without carrying a stale `now`.
+
+        `None` / `{}` when there is no forecast to scan, matching
+        `GeoSphereBinarySensor.is_on`. Unreachable while
+        `async_config_entry_first_refresh` guarantees data.
         """
-        if self.coordinator.data is None:
-            return None
-        return self.entity_description.value_fn(self.coordinator.data, dt_util.utcnow())
-
-    @property
-    def extra_state_attributes(self) -> dict[str, object]:
-        if (
-            self.coordinator.data is None
-            or self.entity_description.attributes_fn is None
-        ):
-            return {}
-        return self.entity_description.attributes_fn(
-            self.coordinator.data, dt_util.utcnow()
+        data = self.coordinator.data
+        if data is None:
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = {}
+            return
+        now = dt_util.utcnow()
+        self._attr_native_value = self.entity_description.value_fn(data, now)
+        attributes_fn = self.entity_description.attributes_fn
+        self._attr_extra_state_attributes = (
+            {} if attributes_fn is None else attributes_fn(data, now)
         )
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self._refresh_outlook()
+        super()._handle_coordinator_update()
+
+    @callback
+    def _handle_hour_boundary(self, now: datetime) -> None:
+        self._refresh_outlook()
+        super()._handle_hour_boundary(now)
