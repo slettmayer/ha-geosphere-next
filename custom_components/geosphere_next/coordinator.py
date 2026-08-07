@@ -361,9 +361,9 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         forecast_data = self._forecast.data
         # The AROME-sourced fields must follow the clock rather than the
         # forecast fetch: this coordinator runs every 15 min by default while
-        # the forecast one can be up to 180 min apart, so `ForecastData
-        # .current` — the hour that was in progress when the forecast was
-        # fetched — can be hours old. Cloud cover, CAPE and CIN have no other
+        # the forecast one can be up to 180 min apart. The step-0 snapshot —
+        # the hour that was in progress when the forecast was last fetched —
+        # can therefore be hours old. Cloud cover, CAPE and CIN have no other
         # source, and all three feed the derived condition, so the reported
         # condition would go stale with it. Pick the hour covering `now`
         # instead, degrading to that snapshot only when the series no longer
