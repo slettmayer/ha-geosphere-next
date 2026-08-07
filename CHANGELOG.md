@@ -12,6 +12,7 @@
 - Fix: the gust and CAPE outlook sensors no longer carry a `state_class`, keeping predicted values out of Home Assistant's long-term statistics
 - Fix: the weather entity's hourly forecast no longer keeps already-elapsed hours between refreshes; the list is re-filtered to the current hour onward on every read and re-pushed to forecast subscribers at each hour boundary
 - Fix: current cloud cover, CAPE and CIN — and the current condition derived from them — now follow the clock instead of the forecast fetch. They were read from the forecast hour that was in progress when the forecast was last fetched, so at the maximum 180-minute forecast interval they could be ~3 h old; they now update with every current-conditions refresh (15 min by default)
+
 ## 0.8.3
 
 - Bump dependency (Dependabot)
