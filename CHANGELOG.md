@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.1
+
+- Add: releases now carry a `geosphere_next.zip` asset and HACS installs from it (`zip_release`) instead of fetching every file individually through the GitHub API. Faster to install, and it makes installs countable — GitHub reports a download count per release asset, which is the only usage signal this project has. Nothing about the integration's behaviour changes and there is nothing to reconfigure
+- Note: releases before 0.9.1 have no archive, and their tagged `hacs.json` has no `zip_release`, so HACS falls back to the file-by-file download for them — downgrading keeps working
+
 ## 0.9.0
 
 - Add: storm-outlook entities — max wind gust for the next hour and the next 12 hours, next expected thunderstorm (timestamp), thunderstorm expected within the next hour (binary), and max CAPE for the next 12 hours (diagnostic, disabled by default). Horizons round up to whole hourly steps, so a "1 hour" window covers the in-progress hour plus the next one (an event up to ~2 h out), and `next_thunderstorm` can sit up to 59 min in the past while a storm is already under way — see the README
