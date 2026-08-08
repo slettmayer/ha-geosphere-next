@@ -38,9 +38,37 @@ Python comes from `.python-version` via `actions/setup-python`'s
 ### Auto Release (`release.yml`)
 Triggered by a successful **Validate** run on `main` (`workflow_run`). It reads
 the version from `manifest.json`, tags `v{version}`, extracts the matching
-`## X.Y.Z` section from `CHANGELOG.md` via `awk`, and creates a GitHub release —
-skipping if the tag already exists. HACS then picks up the new release. No manual
-tagging.
+`## X.Y.Z` section from `CHANGELOG.md` via `awk`, builds `geosphere_next.zip`
+from `custom_components/geosphere_next/`, and creates a GitHub release with the
+archive attached — skipping if the tag already exists. HACS then picks up the
+new release. No manual tagging.
+
+### The release archive (`zip_release`)
+`hacs.json` sets `zip_release: true` and `filename: "geosphere_next.zip"`, so
+HACS downloads that one asset from the release instead of fetching every file
+through the GitHub API. Two constraints on how it is built:
+
+- **The integration's files must sit at the archive root.** HACS does
+  `zip_file.extractall(<config>/custom_components/geosphere_next)`, so a
+  top-level `geosphere_next/` directory inside the zip would land as
+  `custom_components/geosphere_next/geosphere_next/`. That is why the workflow
+  `cd`s into the integration directory and zips `.`.
+- **The asset name must equal `filename` exactly.** HACS requests that one name
+  from the release and fails the download if it is absent. Renaming one without
+  the other breaks every install.
+
+The archive is attached in the same `gh release create` call, so a release can
+never be published without it. That matters because the HACS action only checks
+that `filename` is set when `zip_release` is true — it does **not** verify the
+asset exists on the latest release, so a broken archive step would fail silently
+at install time, never in CI.
+
+The motive is measurement as much as speed: GitHub reports a `download_count`
+per release asset, and that is the only install signal this project has.
+
+Releases before 0.9.1 have no archive. Their tagged `hacs.json` has no
+`zip_release`, so HACS falls back to the file-by-file download for them —
+downgrading keeps working.
 
 ### Dependabot Version Bump (`dependabot-version-bump.yml`)
 On Dependabot PRs, a GitHub App token is used to auto-increment the patch version
@@ -81,6 +109,9 @@ prefixes. Every changelog entry ships with a `manifest.json` version bump.
   between runs.
 - The release depends on `manifest.json` and `CHANGELOG.md` staying in sync (the
   `## X.Y.Z` header must match exactly for `awk` extraction).
+- A wrong archive name or layout is invisible to CI and only surfaces as a failed
+  HACS install — keep `filename` in `hacs.json` and the zip step in `release.yml`
+  in sync.
 
 ## Extension Guidelines
 - Keep the `manifest.json` version and the top `CHANGELOG.md` header in sync in
