@@ -33,6 +33,33 @@ async def _setup(hass: HomeAssistant, entry) -> None:
     assert entry.state is ConfigEntryState.LOADED
 
 
+async def test_forecast_requests_an_hour_of_history(
+    hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
+) -> None:
+    """AROME and the ensemble are asked for one hour before the current hour.
+
+    The API trims the forecast to the current hour and `_process` must skip the
+    first step (accumulated parameters have no predecessor to difference), so
+    without this lookback the hour already under way is dropped -- taking the
+    "forecast starts at the current hour" behaviour, `outlook.hour_at`, and the
+    current condition's cloud/CAPE/CIN reading with it.
+
+    The anchor is the top of the hour, not `now`: the API rounds `start` up to
+    the next whole stamp, so `now - 1h` at 16:30 would come back as 16:00 and
+    the in-progress hour would again be the predecessor-less first step.
+    """
+    freezer.move_to(FROZEN_NOW)
+    await _setup(hass, mock_config_entry)
+
+    starts = [
+        call[1].query.get("start")
+        for call in mock_api.mock_calls
+        if "nwp-v1-1h-2500m" in str(call[1]) or "ensemble-v1-1h-2500m" in str(call[1])
+    ]
+    assert len(starts) == 2
+    assert starts == ["2026-07-15T15:00", "2026-07-15T15:00"]
+
+
 async def test_forecast_processing(
     hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
 ) -> None:

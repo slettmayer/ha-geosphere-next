@@ -88,7 +88,12 @@ forever. See the README FAQ and [../tech/ARCHITECTURE.md](../tech/ARCHITECTURE.m
 - Stepped, ensemble-backed probability over smooth interpolation is a deliberate
   accuracy-over-appearance trade-off (v0.8.0).
 - The in-progress hour is kept (comparing to the top of the hour) so the forecast
-  begins at the current hour.
+  begins at the current hour. This needs `HOURLY_LOOKBACK_HOURS` of history on
+  the request: the API trims the forecast to the current hour, and `_process`
+  must skip the first step for lack of an accumulation predecessor, so without
+  the lookback the very hour this decision is about is the one dropped. The
+  lookback is anchored to the top of the hour, not to `now` — the API rounds
+  `start` up to the next whole stamp.
 
 ## Known Risks
 - Negative accumulation deltas at model-run boundaries clamp to 0; a genuine

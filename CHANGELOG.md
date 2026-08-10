@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.2
+
+- Fix: the forecast now really does start at the hour already under way. The AROME request asked for no history, but the API trims the forecast to the current hour and processing must skip the first step (accumulated parameters have no predecessor to difference against) — so the in-progress hour was the one being dropped, and had been since that behaviour was introduced. One hour of history is now requested, anchored to the top of the hour rather than to `now`, because the API rounds `start` up to the next whole stamp
+- Fix: as a consequence, current cloud cover, CAPE and CIN — and the condition derived from them — are read from the hour actually in progress. `outlook.hour_at` could never match, so the current coordinator always fell back to the *next* forecast hour; at 14:30 it reported the 15:00 hour's sky. This is what the 0.9.0 entry "current cloud cover, CAPE and CIN now follow the clock" was meant to deliver
+- Fix: the storm-outlook entities' 1-hour horizon covers the in-progress hour again, as the README describes. Their windows were silently one stamp short, so a thunderstorm forecast for the current hour could not be reported at all
+
 ## 0.9.1
 
 - Add: releases now carry a `geosphere_next.zip` asset and HACS installs from it (`zip_release`) instead of fetching every file individually through the GitHub API. Faster to install, and it makes installs countable — GitHub reports a download count per release asset, which is the only usage signal this project has. Nothing about the integration's behaviour changes and there is nothing to reconfigure

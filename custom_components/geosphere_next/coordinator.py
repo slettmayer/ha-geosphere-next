@@ -46,6 +46,7 @@ from .const import (
     DEFAULT_FORECAST_INTERVAL_MINUTES,
     DOMAIN,
     ENSEMBLE_PARAMETERS,
+    HOURLY_LOOKBACK_HOURS,
     INCA_LOOKBACK_HOURS,
     INCA_MAX_AGE_SECONDS,
     INCA_PARAMETERS,
@@ -148,12 +149,24 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         self.longitude: float = config_entry.data[CONF_LONGITUDE]
 
     async def _async_update_data(self) -> ForecastData:
+        # One hour of history, so the hour already under way survives
+        # `_process`, which must skip the first step for lack of an
+        # accumulation predecessor. The API trims the forecast to the current
+        # hour, so without this that step *is* the in-progress hour and it is
+        # dropped — see HOURLY_LOOKBACK_HOURS. Anchored to the top of the hour
+        # rather than to `now`, because the API rounds `start` up to the next
+        # whole stamp.
+        series_start = dt_util.utcnow().replace(
+            minute=0, second=0, microsecond=0
+        ) - timedelta(hours=HOURLY_LOOKBACK_HOURS)
+
         try:
             response = await self._client.get_timeseries(
                 *DATASET_AROME,
                 parameters=AROME_PARAMETERS,
                 latitude=self.latitude,
                 longitude=self.longitude,
+                start=series_start,
             )
         except GeoSphereRateLimitError as err:
             raise UpdateFailed(
@@ -171,6 +184,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                 parameters=ENSEMBLE_PARAMETERS,
                 latitude=self.latitude,
                 longitude=self.longitude,
+                start=series_start,
             )
         except GeoSphereApiError as err:
             _LOGGER.warning(
