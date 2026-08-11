@@ -49,7 +49,7 @@ from .outlook import max_cape, max_gust, next_thunderstorm
 class GeoSphereSensorEntityDescription(SensorEntityDescription):
     """Sensor description with a value extractor."""
 
-    value_fn: Callable[[CurrentConditions], float | int | str | None]
+    value_fn: Callable[[CurrentConditions], float | int | str | datetime | None]
 
 
 def _kmh(value: float | None) -> float | None:
@@ -210,6 +210,18 @@ SENSORS: tuple[GeoSphereSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
         value_fn=lambda data: data.weather_symbol,
+    ),
+    # Enabled by default, unlike the other diagnostics: current conditions come
+    # from an analysis that publishes ~30 min after the hour, so a reading can
+    # be ~90 min old while every other entity presents it as "now". Without
+    # this there is nothing anywhere that says how old -- which makes a stale
+    # reading indistinguishable from a wrong one.
+    GeoSphereSensorEntityDescription(
+        key="observation_time",
+        translation_key="observation_time",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: data.observed_at,
     ),
 )
 

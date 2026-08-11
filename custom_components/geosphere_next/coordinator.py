@@ -429,8 +429,9 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         # for thermodynamic fields and wind: the nowcast extrapolates from an
         # analysis ~2 h behind, lagging diurnal ramps by up to ~2 °C (verified
         # 2026-07-16 against TAWES station observations).
+        inca_t2m, inca_t2m_at = inca_latest("T2M")
         temperature = chain(
-            inca_latest("T2M")[0],
+            inca_t2m,
             now_value("t2m"),
             arome.temperature if arome else None,
         )
@@ -448,7 +449,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         cin = arome.cin if arome else None
 
         p0, _ = inca_latest("P0")
-        rr_1h, observed_at = inca_latest("RR")
+        rr_1h, rr_at = inca_latest("RR")
         if rr_1h is None and nowcast is not None:
             # Sum the last four 15-min nowcast buckets at/before now.
             past = [
@@ -466,8 +467,19 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         rate_mm_h = nowcast_rr * 4.0 if nowcast_rr is not None else (rr_1h or 0.0)
         night = is_night(self.latitude, self.longitude, now)
 
+        # When the conditions below actually describe. Anchored to the INCA
+        # analysis that supplied the temperature -- the field the reading is
+        # judged by -- rather than to precipitation, which can be absent while
+        # the thermodynamic fields are present and would then claim `now` for
+        # an hour-old analysis. INCA publishes ~30 min after the hour and the
+        # previous slice is served until the next appears, so this can trail
+        # real time by ~90 min. Falls back to `now` only when no INCA analysis
+        # contributed at all, which is the case where the nowcast (current by
+        # construction) is supplying the values.
+        observed_at = inca_t2m_at or rr_at or now
+
         return CurrentConditions(
-            observed_at=observed_at or now,
+            observed_at=observed_at,
             temperature=temperature,
             apparent_temperature=apparent_temperature(
                 temperature, humidity, wind_speed

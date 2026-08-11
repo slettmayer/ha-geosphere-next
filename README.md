@@ -75,6 +75,7 @@ forecast interval — and re-pushed to any live subscribers at every full hour.
 | `condition` | The derived HA condition as a plain text sensor | — |
 | `global_radiation` | Downward shortwave (solar) irradiance | W/m² |
 | `snow_limit` | Altitude of the rain/snow line | m |
+| `observation_time` (Observation time) | Which hour the current conditions actually describe — the INCA analysis they came from, which can be ~90 min old (diagnostic category, but enabled: see the FAQ) | timestamp |
 
 Values are merged from INCA analysis → INCA nowcast → AROME forecast with a
 per-field fallback chain, so an individual field stays populated even when its
@@ -244,14 +245,25 @@ implied range — 95, 70, 30, or 0 % — which is coarser than the smooth-lookin
 percentages other providers show, but every step is genuinely ensemble-backed
 rather than interpolated.
 
-**Why can the current temperature trail nearby stations by up to ~1 °C?**
+**Why does the current temperature disagree with the forecast for this hour?**
 Current thermodynamic values come from the INCA hourly analysis, which is
-anchored on real station observations but publishes with some delay — the
-newest available hour can be up to ~75 minutes old, so steep morning/evening
-ramps show up slightly late. The 15-min nowcast product is *not* used as the
-primary source on purpose: its temperature extrapolates from an analysis
-roughly 2 hours behind, which was measured to lag real stations by up to
-±2 °C on diurnal ramps (too cold while warming, too warm while cooling).
+anchored on real station observations but publishes about 30 minutes after the
+hour it describes — and the previous analysis is served until the next one
+exists, so the reading on display can be ~90 minutes old. On a fast morning
+ramp that is easily several degrees, and it looks like a contradiction rather
+than a delay: on 2026-08-11 in the Bregenzerwald, "current" showed 19.4 °C (the
+09:00 analysis) while the forecast row for 11:00 showed 26.1 °C. Both were
+right; they described hours two apart.
+
+The **Observation time** sensor (diagnostic, enabled by default) shows exactly
+which hour the current conditions describe, so you can tell a stale reading
+from a wrong one. Nothing can make INCA publish sooner.
+
+The 15-min nowcast product is *not* used as the primary source on purpose, and
+switching to it when INCA is stale would make this worse rather than better:
+its temperature extrapolates from an analysis roughly 2 hours behind, which was
+measured against TAWES stations to lag by up to ±2 °C on diurnal ramps (too
+cold while warming, too warm while cooling) — precisely the situation above.
 
 **Why is there no daily forecast?**
 AROME is a deliberately high-resolution, *short-range* model: its +60 h

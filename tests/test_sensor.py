@@ -345,3 +345,54 @@ async def test_outlook_attributes_follow_the_state_across_the_hour(
     state = hass.states.get(entity_id)
     assert state.state == "2026-07-15T19:00:00+00:00"
     assert state.attributes["cape"] == 2500.0
+
+
+async def test_observation_time_sensor_exposes_the_analysis_age(
+    hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
+) -> None:
+    """Current conditions can be ~90 min old; nothing else says so.
+
+    INCA publishes ~30 min after the hour and the previous slice is served
+    until the next appears, so every other entity presents an hour-old
+    analysis as "now". This sensor is the only place that age is visible --
+    which is what separates a stale reading from a wrong one.
+    """
+    freezer.move_to(FROZEN_NOW)
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.geosphere_next_observation_time")
+    assert state is not None
+    # Fixture's newest INCA analysis is 15:00Z; the clock is 16:00Z.
+    assert state.state == "2026-07-15T15:00:00+00:00"
+    assert state.attributes["device_class"] == "timestamp"
+    # Same analysis the temperature came from, so the age is the reading's.
+    assert hass.states.get("sensor.geosphere_next_temperature").state == "30.43"
+
+
+async def test_observation_time_follows_the_temperature_not_precipitation(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """An INCA slice with temperature but no RR must not claim to be current.
+
+    `observed_at` used to come from the RR series alone, so a analysis whose
+    precipitation was absent reported `now` while the temperature on display
+    was an hour old.
+    """
+    freezer.move_to(FROZEN_NOW)
+    inca = load_fixture("inca.json")
+    inca["features"][0]["properties"]["parameters"]["RR"]["data"] = [None, None, None]
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=inca)
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.geosphere_next_observation_time")
+    assert state.state == "2026-07-15T15:00:00+00:00"

@@ -55,7 +55,35 @@ value. The order encodes which source is trusted most for each field:
 INCA analysis is preferred over the 15-min nowcast for thermodynamic fields and
 wind because the nowcast extrapolates from an analysis ~2 h behind and lags
 diurnal ramps by up to ~2 °C (see the README FAQ). The trade-off is that INCA
-publishes with delay, so `observed_at` can trail real time by up to ~75 min.
+publishes with delay, so `observed_at` can trail real time by **~90 min**.
+
+That figure is the publish cadence, not the cache policy. INCA appears roughly
+30 min after the hour it describes, and the previous slice is served until the
+next one exists — so shortly before an analysis lands, the reading on display
+is the one from the hour before last. Observed on 2026-08-11: the 07:00Z
+analysis was still being served at 08:32Z, 92 minutes old. Lowering
+`INCA_MAX_AGE_SECONDS` cannot help; the data simply is not published yet.
+
+This matters most on fast diurnal ramps, where it reads as a disagreement
+between "current" and the forecast rather than as staleness. On that same
+morning the current temperature showed 19.4 °C (the 09:00 local analysis) while
+the forecast row for 11:00 showed 26.1 °C — two hours apart, both correct.
+The `observation_time` sensor exists so that age is visible rather than
+inferred.
+
+### Observation time
+
+`observed_at` is anchored to the INCA analysis that supplied the **temperature**
+— the field the reading is judged by — falling back to the precipitation
+analysis, and to `now` only when no INCA analysis contributed at all (the
+nowcast-only path, which is current by construction). Anchoring it to
+precipitation alone would let an analysis whose `RR` is absent report `now`
+while an hour-old temperature is on display.
+
+It is surfaced by the `observation_time` sensor (diagnostic, but **enabled by
+default**, unlike the other diagnostics): every other entity presents the
+analysis as "now", so without it a stale reading is indistinguishable from a
+wrong one.
 
 ### INCA caching and freshness
 

@@ -56,6 +56,7 @@
       "cape": { "name": "CAPE" },
       "precipitation_type": { "name": "Niederschlagsart-Code" },
       "weather_symbol": { "name": "Wettersymbol-Code" },
+      "observation_time": { "name": "Beobachtungszeit" },
       "nitrogen_dioxide": { "name": "Stickstoffdioxid" },
       "ozone": { "name": "Ozon" },
       "pm10": { "name": "PM10" },
