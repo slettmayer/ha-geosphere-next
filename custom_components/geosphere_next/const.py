@@ -58,12 +58,13 @@ DEFAULT_FORECAST_INTERVAL_MINUTES = 30
 # Not user-configurable: the chem model runs once a day with hourly steps.
 AIR_QUALITY_INTERVAL_MINUTES = 60
 
-# Hours of history requested alongside the AROME forecast. The API trims the
-# forecast to the current hour, and `_process` must skip the first step because
-# accumulated parameters have no predecessor to difference against -- so without
-# this lookback the hour already under way is dropped, and with it the
-# "forecast starts at the current hour" behaviour, `outlook.hour_at`, and the
-# current condition's cloud/CAPE/CIN reading.
+# Hours of history requested alongside the AROME forecast, so the series is
+# guaranteed to reach back to the hour already under way. Naming that hour as
+# `start` does not work: the API rounds `start` up to the next whole stamp, so
+# a request for 15:00 comes back starting 16:00 and the in-progress hour is
+# gone -- taking with it the "forecast starts at the current hour" behaviour,
+# `outlook.hour_at`, and the current condition's cloud/CAPE/CIN reading.
+# `_process` drops whatever precedes the cutoff.
 HOURLY_LOOKBACK_HOURS = 1
 
 # How old the cached INCA slice may get before it is re-fetched (seconds).

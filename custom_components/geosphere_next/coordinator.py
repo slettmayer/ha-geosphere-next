@@ -149,13 +149,12 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         self.longitude: float = config_entry.data[CONF_LONGITUDE]
 
     async def _async_update_data(self) -> ForecastData:
-        # One hour of history, so the hour already under way survives
-        # `_process`, which must skip the first step for lack of an
-        # accumulation predecessor. The API trims the forecast to the current
-        # hour, so without this that step *is* the in-progress hour and it is
-        # dropped — see HOURLY_LOOKBACK_HOURS. Anchored to the top of the hour
-        # rather than to `now`, because the API rounds `start` up to the next
-        # whole stamp.
+        # One hour of history, so the series is guaranteed to reach back to
+        # the hour already under way — see HOURLY_LOOKBACK_HOURS. Asking for
+        # the top of the current hour directly would not do it: the API rounds
+        # `start` up to the next whole stamp, so a request for 15:00 comes
+        # back starting 16:00 and the in-progress hour is gone. `_process`
+        # drops whatever precedes the cutoff.
         series_start = dt_util.utcnow().replace(
             minute=0, second=0, microsecond=0
         ) - timedelta(hours=HOURLY_LOOKBACK_HOURS)
@@ -213,24 +212,37 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
 
         # Keep the in-progress hour so the forecast starts at the current hour
         # (matching OWM / Open-Meteo), comparing against the top of the hour
-        # rather than the exact instant. Index 0 is still skipped: accumulated
-        # parameters have no predecessor step, so its hourly precipitation is
-        # unknowable (verified spike finding E-7).
+        # rather than the exact instant.
+        #
+        # A row stamped `ts` describes the hour *beginning* at `ts` — Home
+        # Assistant's forecast convention. AROME mixes two stampings, and the
+        # dataset metadata is explicit about which is which:
+        #   * instantaneous AT the stamp: t2m, rh2m, u10m/v10m, tcc, cape,
+        #     cin, snowlmt, sy;
+        #   * the interval ENDING at the stamp: ugust/vgust and mnt2m/mxt2m
+        #     ("... in the last forecast intervall"), plus the rr_acc /
+        #     snow_acc deltas, which are accumulations since the run start so
+        #     acc[i] - acc[i-1] spans (ts[i-1], ts[i]].
+        # The interval fields covering the hour that *starts* at `ts` therefore
+        # live one step later, at `nxt`. Reading them at `i` would report the
+        # hour that already ended — rain that has stopped, the previous hour's
+        # gust peak. The final stamp has no successor and so cannot be emitted.
         cutoff = now.replace(minute=0, second=0, microsecond=0)
-        for i in range(1, len(response.timestamps)):
+        for i in range(len(response.timestamps) - 1):
             ts = response.timestamps[i]
             if ts < cutoff:
                 continue
+            nxt = i + 1
             if first_future_index is None:
                 first_future_index = i
             wind_speed, wind_bearing = wind_from_components(
                 response.value_at("u10m", i), response.value_at("v10m", i)
             )
             gust_speed, _ = wind_from_components(
-                response.value_at("ugust", i), response.value_at("vgust", i)
+                response.value_at("ugust", nxt), response.value_at("vgust", nxt)
             )
-            precipitation = _diff(response.series("rr_acc"), i)
-            snow = _diff(response.series("snow_acc"), i)
+            precipitation = _diff(response.series("rr_acc"), nxt)
+            snow = _diff(response.series("snow_acc"), nxt)
             cloud = _percent(response.value_at("tcc", i))
             cape = response.value_at("cape", i)
             cin = response.value_at("cin", i)
@@ -240,8 +252,8 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                 HourlyForecast(
                     datetime=ts,
                     temperature=temperature,
-                    templow=response.value_at("mnt2m", i),
-                    temphigh=response.value_at("mxt2m", i),
+                    templow=response.value_at("mnt2m", nxt),
+                    temphigh=response.value_at("mxt2m", nxt),
                     humidity=humidity,
                     precipitation=precipitation,
                     snow=snow,

@@ -38,17 +38,18 @@ async def test_forecast_requests_an_hour_of_history(
 ) -> None:
     """AROME and the ensemble are asked for one hour before the current hour.
 
-    The API trims the forecast to the current hour and `_process` must skip the
-    first step (accumulated parameters have no predecessor to difference), so
-    without this lookback the hour already under way is dropped -- taking the
-    "forecast starts at the current hour" behaviour, `outlook.hour_at`, and the
-    current condition's cloud/CAPE/CIN reading with it.
+    The lookback is what guarantees the series reaches back to the hour already
+    under way. Without it that hour is dropped, taking the "forecast starts at
+    the current hour" behaviour, `outlook.hour_at`, and the current condition's
+    cloud/CAPE/CIN reading with it.
 
-    The anchor is the top of the hour, not `now`: the API rounds `start` up to
-    the next whole stamp, so `now - 1h` at 16:30 would come back as 16:00 and
-    the in-progress hour would again be the predecessor-less first step.
+    The clock is deliberately **off** the hour: the anchor must be the top of
+    the current hour, not `now`, because the API rounds `start` up to the next
+    whole stamp. Anchored to `now`, 16:30 - 1 h = 15:30 would be rounded to
+    16:00 and the in-progress hour would be lost again. At a clock of exactly
+    16:00:00 both anchorings produce 15:00 and the distinction goes untested.
     """
-    freezer.move_to(FROZEN_NOW)
+    freezer.move_to("2026-07-15T16:30:00+00:00")
     await _setup(hass, mock_config_entry)
 
     starts = [
@@ -58,6 +59,9 @@ async def test_forecast_requests_an_hour_of_history(
     ]
     assert len(starts) == 2
     assert starts == ["2026-07-15T15:00", "2026-07-15T15:00"]
+    # And the assembled forecast still opens on the hour under way.
+    hourly = mock_config_entry.runtime_data.forecast.data.hourly
+    assert hourly[0].datetime.isoformat() == "2026-07-15T16:00:00+00:00"
 
 
 async def test_forecast_processing(
@@ -69,14 +73,23 @@ async def test_forecast_processing(
 
     # Fixture: reference 12:00Z, timestamps 15:00Z..+60h. At frozen 16:00Z the
     # forecast starts at the in-progress hour 16:00Z (index 1); index 0 (15:00Z)
-    # is dropped since accumulated params have no predecessor to difference.
-    assert len(data.hourly) == 57
+    # precedes the cutoff. The final stamp (2026-07-18T00:00Z) cannot be
+    # emitted -- its interval fields would live on a successor that is not in
+    # the series -- so 56 rows survive, ending 2026-07-17T23:00Z.
+    assert len(data.hourly) == 56
+    assert data.hourly[-1].datetime.isoformat() == "2026-07-17T23:00:00+00:00"
+
     first = data.hourly[0]
     assert first.datetime.isoformat() == "2026-07-15T16:00:00+00:00"
+    # Instantaneous at the stamp.
     assert first.temperature == 28.6
-    # rr_acc[1] - rr_acc[0] = 0.479 - 0.0
-    assert first.precipitation == 0.48
-    assert first.condition == "rainy"
+    # Interval fields come from the *following* stamp, because they describe
+    # the interval ending at it: rr_acc[2] - rr_acc[1] = 0.479 - 0.479. The
+    # fixture's only early rain (0.479 mm) accumulated between 15:00Z and
+    # 16:00Z, so it belongs to the hour that has already elapsed -- reading it
+    # at index 1 would report rain at 16:00Z that has stopped falling.
+    assert first.precipitation == 0.0
+    assert first.condition == "sunny"
     # tcc 0.0 -> 0 %
     assert first.cloud_coverage == 0
     # Magnus from t2m 28.6 / rh2m 50.1.
@@ -91,8 +104,33 @@ async def test_forecast_processing(
     assert data.hourly[2].precipitation_probability == 30
     assert data.hourly[3].precipitation_probability == 0
     assert data.hourly[4].precipitation_probability == 0
-    # Last fixture hour has null percentiles -> no probability.
-    assert data.hourly[-1].precipitation_probability is None
+
+
+async def test_forecast_interval_fields_describe_the_hour_they_start(
+    hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
+) -> None:
+    """Accumulations, gusts and min/max belong to the hour beginning at the stamp.
+
+    AROME stamps `rr_acc`/`snow_acc` as run-accumulations and `ugust`/`vgust`,
+    `mnt2m`/`mxt2m` as "the last forecast intervall", so all of them describe
+    the interval *ending* at their stamp. A row stamped T covers T..T+1h, so
+    its interval fields have to be read one step later. Getting this wrong
+    reports rain that already stopped and the previous hour's gust peak.
+    """
+    freezer.move_to(FROZEN_NOW)
+    await _setup(hass, mock_config_entry)
+    hourly = mock_config_entry.runtime_data.forecast.data.hourly
+
+    by_ts = {hour.datetime.isoformat(): hour for hour in hourly}
+    # Fixture rr_acc climbs 0.99 -> 1.91 -> 3.552 across 06:00Z/07:00Z/08:00Z,
+    # so the hour *starting* 06:00Z catches 0.92 mm and the one starting
+    # 07:00Z catches 1.64 mm.
+    assert by_ts["2026-07-16T06:00:00+00:00"].precipitation == 0.92
+    assert by_ts["2026-07-16T07:00:00+00:00"].precipitation == 1.64
+    # Same rule for the min/max pair: mnt2m/mxt2m at the 07:00Z stamp describe
+    # 06:00Z-07:00Z, so the row starting 06:00Z takes the 07:00Z values.
+    assert by_ts["2026-07-16T06:00:00+00:00"].temphigh == pytest.approx(22.8)
+    assert by_ts["2026-07-16T06:00:00+00:00"].templow == pytest.approx(22.62)
 
 
 async def test_ensemble_failure_omits_probability(
@@ -110,7 +148,7 @@ async def test_ensemble_failure_omits_probability(
     await _setup(hass, mock_config_entry)
 
     data = mock_config_entry.runtime_data.forecast.data
-    assert len(data.hourly) == 57
+    assert len(data.hourly) == 56
     assert all(hour.precipitation_probability is None for hour in data.hourly)
 
 
@@ -262,8 +300,8 @@ async def test_cin_gate_changes_the_derived_condition(
 ) -> None:
     """End-to-end proof that the gate is wired, not just unit-tested.
 
-    Hour 1 of the fixture (16:00Z) carries 0.48 mm of precipitation; only its
-    CAPE and CIN are patched.
+    `stormy_arome` wets hour 1 of the fixture (16:00Z) so the derivation can
+    reach `lightning-rainy`; only its CAPE and CIN vary across the cases.
     """
     freezer.move_to(FROZEN_NOW)
     aioclient_mock.get(AROME_URL, json=stormy_arome(indexes=(1,), cin=cin))

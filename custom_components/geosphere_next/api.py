@@ -8,7 +8,7 @@ package later.
 from __future__ import annotations
 
 import contextlib
-from datetime import datetime
+from datetime import UTC, datetime
 
 import aiohttp
 
@@ -16,6 +16,19 @@ from .models import GeoSphereResponse, ParameterSeries
 
 API_BASE_URL = "https://dataset.api.hub.geosphere.at/v1"
 REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=30)
+
+
+def _stamp(when: datetime) -> str:
+    """Serialize a bound for the API, which reads naive stamps as UTC.
+
+    An aware datetime is converted to UTC first: formatting it directly would
+    drop the offset and turn, say, `14:00+02:00` into a request for `14:00Z` --
+    a window two hours off what the caller asked for. Naive values are assumed
+    to already be UTC, matching the API's own reading.
+    """
+    if when.tzinfo is not None:
+        when = when.astimezone(UTC)
+    return when.strftime("%Y-%m-%dT%H:%M")
 
 
 class GeoSphereApiError(Exception):
@@ -65,9 +78,9 @@ class GeoSphereApiClient:
             "output_format": "geojson",
         }
         if start is not None:
-            query["start"] = start.strftime("%Y-%m-%dT%H:%M")
+            query["start"] = _stamp(start)
         if end is not None:
-            query["end"] = end.strftime("%Y-%m-%dT%H:%M")
+            query["end"] = _stamp(end)
 
         try:
             async with self._session.get(

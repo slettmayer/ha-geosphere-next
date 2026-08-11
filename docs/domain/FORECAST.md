@@ -28,10 +28,23 @@ see [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md).
 
 ### Hourly processing
 
-- **Time window**: iteration starts at index 1 and keeps hours from the top of
-  the current hour onward (so the forecast starts at the current hour, matching
-  OpenWeatherMap / Open-Meteo). Index 0 is always skipped because accumulated
-  parameters have no predecessor step.
+- **Time window**: hours from the top of the current hour onward are kept, so
+  the forecast starts at the current hour (matching OpenWeatherMap /
+  Open-Meteo). The **final** stamp is always dropped -- see the stamping rule
+  below, which needs a successor.
+- **Two stampings, one row**: a row stamped `T` describes the hour *beginning*
+  at `T`, but AROME mixes instantaneous and interval parameters:
+
+  | Stamping | Parameters | Read at |
+  |----------|------------|---------|
+  | Instantaneous at the stamp | `t2m`, `rh2m`, `u10m`/`v10m`, `tcc`, `cape`, `cin`, `snowlmt`, `grad`, `sy` | `i` |
+  | The interval **ending** at the stamp | `ugust`/`vgust`, `mnt2m`/`mxt2m`, and the `rr_acc`/`snow_acc` deltas | `i + 1` |
+
+  The dataset metadata is explicit -- `ugust` is "U component of maximum wind
+  gust **in the last forecast intervall**", `mxt2m` likewise, and `rr_acc` is
+  "accumulated ... since start of the forecast" so `acc[i] - acc[i-1]` spans
+  `(ts[i-1], ts[i]]`. Reading the interval fields at `i` reports the hour that
+  already ended: rain that has stopped, and the previous hour's gust peak.
 - **Wind**: `wind_from_components(u10m, v10m)` and `(ugust, vgust)` convert u/v
   components to (speed m/s, meteorological bearing °) — see
   [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md).
@@ -44,8 +57,12 @@ see [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md).
 AROME `rr_acc` and `snow_acc` are run-accumulated totals. `_diff(series, index)`
 computes the hourly amount as `acc[i] - acc[i-1]`, rounded to 2 decimals and
 clamped to ≥ 0 so a negative delta (accumulation reset on a new model run) yields
-0. Index 0 returns `None` (no predecessor). This rule is verified in
-`tests/test_coordinator.py`.
+0. Index 0 returns `None` (no predecessor).
+
+Because that delta covers the interval *ending* at `index`, the row for the hour
+beginning at `ts[i]` calls `_diff(series, i + 1)` — see the stamping table
+above. This rule is verified in `tests/test_coordinator.py`
+(`test_forecast_interval_fields_describe_the_hour_they_start`).
 
 ### Stepped precipitation probability
 
@@ -89,15 +106,21 @@ forever. See the README FAQ and [../tech/ARCHITECTURE.md](../tech/ARCHITECTURE.m
   accuracy-over-appearance trade-off (v0.8.0).
 - The in-progress hour is kept (comparing to the top of the hour) so the forecast
   begins at the current hour. This needs `HOURLY_LOOKBACK_HOURS` of history on
-  the request: the API trims the forecast to the current hour, and `_process`
-  must skip the first step for lack of an accumulation predecessor, so without
-  the lookback the very hour this decision is about is the one dropped. The
-  lookback is anchored to the top of the hour, not to `now` — the API rounds
-  `start` up to the next whole stamp.
+  the request, because naming the current hour as `start` does not work: the API
+  rounds `start` up to the next whole stamp, so a request for 15:00 comes back
+  starting 16:00 and the in-progress hour is gone. `_process` drops whatever
+  precedes the cutoff.
+- Interval parameters are read one step on rather than re-stamped, so the row
+  keeps HA's convention that `datetime` is the *start* of the forecast period.
+  The cost is the final stamp, which has no successor and cannot be emitted.
 
 ## Known Risks
 - Negative accumulation deltas at model-run boundaries clamp to 0; a genuine
   spike straddling a run boundary is therefore under-reported for that hour.
+- Any new AROME parameter has to be classified as instantaneous or
+  interval-ending before it is wired in; the metadata endpoint's `desc` field
+  states which ("in the last forecast intervall"). Getting it wrong shifts that
+  field by an hour, silently.
 
 ## Extension Guidelines
 - To expose a new forecast field, add it to `HourlyForecast`, populate it in
