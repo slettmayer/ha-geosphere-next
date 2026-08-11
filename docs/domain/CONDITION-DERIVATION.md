@@ -44,7 +44,9 @@ AROME publishes `cin` as negative J/kg (0.0 = uncapped, more negative = a
 stronger lid); a missing `cin` is treated as uncapped, so behaviour degrades
 to CAPE-only when the parameter is absent. The −50 J/kg boundary is not yet
 confirmed against real capped data — every value in the recorded fixture is
-weaker than it; see [DATASETS.md](DATASETS.md).
+weaker than it; see [DATASETS.md](DATASETS.md). The gate applies wherever the
+verdict is forecast-driven; `derive_current_condition` skips it on observed
+precipitation (see below).
 
 `outlook.py` reuses `is_thunder` for the storm-outlook entities, where it
 carries a second job: an hour counts as a thunderstorm hour when its derived
@@ -66,6 +68,12 @@ Keyword-only inputs including the nowcast precipitation-type code and rate. The
 
 1. precipitating (pt ≠ 255, or rate ≥ 0.1 mm/h) → `snowy` (T ≤ 1 °C), else
    `lightning-rainy` (thunder), `pouring` (≥ 4 mm/h), or `rainy`.
+   **Thunder here is CAPE-only — the CIN cap is deliberately not applied.**
+   The precipitation is *observed* (INCA / the nowcast are anchored to
+   measurements) while CAPE and CIN are AROME's forecast for the hour, and
+   inhibition answers "can convection get started?" — a question the
+   observation has already settled. Letting a modelled lid veto it would
+   report a thunderstorm visibly in progress as plain `rainy`.
 2. fog heuristic (when `FOG_HEURISTIC_ENABLED`): RH ≥ 98 %, wind < 2 m/s,
    cloud ≥ 87.5 % → `fog`.
 3. otherwise delegate to `derive_condition` with zeroed precipitation.
