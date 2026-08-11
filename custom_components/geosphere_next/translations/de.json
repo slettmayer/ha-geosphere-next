@@ -54,6 +54,7 @@
       "global_radiation": { "name": "Globalstrahlung" },
       "snow_limit": { "name": "Schneefallgrenze" },
       "cape": { "name": "CAPE" },
+      "cin": { "name": "Konvektive Hemmung" },
       "precipitation_type": { "name": "Niederschlagsart-Code" },
       "weather_symbol": { "name": "Wettersymbol-Code" },
       "observation_time": { "name": "Beobachtungszeit" },
