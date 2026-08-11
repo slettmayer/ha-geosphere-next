@@ -403,7 +403,7 @@ class GeoSphereSensor(CoordinatorEntity[GeoSphereCurrentCoordinator], SensorEnti
         self._attr_device_info = device_info(entry)
 
     @property
-    def native_value(self) -> float | int | str | None:
+    def native_value(self) -> float | int | str | datetime | None:
         return self.entity_description.value_fn(self.coordinator.data)
 
 

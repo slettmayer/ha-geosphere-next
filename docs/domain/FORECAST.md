@@ -77,8 +77,17 @@ range it implies:
 - none wet ⇒ **0 %**
 - `p90` missing ⇒ `None` (no probability)
 
-Ensemble hours are matched to AROME hours by exact timestamp (both 1 h grids);
-unmatched hours get no probability. The stepped values (0/30/70/95) are coarser
+The percentiles are **interval** values, like AROME's accumulations and gusts:
+GeoSphere documents them as "the last forecast period", so a percentile stamped
+`T` covers `T-1h .. T`. `_process` therefore keys `pop_by_ts` by `ts -
+ENSEMBLE_STEP`, putting each probability on the row that reports the matching
+amount. Both grids are hourly, so the shifted keys still line up by exact
+timestamp; unmatched hours get no probability. Reading the percentiles at their
+own stamp — the pre-0.9.2 behaviour — pairs every row's amount with the
+*previous* hour's probability. `tests/test_coordinator.py`
+(`test_precipitation_probability_matches_the_row_it_is_reported_with`) pins it.
+
+The stepped values (0/30/70/95) are coarser
 than the smooth percentages other providers show but are each ensemble-backed
 rather than interpolated (see the README FAQ). Thresholds and the percentages
 live in `const.py` (`POP_P10_WET_PCT` etc.).

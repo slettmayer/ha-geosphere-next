@@ -97,11 +97,15 @@ async def test_forecast_processing(
     assert data.snow_limit == pytest.approx(3371.9)
     assert data.current is first
 
-    # Stepped probability from the ensemble rr percentiles (fixture hours):
-    # all wet / median wet / only p90 wet / all dry / p90 below threshold.
-    assert first.precipitation_probability == 95
-    assert data.hourly[1].precipitation_probability == 70
-    assert data.hourly[2].precipitation_probability == 30
+    # Stepped probability from the ensemble rr percentiles, read one stamp on
+    # -- the percentiles cover the hour ending at their stamp, like AROME's
+    # accumulations. The fixture's 16:00 entry is all wet (95) and belongs to
+    # the 15:00 hour, which the cutoff has already dropped; the 16:00 row gets
+    # the 17:00 entry instead. Then: only p90 wet / all dry / p90 below
+    # threshold.
+    assert first.precipitation_probability == 70
+    assert data.hourly[1].precipitation_probability == 30
+    assert data.hourly[2].precipitation_probability == 0
     assert data.hourly[3].precipitation_probability == 0
     assert data.hourly[4].precipitation_probability == 0
 
@@ -131,6 +135,29 @@ async def test_forecast_interval_fields_describe_the_hour_they_start(
     # 06:00Z-07:00Z, so the row starting 06:00Z takes the 07:00Z values.
     assert by_ts["2026-07-16T06:00:00+00:00"].temphigh == pytest.approx(22.8)
     assert by_ts["2026-07-16T06:00:00+00:00"].templow == pytest.approx(22.62)
+
+
+async def test_precipitation_probability_matches_the_row_it_is_reported_with(
+    hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
+) -> None:
+    """PoP is shifted with the amount, not left a stamp behind.
+
+    The C-LAEF percentiles are interval values too ("in the last forecast
+    period"), so they need the same one-step shift as `rr_acc`. Left unshifted
+    they pair each row's amount with the previous hour's probability -- the
+    forecast then shows a dry hour at 95 %, or rain at 0 %.
+    """
+    freezer.move_to(FROZEN_NOW)
+    await _setup(hass, mock_config_entry)
+    hourly = mock_config_entry.runtime_data.forecast.data.hourly
+
+    by_ts = {hour.datetime.isoformat(): hour for hour in hourly}
+    # The fixture's wet ensemble hours are its first two: 16:00Z is all wet and
+    # 17:00Z has a wet median. Both describe the hour ending at their stamp, so
+    # they belong to the rows starting 15:00Z (dropped, already elapsed) and
+    # 16:00Z. The 17:00Z row falls to the 18:00Z entry, only p90 wet.
+    assert by_ts["2026-07-15T16:00:00+00:00"].precipitation_probability == 70
+    assert by_ts["2026-07-15T17:00:00+00:00"].precipitation_probability == 30
 
 
 async def test_ensemble_failure_omits_probability(

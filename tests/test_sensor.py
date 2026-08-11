@@ -6,15 +6,23 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from freezegun.api import FrozenDateTimeFactory
+from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_component import DATA_INSTANCES
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
 )
 
 from custom_components.geosphere_next import sensor
-from custom_components.geosphere_next.const import CONF_FORECAST_INTERVAL
+from custom_components.geosphere_next.const import (
+    CONF_FORECAST_INTERVAL,
+    CONF_HAS_NOWCAST,
+    DOMAIN,
+)
 
 from .conftest import (
     AROME_URL,
@@ -396,3 +404,36 @@ async def test_observation_time_follows_the_temperature_not_precipitation(
 
     state = hass.states.get("sensor.geosphere_next_observation_time")
     assert state.state == "2026-07-15T15:00:00+00:00"
+
+
+async def test_observation_time_reports_the_arome_stamp_outside_the_nowcast_grid(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """AROME-only installations must not claim their hourly row is current.
+
+    With no nowcast and no INCA, every field comes from the forecast row for
+    the hour in progress, stamped at the top of that hour. Falling back to
+    `now` there would have this sensor -- the one thing that exists to expose
+    staleness -- report a reading up to an hour old as instantaneous.
+    """
+    freezer.move_to("2026-07-15T16:41:00+00:00")
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="GeoSphere Next",
+        unique_id="47.0000_9.0000",
+        data={
+            CONF_LATITUDE: 47.0,
+            CONF_LONGITUDE: 9.0,
+            CONF_HAS_NOWCAST: False,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.geosphere_next_observation_time")
+    assert state.state == "2026-07-15T16:00:00+00:00"

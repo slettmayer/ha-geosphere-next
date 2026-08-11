@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 DOMAIN = "geosphere_next"
 
 ATTRIBUTION = (
@@ -39,7 +41,11 @@ AROME_PARAMETERS = (
 )
 # C-LAEF ensemble precipitation percentiles (per-hour amounts, kg m-2; the
 # API exposes only p10/p50/p90 — no member counts or true probabilities).
+# Like AROME's interval parameters these cover the period *ending* at their
+# stamp ("in the last forecast period"), so a percentile has to be shifted one
+# step back to describe the hour a forecast row is stamped for.
 ENSEMBLE_PARAMETERS = ("rr_p10", "rr_p50", "rr_p90")
+ENSEMBLE_STEP = timedelta(hours=1)
 NOWCAST_PARAMETERS = ("t2m", "td", "rh2m", "rr", "pt", "dd", "ff", "fx")
 INCA_PARAMETERS = ("T2M", "TD2M", "RH2M", "RR", "P0", "GL", "UU", "VV")
 # WRF-Chem surface concentrations (µg/m³) and the daily European AQI (1-6).

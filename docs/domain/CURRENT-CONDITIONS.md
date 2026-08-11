@@ -73,12 +73,18 @@ inferred.
 
 ### Observation time
 
-`observed_at` is anchored to the INCA analysis that supplied the **temperature**
-— the field the reading is judged by — falling back to the precipitation
-analysis, and to `now` only when no INCA analysis contributed at all (the
-nowcast-only path, which is current by construction). Anchoring it to
-precipitation alone would let an analysis whose `RR` is absent report `now`
-while an hour-old temperature is on display.
+`observed_at` follows whichever source won the fallback chain, in that order:
+
+1. the INCA analysis that supplied the **temperature** — the field the reading
+   is judged by. Anchoring to precipitation alone would let an analysis whose
+   `RR` is absent claim a fresher time than the temperature deserves;
+2. the INCA analysis that supplied the precipitation, if `T2M` was absent;
+3. `now`, when the 15-min nowcast is supplying the values — current by
+   construction, so `now` is honest;
+4. the AROME row's own stamp, when nothing else contributed. Outside the
+   nowcast grid (`has_nowcast = False`) every field comes from `hour_at(...)`,
+   stamped at the top of its hour and so up to an hour old — exactly the
+   staleness this sensor exists to show.
 
 It is surfaced by the `observation_time` sensor (diagnostic, but **enabled by
 default**, unlike the other diagnostics): every other entity presents the

@@ -46,6 +46,7 @@ from .const import (
     DEFAULT_FORECAST_INTERVAL_MINUTES,
     DOMAIN,
     ENSEMBLE_PARAMETERS,
+    ENSEMBLE_STEP,
     HOURLY_LOOKBACK_HOURS,
     INCA_LOOKBACK_HOURS,
     INCA_MAX_AGE_SECONDS,
@@ -201,10 +202,16 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
 
         # Ensemble hours align with AROME's whole-hour stamps (both 1 h grids,
         # matched by exact timestamp); missing hours yield no probability.
+        #
+        # The percentiles are interval values, like the AROME fields below:
+        # "Total amount of ... precipitation in the last forecast period". The
+        # probability stamped `ts` therefore belongs to the hour *ending* at
+        # `ts`, so it is keyed here by that hour's start — one step back —
+        # which is the stamp of the row that reports the matching amount.
         pop_by_ts: dict[datetime, int | None] = {}
         if ensemble is not None:
             for i, ts in enumerate(ensemble.timestamps):
-                pop_by_ts[ts] = _precipitation_probability(
+                pop_by_ts[ts - ENSEMBLE_STEP] = _precipitation_probability(
                     ensemble.value_at("rr_p10", i),
                     ensemble.value_at("rr_p50", i),
                     ensemble.value_at("rr_p90", i),
@@ -467,16 +474,26 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         rate_mm_h = nowcast_rr * 4.0 if nowcast_rr is not None else (rr_1h or 0.0)
         night = is_night(self.latitude, self.longitude, now)
 
-        # When the conditions below actually describe. Anchored to the INCA
-        # analysis that supplied the temperature -- the field the reading is
-        # judged by -- rather than to precipitation, which can be absent while
-        # the thermodynamic fields are present and would then claim `now` for
-        # an hour-old analysis. INCA publishes ~30 min after the hour and the
-        # previous slice is served until the next appears, so this can trail
-        # real time by ~90 min. Falls back to `now` only when no INCA analysis
-        # contributed at all, which is the case where the nowcast (current by
-        # construction) is supplying the values.
-        observed_at = inca_t2m_at or rr_at or now
+        # When the conditions below actually describe, following whichever
+        # source won the chain above. INCA first, anchored to the analysis
+        # that supplied the temperature -- the field the reading is judged by
+        # -- rather than to precipitation, which can be absent while the
+        # thermodynamic fields are present and would then claim a fresher time
+        # than the temperature deserves. INCA publishes ~30 min after the hour
+        # it analyses and the previous slice is served until the next appears,
+        # so this can trail real time by ~90 min. The nowcast is current by
+        # construction, so `now` is honest for it. Outside the nowcast grid
+        # every field comes from an AROME row instead, which is stamped at the
+        # top of its hour and is up to an hour old -- exactly the staleness
+        # this sensor exists to show, so report the row's own stamp.
+        if inca_t2m_at is not None:
+            observed_at = inca_t2m_at
+        elif rr_at is not None:
+            observed_at = rr_at
+        elif nowcast is not None and nowcast.timestamps:
+            observed_at = now
+        else:
+            observed_at = arome.datetime if arome else now
 
         return CurrentConditions(
             observed_at=observed_at,
