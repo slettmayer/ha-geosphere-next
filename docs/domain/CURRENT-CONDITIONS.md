@@ -51,11 +51,66 @@ value. The order encodes which source is trusted most for each field:
 - **1 h precipitation**: INCA `RR`; if absent, sum the last four 15-min nowcast
   `rr` buckets at/before now.
 - **Precipitation type / `is_precipitating`**: nowcast `pt` (255 = none).
+- **Precipitation rate** (mm/h, feeds the condition): the matched nowcast `rr`
+  bucket × `NOWCAST_BUCKETS_PER_HOUR`, else INCA's hourly `RR` where there is
+  no nowcast at all. When `pt` says it *is* precipitating, the peak across the
+  last `RATE_LOOKBACK`
+  (30 min) of buckets is used instead of the matched one alone — a single
+  bucket can round to 0.0 in the gap between cells, and a rate of 0 mm/h would
+  then starve both the `pouring` branch and the downpour override in
+  [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md).
+
+  INCA's hourly `RR` is deliberately *not* the wider source here, though it is
+  the obvious candidate. It is a total over the whole past hour, so using it
+  as an instantaneous rate reports rain that has already stopped: 6 mm falling
+  in the first 20 minutes and ending, with drizzle keeping `pt` non-zero,
+  would read as 6 mm/h and derive a thunderstorm from a capped, drizzling sky.
+  The 30-minute window is short enough that what it reports is still falling.
 
 INCA analysis is preferred over the 15-min nowcast for thermodynamic fields and
 wind because the nowcast extrapolates from an analysis ~2 h behind and lags
 diurnal ramps by up to ~2 °C (see the README FAQ). The trade-off is that INCA
-publishes with delay, so `observed_at` can trail real time by up to ~75 min.
+publishes with delay, so `observed_at` can trail real time by **~90 min**.
+
+That figure is the publish cadence, not the cache policy. INCA appears roughly
+30 min after the hour it describes, and the previous slice is served until the
+next one exists — so shortly before an analysis lands, the reading on display
+is the one from the hour before last. Observed on 2026-08-11: the 07:00Z
+analysis was still being served at 08:32Z, 92 minutes old. Lowering
+`INCA_MAX_AGE_SECONDS` cannot help; the data simply is not published yet.
+
+This matters most on fast diurnal ramps, where it reads as a disagreement
+between "current" and the forecast rather than as staleness. On that same
+morning the current temperature showed 19.4 °C (the 09:00 local analysis) while
+the forecast row for 11:00 showed 26.1 °C — two hours apart, both correct.
+The `observation_time` sensor exists so that age is visible rather than
+inferred.
+
+### Observation time
+
+`observed_at` reports the stamp of whichever source supplied the
+**temperature** — the field the reading is judged by. Every rung follows that
+one field, so no other field's freshness can vouch for it:
+
+1. the INCA analysis carrying `T2M`;
+2. the 15-min nowcast bucket that was matched, when INCA has no temperature.
+   Its own stamp, not `now` — no source ever states `now`, and this sensor
+   exists to show the gap;
+3. the AROME row's own stamp, when nothing else contributed, clamped to `now`
+   because an observation time can never be in the future. Outside the nowcast
+   grid (`has_nowcast = False`) every field comes from `hour_at(...)`, stamped
+   at the top of its hour and so up to an hour old — exactly the staleness
+   this sensor exists to show.
+
+The INCA analysis behind the *precipitation* is deliberately **not** a rung.
+An analysis carrying `RR` but no `T2M` would otherwise date a temperature that
+came from somewhere else entirely — overstating staleness just as anchoring to
+`now` understates it.
+
+It is surfaced by the `observation_time` sensor (diagnostic, but **enabled by
+default**, unlike the other diagnostics): every other entity presents the
+analysis as "now", so without it a stale reading is indistinguishable from a
+wrong one.
 
 ### INCA caching and freshness
 

@@ -67,7 +67,7 @@ async def test_get_forecasts_hourly(
         return_response=True,
     )
     forecast = response[ENTITY_ID]["forecast"]
-    assert len(forecast) == 57
+    assert len(forecast) == 56
     assert forecast[0]["temperature"] is not None
     assert forecast[0]["condition"] is not None
 
@@ -90,9 +90,13 @@ async def test_get_forecasts_hourly(
         )
     )[ENTITY_ID]["forecast"]
     assert hourly[0]["datetime"] == "2026-07-15T16:00:00+00:00"
-    assert hourly[0]["precipitation"] == 0.48
-    # Ensemble fixture: all percentiles wet at 16:00Z -> stepped PoP 95 %.
-    assert hourly[0]["precipitation_probability"] == 95
+    # Dry: the fixture's 0.479 mm accumulated between 15:00Z and 16:00Z, so it
+    # belongs to the hour that has already elapsed, not the one starting here.
+    assert hourly[0]["precipitation"] == 0.0
+    # And the probability comes from the same hour as the amount: the 16:00Z
+    # ensemble entry (all percentiles wet, PoP 95 %) covers that elapsed hour
+    # too, so this row takes the 17:00Z one -- median wet, PoP 70 %.
+    assert hourly[0]["precipitation_probability"] == 70
     # Magnus dew point from t2m 28.6 / rh2m 50.1 (service output is converted,
     # so the key is dew_point, not native_dew_point).
     assert hourly[0]["dew_point"] == 17.2

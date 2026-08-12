@@ -46,9 +46,11 @@ from .const import (
     DEFAULT_FORECAST_INTERVAL_MINUTES,
     DOMAIN,
     ENSEMBLE_PARAMETERS,
+    HOURLY_LOOKBACK_HOURS,
     INCA_LOOKBACK_HOURS,
     INCA_MAX_AGE_SECONDS,
     INCA_PARAMETERS,
+    NOWCAST_BUCKETS_PER_HOUR,
     NOWCAST_PARAMETERS,
     POP_DRY_PCT,
     POP_P10_WET_PCT,
@@ -56,6 +58,7 @@ from .const import (
     POP_P90_WET_PCT,
     PRECIP_MIN_MM,
     PT_NO_PRECIPITATION,
+    RATE_LOOKBACK,
 )
 from .models import (
     AirQualityData,
@@ -148,12 +151,22 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         self.longitude: float = config_entry.data[CONF_LONGITUDE]
 
     async def _async_update_data(self) -> ForecastData:
+        # Anchored to the top of the hour, plus an hour of margin — see
+        # HOURLY_LOOKBACK_HOURS. The anchor is the part that matters: the API
+        # rounds a mid-hour `start` up to the next whole stamp, so anchoring
+        # to `now` at 15:30 would come back at 16:00 and drop the hour already
+        # under way. `_process` drops whatever precedes the cutoff.
+        series_start = dt_util.utcnow().replace(
+            minute=0, second=0, microsecond=0
+        ) - timedelta(hours=HOURLY_LOOKBACK_HOURS)
+
         try:
             response = await self._client.get_timeseries(
                 *DATASET_AROME,
                 parameters=AROME_PARAMETERS,
                 latitude=self.latitude,
                 longitude=self.longitude,
+                start=series_start,
             )
         except GeoSphereRateLimitError as err:
             raise UpdateFailed(
@@ -171,6 +184,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                 parameters=ENSEMBLE_PARAMETERS,
                 latitude=self.latitude,
                 longitude=self.longitude,
+                start=series_start,
             )
         except GeoSphereApiError as err:
             _LOGGER.warning(
@@ -184,14 +198,33 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
     ) -> ForecastData:
         now = dt_util.utcnow()
         hourly: list[HourlyForecast] = []
-        first_future_index: int | None = None
+        # Read off the row that becomes `hourly[0]`, below. Both are
+        # instantaneous at that row's own stamp, so they describe the same hour
+        # as `current` by construction rather than by a second index kept in
+        # step with it.
+        symbol: float | None = None
+        snow_limit: float | None = None
 
         # Ensemble hours align with AROME's whole-hour stamps (both 1 h grids,
         # matched by exact timestamp); missing hours yield no probability.
+        #
+        # The percentiles are interval values, like the AROME fields below:
+        # "Total amount of ... precipitation in the last forecast period". The
+        # probability stamped `ts` therefore belongs to the period *ending* at
+        # `ts`, so it is keyed by that period's start — which is simply the
+        # preceding stamp, the row that reports the matching amount.
+        #
+        # Read from the series itself rather than by subtracting a fixed step:
+        # if C-LAEF ever coarsens along its horizon (3-hourly tails are common
+        # for ensembles) or drops a stamp, a fixed step would miss every key
+        # and silently blank the probability across the whole forecast, with
+        # nothing logged. The predecessor is right at any cadence. Index 0 is
+        # the run start, whose "last period" precedes the run, so it has no
+        # row to land on.
         pop_by_ts: dict[datetime, int | None] = {}
         if ensemble is not None:
-            for i, ts in enumerate(ensemble.timestamps):
-                pop_by_ts[ts] = _precipitation_probability(
+            for i in range(1, len(ensemble.timestamps)):
+                pop_by_ts[ensemble.timestamps[i - 1]] = _precipitation_probability(
                     ensemble.value_at("rr_p10", i),
                     ensemble.value_at("rr_p50", i),
                     ensemble.value_at("rr_p90", i),
@@ -199,24 +232,38 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
 
         # Keep the in-progress hour so the forecast starts at the current hour
         # (matching OWM / Open-Meteo), comparing against the top of the hour
-        # rather than the exact instant. Index 0 is still skipped: accumulated
-        # parameters have no predecessor step, so its hourly precipitation is
-        # unknowable (verified spike finding E-7).
+        # rather than the exact instant.
+        #
+        # A row stamped `ts` describes the hour *beginning* at `ts` — Home
+        # Assistant's forecast convention. AROME mixes two stampings, and the
+        # dataset metadata is explicit about which is which:
+        #   * instantaneous AT the stamp: t2m, rh2m, u10m/v10m, tcc, cape,
+        #     cin, snowlmt, sy;
+        #   * the interval ENDING at the stamp: ugust/vgust and mnt2m/mxt2m
+        #     ("... in the last forecast intervall"), plus the rr_acc /
+        #     snow_acc deltas, which are accumulations since the run start so
+        #     acc[i] - acc[i-1] spans (ts[i-1], ts[i]].
+        # The interval fields covering the hour that *starts* at `ts` therefore
+        # live one step later, at `nxt`. Reading them at `i` would report the
+        # hour that already ended — rain that has stopped, the previous hour's
+        # gust peak. The final stamp has no successor and so cannot be emitted.
         cutoff = now.replace(minute=0, second=0, microsecond=0)
-        for i in range(1, len(response.timestamps)):
+        for i in range(len(response.timestamps) - 1):
             ts = response.timestamps[i]
             if ts < cutoff:
                 continue
-            if first_future_index is None:
-                first_future_index = i
+            nxt = i + 1
+            if not hourly:
+                symbol = response.value_at("sy", i)
+                snow_limit = response.value_at("snowlmt", i)
             wind_speed, wind_bearing = wind_from_components(
                 response.value_at("u10m", i), response.value_at("v10m", i)
             )
             gust_speed, _ = wind_from_components(
-                response.value_at("ugust", i), response.value_at("vgust", i)
+                response.value_at("ugust", nxt), response.value_at("vgust", nxt)
             )
-            precipitation = _diff(response.series("rr_acc"), i)
-            snow = _diff(response.series("snow_acc"), i)
+            precipitation = _diff(response.series("rr_acc"), nxt)
+            snow = _diff(response.series("snow_acc"), nxt)
             cloud = _percent(response.value_at("tcc", i))
             cape = response.value_at("cape", i)
             cin = response.value_at("cin", i)
@@ -226,8 +273,8 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                 HourlyForecast(
                     datetime=ts,
                     temperature=temperature,
-                    templow=response.value_at("mnt2m", i),
-                    temphigh=response.value_at("mxt2m", i),
+                    templow=response.value_at("mnt2m", nxt),
+                    temphigh=response.value_at("mxt2m", nxt),
                     humidity=humidity,
                     precipitation=precipitation,
                     snow=snow,
@@ -254,22 +301,13 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         if not hourly:
             raise UpdateFailed("AROME response contained no future forecast hours")
 
-        symbol = (
-            response.value_at("sy", first_future_index)
-            if first_future_index is not None
-            else None
-        )
         return ForecastData(
             reference_time=response.reference_time,
             grid_latitude=response.grid_latitude,
             grid_longitude=response.grid_longitude,
             hourly=hourly,
             current=hourly[0],
-            snow_limit=(
-                response.value_at("snowlmt", first_future_index)
-                if first_future_index is not None
-                else None
-            ),
+            snow_limit=snow_limit,
             weather_symbol=int(symbol) if symbol is not None else None,
         )
 
@@ -372,14 +410,21 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         if forecast_data is not None:
             arome = hour_at(forecast_data.hourly, now) or forecast_data.current
 
-        def now_value(name: str) -> float | None:
-            if nowcast is None or not nowcast.timestamps:
-                return None
-            index = min(
+        # Index of the nowcast bucket nearest `now`. Resolved once and reused by
+        # every nowcast field below and by `observed_at`: the bucket cannot
+        # change within this call. Nearest in *either* direction -- see the
+        # clamp on `observed_at`.
+        nowcast_index: int | None = None
+        if nowcast is not None and nowcast.timestamps:
+            nowcast_index = min(
                 range(len(nowcast.timestamps)),
                 key=lambda i: abs((nowcast.timestamps[i] - now).total_seconds()),
             )
-            return nowcast.value_at(name, index)
+
+        def now_value(name: str) -> float | None:
+            if nowcast is None or nowcast_index is None:
+                return None
+            return nowcast.value_at(name, nowcast_index)
 
         def inca_latest(name: str) -> tuple[float | None, datetime | None]:
             if inca is None:
@@ -403,8 +448,9 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         # for thermodynamic fields and wind: the nowcast extrapolates from an
         # analysis ~2 h behind, lagging diurnal ramps by up to ~2 °C (verified
         # 2026-07-16 against TAWES station observations).
+        inca_t2m, inca_t2m_at = inca_latest("T2M")
         temperature = chain(
-            inca_latest("T2M")[0],
+            inca_t2m,
             now_value("t2m"),
             arome.temperature if arome else None,
         )
@@ -422,7 +468,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         cin = arome.cin if arome else None
 
         p0, _ = inca_latest("P0")
-        rr_1h, observed_at = inca_latest("RR")
+        rr_1h, _ = inca_latest("RR")
         if rr_1h is None and nowcast is not None:
             # Sum the last four 15-min nowcast buckets at/before now.
             past = [
@@ -437,11 +483,76 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         pt_raw = now_value("pt")
         precipitation_type = int(pt_raw) if pt_raw is not None else None
         nowcast_rr = now_value("rr")
-        rate_mm_h = nowcast_rr * 4.0 if nowcast_rr is not None else (rr_1h or 0.0)
+        rate_mm_h = (
+            nowcast_rr * NOWCAST_BUCKETS_PER_HOUR
+            if nowcast_rr is not None
+            else (rr_1h or 0.0)
+        )
+        # A single bucket can round to 0.0 in the gap between cells of an
+        # active storm, reporting 0 mm/h mid-thunderstorm and starving both
+        # the `pouring` branch and the downpour override that lets observed
+        # rain overrule a modelled CIN lid -- the very case that override
+        # exists for (see `condition.derive_current_condition`). So once the
+        # nowcast's own `pt` code says it is precipitating, take the peak
+        # across the last RATE_LOOKBACK rather than the matched bucket alone.
+        #
+        # INCA's hourly `RR` is deliberately not used here. It is a total over
+        # the whole past hour, so substituting it for an instantaneous rate
+        # reports rain that has already stopped: 6 mm falling in the first 20
+        # minutes and ending, with drizzle keeping `pt` non-zero, would read
+        # as 6 mm/h and derive a thunderstorm from a capped, drizzling sky.
+        if (
+            nowcast is not None
+            and precipitation_type is not None
+            and precipitation_type != PT_NO_PRECIPITATION
+        ):
+            recent = [
+                value
+                for ts, value in zip(
+                    nowcast.timestamps, nowcast.series("rr"), strict=True
+                )
+                if now - RATE_LOOKBACK <= ts <= now and value is not None
+            ]
+            if recent:
+                rate_mm_h = max(rate_mm_h, max(recent) * NOWCAST_BUCKETS_PER_HOUR)
         night = is_night(self.latitude, self.longitude, now)
 
+        # When the conditions below actually describe: the stamp of whichever
+        # source supplied the *temperature*, the field the reading is judged
+        # by. Every rung follows that one field. Anchoring to any other lets
+        # one field's freshness vouch for another's -- an analysis carrying RR
+        # but no T2M would otherwise report a time the temperature never had,
+        # and does so in whichever direction happens to be wrong.
+        #
+        # INCA publishes ~30 min after the hour it analyses and the previous
+        # slice is served until the next appears, so this can trail real time
+        # by ~90 min. The nowcast runs every 15 min; its own bucket stamp is
+        # the honest answer there, not `now` -- no source ever states `now`.
+        # Outside the nowcast grid every field comes from an AROME row,
+        # stamped at the top of its hour and up to an hour old: exactly the
+        # staleness this sensor exists to show.
+        #
+        # Both of those rungs are clamped to `now`, because an observation
+        # time can never be in the future. The nowcast needs it as much as the
+        # AROME row does: the bucket match is *nearest*, not nearest-in-the-
+        # past, so at 15:38 it selects the 15:45 bucket.
+        nowcast_t2m_index = nowcast_index
+        if nowcast_t2m_index is not None and (
+            nowcast.value_at("t2m", nowcast_t2m_index) is None
+        ):
+            nowcast_t2m_index = None
+
+        if inca_t2m is not None:
+            observed_at = inca_t2m_at
+        elif nowcast_t2m_index is not None:
+            observed_at = min(nowcast.timestamps[nowcast_t2m_index], now)
+        elif arome is not None:
+            observed_at = min(arome.datetime, now)
+        else:
+            observed_at = now
+
         return CurrentConditions(
-            observed_at=observed_at or now,
+            observed_at=observed_at,
             temperature=temperature,
             apparent_temperature=apparent_temperature(
                 temperature, humidity, wind_speed

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 DOMAIN = "geosphere_next"
 
 ATTRIBUTION = (
@@ -39,6 +41,10 @@ AROME_PARAMETERS = (
 )
 # C-LAEF ensemble precipitation percentiles (per-hour amounts, kg m-2; the
 # API exposes only p10/p50/p90 — no member counts or true probabilities).
+# Like AROME's interval parameters these cover the period *ending* at their
+# stamp ("in the last forecast period"), so a percentile is keyed to the
+# preceding stamp to describe the hour a forecast row is stamped for. The
+# cadence is read from the series rather than assumed -- see `_process`.
 ENSEMBLE_PARAMETERS = ("rr_p10", "rr_p50", "rr_p90")
 NOWCAST_PARAMETERS = ("t2m", "td", "rh2m", "rr", "pt", "dd", "ff", "fx")
 INCA_PARAMETERS = ("T2M", "TD2M", "RH2M", "RR", "P0", "GL", "UU", "VV")
@@ -57,6 +63,35 @@ DEFAULT_CURRENT_INTERVAL_MINUTES = 15
 DEFAULT_FORECAST_INTERVAL_MINUTES = 30
 # Not user-configurable: the chem model runs once a day with hourly steps.
 AIR_QUALITY_INTERVAL_MINUTES = 60
+
+# Hours of history requested alongside the AROME forecast, as margin so the
+# series is certain to reach back to the hour already under way. Losing that
+# hour would take with it the "forecast starts at the current hour" behaviour,
+# `outlook.hour_at`, and the current condition's cloud/CAPE/CIN reading.
+#
+# What actually protects it is the *anchor*, not this margin. An unbounded
+# request begins well after the current hour (measured 2026-08-12 05:54Z:
+# first stamp 07:00), so `start` has to be named. The API then honours a
+# `start` that lands exactly on a stamp and rounds a mid-hour one *up* to the
+# next -- so `start = now` at 15:30 comes back at 16:00 and the in-progress
+# hour is gone, while `start = 15:00` comes back at 15:00. Anchoring to the
+# top of the hour is therefore load-bearing; this lookback is slack on top of
+# it. `_process` drops whatever precedes the cutoff.
+HOURLY_LOOKBACK_HOURS = 1
+
+# How far back the current precipitation rate may look for a wet 15-min
+# nowcast bucket. A single bucket can round to 0.0 in the gap between cells of
+# an active storm, so the rate takes the peak across this window rather than
+# the matched bucket alone. Deliberately short: INCA's hourly `RR` would be
+# the obvious wider source, but it is a *total* over the past hour, and using
+# it as an instantaneous rate keeps a shower that ended 40 min ago driving the
+# condition. Anything inside this window is still falling.
+RATE_LOOKBACK = timedelta(minutes=30)
+
+# Nowcast `rr` buckets carry the millimetres that fell within one 15-min step,
+# so an hourly rate is the bucket value times this. Tied to the nowcast
+# cadence: a move to 10-min buckets makes it 6.
+NOWCAST_BUCKETS_PER_HOUR = 4.0
 
 # How old the cached INCA slice may get before it is re-fetched (seconds).
 INCA_MAX_AGE_SECONDS = 55 * 60

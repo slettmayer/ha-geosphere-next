@@ -6,15 +6,23 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from freezegun.api import FrozenDateTimeFactory
+from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_component import DATA_INSTANCES
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
 )
 
 from custom_components.geosphere_next import sensor
-from custom_components.geosphere_next.const import CONF_FORECAST_INTERVAL
+from custom_components.geosphere_next.const import (
+    CONF_FORECAST_INTERVAL,
+    CONF_HAS_NOWCAST,
+    DOMAIN,
+)
 
 from .conftest import (
     AROME_URL,
@@ -122,12 +130,15 @@ async def test_outlook_sensors(
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
 
+    # 6.203 m/s: the gust of the hour beginning 16:00Z, which AROME stamps at
+    # 17:00Z because ugust/vgust are the maximum over the interval ending at
+    # their stamp.
     gust_1h = hass.states.get("sensor.geosphere_next_wind_gust_max_1h")
-    assert float(gust_1h.state) == pytest.approx(38.65, abs=0.01)
+    assert float(gust_1h.state) == pytest.approx(22.33, abs=0.01)
     assert gust_1h.attributes["unit_of_measurement"] == "km/h"
 
     gust_12h = hass.states.get("sensor.geosphere_next_wind_gust_max_12h")
-    assert float(gust_12h.state) == pytest.approx(38.65, abs=0.01)
+    assert float(gust_12h.state) == pytest.approx(22.33, abs=0.01)
     assert gust_12h.attributes["peak_time"] == "2026-07-15T16:00:00+00:00"
 
     # The recorded forecast never reaches the 1000 J/kg thunder threshold.
@@ -186,9 +197,9 @@ async def test_outlook_gust_horizons_differ(
 
     At the 16:00Z clock the fixture's peak gust sits in the in-progress hour,
     inside both windows — so swapping the two horizons would go unnoticed.
-    At 2026-07-16T04:00Z the 1 h window (04:00-05:00) peaks at 3.314 m/s
-    (11.93 km/h) while the 12 h window peaks at 6.030 m/s (21.71 km/h) in the
-    13:00Z hour.
+    At 2026-07-16T04:00Z the 1 h window (04:00-05:00) peaks at 2.886 m/s
+    (10.39 km/h) while the 12 h window peaks at 6.030 m/s (21.71 km/h) in the
+    hour beginning 12:00Z.
     """
     freezer.move_to("2026-07-16T04:00:00+00:00")
     mock_config_entry.add_to_hass(hass)
@@ -196,11 +207,11 @@ async def test_outlook_gust_horizons_differ(
     await hass.async_block_till_done()
 
     gust_1h = hass.states.get("sensor.geosphere_next_wind_gust_max_1h")
-    assert float(gust_1h.state) == pytest.approx(11.93, abs=0.01)
+    assert float(gust_1h.state) == pytest.approx(10.39, abs=0.01)
 
     gust_12h = hass.states.get("sensor.geosphere_next_wind_gust_max_12h")
     assert float(gust_12h.state) == pytest.approx(21.71, abs=0.01)
-    assert gust_12h.attributes["peak_time"] == "2026-07-16T13:00:00+00:00"
+    assert gust_12h.attributes["peak_time"] == "2026-07-16T12:00:00+00:00"
 
 
 async def test_outlook_window_re_evaluates_on_the_hour(
@@ -224,15 +235,16 @@ async def test_outlook_window_re_evaluates_on_the_hour(
 
     baseline = arome_calls()
     gust_1h = hass.states.get("sensor.geosphere_next_wind_gust_max_1h")
-    assert float(gust_1h.state) == pytest.approx(38.65, abs=0.01)
+    assert float(gust_1h.state) == pytest.approx(22.33, abs=0.01)
 
-    # The 16:00Z hour has elapsed; the window is now 17:00-18:00 (6.203 m/s).
+    # The 16:00Z hour has elapsed; the window is now 17:00-18:00, whose peak
+    # is 4.383 m/s — the 16:00Z hour's 6.203 m/s has dropped out.
     freezer.move_to("2026-07-15T17:00:05+00:00")
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
 
     gust_1h = hass.states.get("sensor.geosphere_next_wind_gust_max_1h")
-    assert float(gust_1h.state) == pytest.approx(22.33, abs=0.01)
+    assert float(gust_1h.state) == pytest.approx(15.78, abs=0.01)
     # ...and no forecast fetch happened in between.
     assert arome_calls() == baseline
 
@@ -240,16 +252,17 @@ async def test_outlook_window_re_evaluates_on_the_hour(
 def _two_storm_arome() -> dict:
     """The AROME fixture with storms at 16:00Z (CAPE 1500) and 19:00Z (2500).
 
-    Index 1 (16:00Z) already carries 0.48 mm of precipitation; index 4
-    (19:00Z) gets 1 mm added to the run-accumulated series from that index
-    onward, which leaves every later hourly difference untouched.
+    `stormy_arome` wets index 1 (16:00Z); index 4 (19:00Z) gets 1 mm added to
+    the run-accumulated series from index 5 onward — the delta at index 5 is
+    the rain of the hour *starting* at index 4 — which leaves every later
+    hourly difference untouched.
     """
     payload = stormy_arome(indexes=(1,), cape=1500.0, cin=0.0)
     parameters = payload["features"][0]["properties"]["parameters"]
     parameters["cape"]["data"][4] = 2500.0
     parameters["cin"]["data"][4] = 0.0
     accumulated = parameters["rr_acc"]["data"]
-    for index in range(4, len(accumulated)):
+    for index in range(5, len(accumulated)):
         accumulated[index] += 1.0
     return payload
 
@@ -340,3 +353,87 @@ async def test_outlook_attributes_follow_the_state_across_the_hour(
     state = hass.states.get(entity_id)
     assert state.state == "2026-07-15T19:00:00+00:00"
     assert state.attributes["cape"] == 2500.0
+
+
+async def test_observation_time_sensor_exposes_the_analysis_age(
+    hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
+) -> None:
+    """Current conditions can be ~90 min old; nothing else says so.
+
+    INCA publishes ~30 min after the hour and the previous slice is served
+    until the next appears, so every other entity presents an hour-old
+    analysis as "now". This sensor is the only place that age is visible --
+    which is what separates a stale reading from a wrong one.
+    """
+    freezer.move_to(FROZEN_NOW)
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.geosphere_next_observation_time")
+    assert state is not None
+    # Fixture's newest INCA analysis is 15:00Z; the clock is 16:00Z.
+    assert state.state == "2026-07-15T15:00:00+00:00"
+    assert state.attributes["device_class"] == "timestamp"
+    # Same analysis the temperature came from, so the age is the reading's.
+    assert hass.states.get("sensor.geosphere_next_temperature").state == "30.43"
+
+
+async def test_observation_time_follows_the_temperature_not_precipitation(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """An INCA slice with temperature but no RR must not claim to be current.
+
+    `observed_at` used to come from the RR series alone, so a analysis whose
+    precipitation was absent reported `now` while the temperature on display
+    was an hour old.
+    """
+    freezer.move_to(FROZEN_NOW)
+    inca = load_fixture("inca.json")
+    inca["features"][0]["properties"]["parameters"]["RR"]["data"] = [None, None, None]
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=inca)
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.geosphere_next_observation_time")
+    assert state.state == "2026-07-15T15:00:00+00:00"
+
+
+async def test_observation_time_reports_the_arome_stamp_outside_the_nowcast_grid(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """AROME-only installations must not claim their hourly row is current.
+
+    With no nowcast and no INCA, every field comes from the forecast row for
+    the hour in progress, stamped at the top of that hour. Falling back to
+    `now` there would have this sensor -- the one thing that exists to expose
+    staleness -- report a reading up to an hour old as instantaneous.
+    """
+    freezer.move_to("2026-07-15T16:41:00+00:00")
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="GeoSphere Next",
+        unique_id="47.0000_9.0000",
+        data={
+            CONF_LATITUDE: 47.0,
+            CONF_LONGITUDE: 9.0,
+            CONF_HAS_NOWCAST: False,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.geosphere_next_observation_time")
+    assert state.state == "2026-07-15T16:00:00+00:00"

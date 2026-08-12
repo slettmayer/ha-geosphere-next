@@ -60,6 +60,7 @@
       "cin": { "name": "Convective inhibition" },
       "precipitation_type": { "name": "Precipitation type code" },
       "weather_symbol": { "name": "Weather symbol code" },
+      "observation_time": { "name": "Observation time" },
       "nitrogen_dioxide": { "name": "Nitrogen dioxide" },
       "ozone": { "name": "Ozone" },
       "pm10": { "name": "PM10" },

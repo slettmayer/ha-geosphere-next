@@ -44,6 +44,7 @@ def stormy_arome(
     cape: float = 1500.0,
     cin: float = 0.0,
     cloud: float | None = None,
+    precipitation: float = 0.5,
 ) -> dict:
     """The recorded AROME fixture with a synthetic storm patched into it.
 
@@ -53,14 +54,24 @@ def stormy_arome(
     (1 = 2026-07-15T16:00Z, the in-progress hour at the tests' frozen clock).
     `cloud` optionally overrides `tcc` (0-1 scale) for those hours, which the
     dry-thunder branch of `derive_condition` requires.
+
+    `precipitation` (mm) wets the storm hours, since `derive_condition` needs
+    rain to reach `lightning-rainy`; pass 0.0 for a dry storm. `rr_acc` is
+    accumulated since the run start and the delta at `index + 1` is the rain
+    of the hour *starting* at `index`, so the series is raised from
+    `index + 1` onward — which leaves every later hourly difference untouched.
     """
     payload = load_fixture("arome.json")
     parameters = payload["features"][0]["properties"]["parameters"]
+    accumulated = parameters["rr_acc"]["data"]
     for index in indexes:
         parameters["cape"]["data"][index] = cape
         parameters["cin"]["data"][index] = cin
         if cloud is not None:
             parameters["tcc"]["data"][index] = cloud
+        if precipitation:
+            for later in range(index + 1, len(accumulated)):
+                accumulated[later] += precipitation
     return payload
 
 

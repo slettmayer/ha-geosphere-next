@@ -86,6 +86,101 @@ def test_current_condition_pt_override_snow_by_temperature() -> None:
     )
 
 
+def test_current_condition_thunder_ignores_the_forecast_cap() -> None:
+    """An observed storm is not vetoed by AROME's inhibition for the hour.
+
+    Precipitation here comes from INCA/the nowcast -- measurements -- while
+    CAPE and CIN are forecast. Inhibition answers "can convection start?", and
+    the observation has already settled that, so a strong modelled cap must
+    not turn a thunderstorm in progress into plain `rainy`. The forecast path
+    (`derive_condition`) still applies the full gate.
+    """
+    assert (
+        derive_current_condition(
+            precipitation_type=1,
+            precipitation_rate_mm_h=6.0,
+            temperature=18.0,
+            humidity=85.0,
+            wind_speed=4.0,
+            cloud_coverage=95.0,
+            cape=1800.0,
+            cin=-60.0,  # past CAP_CIN_JKG: capped, per the model
+            gust_speed=8.0,
+            night=False,
+        )
+        == "lightning-rainy"
+    )
+
+
+def test_current_condition_light_rain_does_not_override_the_cap() -> None:
+    """Only convective-intensity rain overrides the modelled lid.
+
+    Same capped, high-CAPE air as the test above, but the observation is
+    drizzle off a frontal deck rather than a downpour. `precipitating` is true
+    of any rate at all, so without the intensity qualifier this returned
+    `lightning-rainy` -- and contradicted `derive_condition`, which keeps the
+    full gate and calls the same hour `rainy`.
+    """
+    assert (
+        derive_current_condition(
+            precipitation_type=1,
+            precipitation_rate_mm_h=0.4,  # below POURING_MM_PER_H
+            temperature=18.0,
+            humidity=85.0,
+            wind_speed=4.0,
+            cloud_coverage=95.0,
+            cape=1800.0,
+            cin=-150.0,  # strongly capped, per the model
+            gust_speed=8.0,
+            night=False,
+        )
+        == "rainy"
+    )
+
+
+def test_current_condition_light_rain_thunders_when_uncapped() -> None:
+    """The intensity qualifier gates the *override*, not thunder itself.
+
+    With weak inhibition the ordinary gate passes on CAPE alone, so light rain
+    still reads as a thunderstorm -- the rate only matters when the model
+    claims a lid.
+    """
+    assert (
+        derive_current_condition(
+            precipitation_type=1,
+            precipitation_rate_mm_h=0.4,
+            temperature=18.0,
+            humidity=85.0,
+            wind_speed=4.0,
+            cloud_coverage=95.0,
+            cape=1800.0,
+            cin=-10.0,  # within CAP_CIN_JKG: effectively uncapped
+            gust_speed=8.0,
+            night=False,
+        )
+        == "lightning-rainy"
+    )
+
+
+def test_current_condition_without_precipitation_still_honours_the_cap() -> None:
+    """With nothing observed, the verdict is forecast-only and the cap applies."""
+    assert (
+        derive_current_condition(
+            precipitation_type=255,
+            precipitation_rate_mm_h=0.0,
+            temperature=25.0,
+            humidity=40.0,
+            wind_speed=3.0,
+            cloud_coverage=95.0,
+            cape=1800.0,
+            cin=-60.0,
+            gust_speed=5.0,
+            night=False,
+        )
+        == "cloudy"
+    )
+
+
 def test_current_condition_no_precip_falls_through() -> None:
     assert (
         derive_current_condition(
