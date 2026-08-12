@@ -45,8 +45,8 @@ stronger lid); a missing `cin` is treated as uncapped, so behaviour degrades
 to CAPE-only when the parameter is absent. The −50 J/kg boundary is not yet
 confirmed against real capped data — every value in the recorded fixture is
 weaker than it; see [DATASETS.md](DATASETS.md). The gate applies wherever the
-verdict is forecast-driven; `derive_current_condition` skips it on observed
-precipitation (see below).
+verdict is forecast-driven; `derive_current_condition` lets observed rain of
+convective intensity override it (see below).
 
 `outlook.py` reuses `is_thunder` for the storm-outlook entities, where it
 carries a second job: an hour counts as a thunderstorm hour when its derived
@@ -68,12 +68,23 @@ Keyword-only inputs including the nowcast precipitation-type code and rate. The
 
 1. precipitating (pt ≠ 255, or rate ≥ 0.1 mm/h) → `snowy` (T ≤ 1 °C), else
    `lightning-rainy` (thunder), `pouring` (≥ 4 mm/h), or `rainy`.
-   **Thunder here is CAPE-only — the CIN cap is deliberately not applied.**
-   The precipitation is *observed* (INCA / the nowcast are anchored to
-   measurements) while CAPE and CIN are AROME's forecast for the hour, and
-   inhibition answers "can convection get started?" — a question the
-   observation has already settled. Letting a modelled lid veto it would
-   report a thunderstorm visibly in progress as plain `rainy`.
+   **Thunder here passes the normal gate *or* CAPE alone when the observed
+   rate is ≥ `POURING_MM_PER_H`.** The precipitation is *observed* (INCA / the
+   nowcast are anchored to measurements) while CAPE and CIN are AROME's
+   forecast for the hour, and inhibition answers "can convection get
+   started?" — a question a downpour has already settled. Letting a modelled
+   lid veto it would report a thunderstorm visibly in progress as plain
+   `rainy`.
+
+   The intensity qualifier is what keeps that narrow. `precipitating` is true
+   of drizzle, so overriding on *any* observed rain would promote high CAPE
+   under a strong lid with light stratiform rain — a real frontal pattern,
+   not a storm — to `lightning-rainy`, and contradict `derive_condition`'s
+   `rainy` for the very same hour. Below 4 mm/h the full gate applies.
+
+   The cost: a genuine storm with weaker rain than 4 mm/h still reads as
+   `rainy` while the model claims a lid. The alternative was a second,
+   lower rate constant with nothing to validate it against.
 2. fog heuristic (when `FOG_HEURISTIC_ENABLED`): RH ≥ 98 %, wind < 2 m/s,
    cloud ≥ 87.5 % → `fog`.
 3. otherwise delegate to `derive_condition` with zeroed precipitation.

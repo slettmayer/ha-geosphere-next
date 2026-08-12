@@ -79,13 +79,21 @@ range it implies:
 
 The percentiles are **interval** values, like AROME's accumulations and gusts:
 GeoSphere documents them as "the last forecast period", so a percentile stamped
-`T` covers `T-1h .. T`. `_process` therefore keys `pop_by_ts` by `ts -
-ENSEMBLE_STEP`, putting each probability on the row that reports the matching
-amount. Both grids are hourly, so the shifted keys still line up by exact
-timestamp; unmatched hours get no probability. Reading the percentiles at their
-own stamp — the pre-0.9.2 behaviour — pairs every row's amount with the
-*previous* hour's probability. `tests/test_coordinator.py`
+`T` covers the period *ending* at `T`. `_process` therefore keys `pop_by_ts` by
+the **preceding stamp**, putting each probability on the row that reports the
+matching amount. Both grids are hourly, so the keys line up by exact timestamp;
+unmatched hours get no probability. Reading the percentiles at their own stamp
+— the pre-0.9.2 behaviour — pairs every row's amount with the *previous* hour's
+probability. `tests/test_coordinator.py`
 (`test_precipitation_probability_matches_the_row_it_is_reported_with`) pins it.
+
+The period start is read from the series rather than by subtracting a fixed
+step. Ensembles commonly coarsen along their horizon, and if C-LAEF ever does,
+a hardcoded 1 h step would miss every AROME row past the break and blank the
+probability across the whole forecast — silently, with nothing logged. The
+predecessor is correct at any cadence, and index 0 (the run start, whose "last
+period" precedes the run) simply has no row to land on.
+`test_precipitation_probability_survives_a_coarsening_ensemble` pins that.
 
 The stepped values (0/30/70/95) are coarser
 than the smooth percentages other providers show but are each ensemble-backed
@@ -114,10 +122,12 @@ forever. See the README FAQ and [../tech/ARCHITECTURE.md](../tech/ARCHITECTURE.m
 - Stepped, ensemble-backed probability over smooth interpolation is a deliberate
   accuracy-over-appearance trade-off (v0.8.0).
 - The in-progress hour is kept (comparing to the top of the hour) so the forecast
-  begins at the current hour. This needs `HOURLY_LOOKBACK_HOURS` of history on
-  the request, because naming the current hour as `start` does not work: the API
-  rounds `start` up to the next whole stamp, so a request for 15:00 comes back
-  starting 16:00 and the in-progress hour is gone. `_process` drops whatever
+  begins at the current hour. The request is anchored to the top of the hour and
+  backed off by `HOURLY_LOOKBACK_HOURS`. The anchor is the load-bearing half: an
+  unbounded request begins well after the current hour, and the API rounds a
+  *mid-hour* `start` up to the next whole stamp — so anchoring to `now` at 15:30
+  returns 16:00 and drops the hour under way, while `start = 15:00` is honoured
+  exactly. The lookback is margin on top of that. `_process` drops whatever
   precedes the cutoff.
 - Interval parameters are read one step on rather than re-stamped, so the row
   keeps HA's convention that `datetime` is the *start* of the forecast period.

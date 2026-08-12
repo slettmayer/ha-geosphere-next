@@ -51,6 +51,20 @@ value. The order encodes which source is trusted most for each field:
 - **1 h precipitation**: INCA `RR`; if absent, sum the last four 15-min nowcast
   `rr` buckets at/before now.
 - **Precipitation type / `is_precipitating`**: nowcast `pt` (255 = none).
+- **Precipitation rate** (mm/h, feeds the condition): the matched nowcast `rr`
+  bucket × 4, else INCA's hourly `RR` where there is no nowcast at all. When
+  `pt` says it *is* precipitating, the peak across the last `RATE_LOOKBACK`
+  (30 min) of buckets is used instead of the matched one alone — a single
+  bucket can round to 0.0 in the gap between cells, and a rate of 0 mm/h would
+  then starve both the `pouring` branch and the downpour override in
+  [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md).
+
+  INCA's hourly `RR` is deliberately *not* the wider source here, though it is
+  the obvious candidate. It is a total over the whole past hour, so using it
+  as an instantaneous rate reports rain that has already stopped: 6 mm falling
+  in the first 20 minutes and ending, with drizzle keeping `pt` non-zero,
+  would read as 6 mm/h and derive a thunderstorm from a capped, drizzling sky.
+  The 30-minute window is short enough that what it reports is still falling.
 
 INCA analysis is preferred over the 15-min nowcast for thermodynamic fields and
 wind because the nowcast extrapolates from an analysis ~2 h behind and lags
@@ -73,18 +87,24 @@ inferred.
 
 ### Observation time
 
-`observed_at` follows whichever source won the fallback chain, in that order:
+`observed_at` reports the stamp of whichever source supplied the
+**temperature** — the field the reading is judged by. Every rung follows that
+one field, so no other field's freshness can vouch for it:
 
-1. the INCA analysis that supplied the **temperature** — the field the reading
-   is judged by. Anchoring to precipitation alone would let an analysis whose
-   `RR` is absent claim a fresher time than the temperature deserves;
-2. the INCA analysis that supplied the precipitation, if `T2M` was absent;
-3. `now`, when the 15-min nowcast is supplying the values — current by
-   construction, so `now` is honest;
-4. the AROME row's own stamp, when nothing else contributed. Outside the
-   nowcast grid (`has_nowcast = False`) every field comes from `hour_at(...)`,
-   stamped at the top of its hour and so up to an hour old — exactly the
-   staleness this sensor exists to show.
+1. the INCA analysis carrying `T2M`;
+2. the 15-min nowcast bucket that was matched, when INCA has no temperature.
+   Its own stamp, not `now` — no source ever states `now`, and this sensor
+   exists to show the gap;
+3. the AROME row's own stamp, when nothing else contributed, clamped to `now`
+   because an observation time can never be in the future. Outside the nowcast
+   grid (`has_nowcast = False`) every field comes from `hour_at(...)`, stamped
+   at the top of its hour and so up to an hour old — exactly the staleness
+   this sensor exists to show.
+
+The INCA analysis behind the *precipitation* is deliberately **not** a rung.
+An analysis carrying `RR` but no `T2M` would otherwise date a temperature that
+came from somewhere else entirely — overstating staleness just as anchoring to
+`now` understates it.
 
 It is surfaced by the `observation_time` sensor (diagnostic, but **enabled by
 default**, unlike the other diagnostics): every other entity presents the

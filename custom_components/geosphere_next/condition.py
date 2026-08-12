@@ -147,19 +147,26 @@ def derive_current_condition(
 
     Note which evidence is which. Precipitation here is *observed* — INCA and
     the nowcast are anchored to measurements — while CAPE and CIN come from
-    AROME's forecast for the hour. So the CIN cap is not applied once rain is
-    falling: inhibition answers "can convection get started?", a question the
-    observation has already settled. Letting a forecast lid veto an observed
-    storm would render a thunderstorm in progress as plain `rainy`. The
-    non-precipitating branch below is forecast-driven end to end, so the full
-    CAPE/CIN gate is right there and in `derive_condition`.
+    AROME's forecast for the hour. Inhibition answers "can convection get
+    started?", and a downpour already answers it, so observed rain of
+    *convective intensity* (>= POURING_MM_PER_H) overrides the modelled lid:
+    letting it veto would render a thunderstorm in progress as plain `rainy`.
+
+    Intensity is the whole qualifier. Observed precipitation alone is far too
+    weak a signal to spend the gate on — `precipitating` is true of drizzle,
+    and high CAPE under a strong lid with light stratiform rain off a frontal
+    deck is a real pattern, not a storm. Below that rate the full CAPE/CIN
+    gate applies, as it does on the non-precipitating branch and throughout
+    `derive_condition`, both of which are forecast-driven end to end.
     """
     rate = precipitation_rate_mm_h or 0.0
     precipitating = (
         precipitation_type is not None and precipitation_type != PT_NO_PRECIPITATION
     ) or rate >= PRECIP_MIN_MM
     if precipitating:
-        thunder = cape is not None and cape >= THUNDER_CAPE_JKG
+        thunder = is_thunder(cape, cin) or (
+            rate >= POURING_MM_PER_H and cape is not None and cape >= THUNDER_CAPE_JKG
+        )
         snow_likely = temperature is not None and temperature <= SNOW_MAX_T2M_C
         if snow_likely:
             return "snowy"

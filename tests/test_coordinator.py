@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from freezegun.api import FrozenDateTimeFactory
@@ -38,16 +38,18 @@ async def test_forecast_requests_an_hour_of_history(
 ) -> None:
     """AROME and the ensemble are asked for one hour before the current hour.
 
-    The lookback is what guarantees the series reaches back to the hour already
-    under way. Without it that hour is dropped, taking the "forecast starts at
-    the current hour" behaviour, `outlook.hour_at`, and the current condition's
-    cloud/CAPE/CIN reading with it.
+    Together they guarantee the series reaches back to the hour already under
+    way. Losing that hour would take the "forecast starts at the current hour"
+    behaviour, `outlook.hour_at`, and the current condition's cloud/CAPE/CIN
+    reading with it.
 
-    The clock is deliberately **off** the hour: the anchor must be the top of
-    the current hour, not `now`, because the API rounds `start` up to the next
-    whole stamp. Anchored to `now`, 16:30 - 1 h = 15:30 would be rounded to
-    16:00 and the in-progress hour would be lost again. At a clock of exactly
-    16:00:00 both anchorings produce 15:00 and the distinction goes untested.
+    The clock is deliberately **off** the hour, because that is the only clock
+    at which the anchor is observable: the API honours a `start` that lands on
+    a stamp and rounds a mid-hour one *up* to the next. Anchored to `now`,
+    16:30 - 1 h = 15:30 would come back at 16:00 — still the hour under way,
+    but with the margin spent, and with no lookback at all `start = 16:30`
+    would round to 17:00 and lose it outright. At a clock of exactly 16:00:00
+    both anchorings produce 15:00 and the distinction goes untested.
     """
     freezer.move_to("2026-07-15T16:30:00+00:00")
     await _setup(hass, mock_config_entry)
@@ -160,6 +162,51 @@ async def test_precipitation_probability_matches_the_row_it_is_reported_with(
     assert by_ts["2026-07-15T17:00:00+00:00"].precipitation_probability == 30
 
 
+async def test_precipitation_probability_survives_a_coarsening_ensemble(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The percentile's period comes from the series, not a fixed 1 h step.
+
+    Ensembles commonly coarsen along their horizon, and C-LAEF may yet do so.
+    Subtracting a hardcoded step from every stamp would then miss every AROME
+    row past the break and blank the probability across the whole forecast,
+    silently -- no warning, just `None` everywhere. Keying on the preceding
+    stamp is right at any cadence.
+
+    Here the series goes 3-hourly after 17:00Z, so the 20:00Z percentile
+    describes the period beginning 17:00Z and must land on that row.
+    """
+    ensemble = load_fixture("ensemble.json")
+    ensemble["timestamps"] = [
+        "2026-07-15T15:00+00:00",
+        "2026-07-15T16:00+00:00",
+        "2026-07-15T17:00+00:00",
+        "2026-07-15T20:00+00:00",
+    ]
+    parameters = ensemble["features"][0]["properties"]["parameters"]
+    # Only the last (3-hourly) entry is wet, and it is wet at every percentile.
+    for name in ("rr_p10", "rr_p50", "rr_p90"):
+        parameters[name]["data"] = [0.0, 0.0, 0.0, 5.0]
+
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=ensemble)
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await _setup(hass, mock_config_entry)
+
+    by_ts = {
+        hour.datetime.isoformat(): hour
+        for hour in mock_config_entry.runtime_data.forecast.data.hourly
+    }
+    assert by_ts["2026-07-15T17:00:00+00:00"].precipitation_probability == 95
+    # And the regular part of the series still lands where it did.
+    assert by_ts["2026-07-15T16:00:00+00:00"].precipitation_probability == 0
+
+
 async def test_ensemble_failure_omits_probability(
     hass: HomeAssistant,
     mock_config_entry,
@@ -248,6 +295,150 @@ async def test_inca_failure_falls_back_to_nowcast(
     # INCA-only fields stay empty.
     assert data.pressure_hpa is None
     assert data.global_radiation is None
+
+
+async def test_observed_at_reports_the_nowcast_bucket_not_the_clock(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """With the nowcast supplying the temperature, its bucket stamp is the answer.
+
+    `now` is not: no source ever states it, and this sensor exists precisely
+    to show how far behind real time a reading is. The clock sits deliberately
+    off the 15-min grid, which is the only condition under which the two
+    differ at all.
+    """
+    freezer.move_to("2026-07-15T16:07:00+00:00")
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, status=500)
+    await _setup(hass, mock_config_entry)
+
+    data = mock_config_entry.runtime_data.current.data
+    assert data.temperature == 29.74  # the nowcast bucket nearest 16:07
+    assert data.observed_at == datetime(2026, 7, 15, 16, 0, tzinfo=UTC)
+
+
+async def test_observed_at_is_never_in_the_future(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The bucket match is nearest, not nearest-in-the-past.
+
+    At 16:38 the 16:45 bucket is closer than 16:30, so the stamp would be
+    reported seven minutes ahead of the clock -- an "observation" time later
+    than the present, describing what is really a short forecast.
+    """
+    freezer.move_to("2026-07-15T16:38:00+00:00")
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, status=500)
+    await _setup(hass, mock_config_entry)
+
+    data = mock_config_entry.runtime_data.current.data
+    assert data.observed_at <= datetime(2026, 7, 15, 16, 38, tzinfo=UTC)
+
+
+async def test_observed_at_ignores_an_analysis_without_temperature(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """An INCA slice carrying RR but no T2M must not date the temperature.
+
+    The temperature then falls to the nowcast and is current, so reporting the
+    analysis stamp (15:00Z, over an hour back) would claim a staleness the
+    displayed value does not have. Every rung follows the temperature.
+    """
+    inca = load_fixture("inca.json")
+    parameters = inca["features"][0]["properties"]["parameters"]
+    parameters["T2M"]["data"] = [None] * len(inca["timestamps"])
+
+    freezer.move_to("2026-07-15T16:07:00+00:00")
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=inca)
+    await _setup(hass, mock_config_entry)
+
+    data = mock_config_entry.runtime_data.current.data
+    # INCA still supplies its own fields, so the analysis did arrive.
+    assert data.pressure_hpa is not None
+    assert data.observed_at == datetime(2026, 7, 15, 16, 0, tzinfo=UTC)
+
+
+def _storm_nowcast(rr: list[float]) -> dict:
+    """The nowcast fixture with `pt` precipitating and `rr` set per bucket.
+
+    Buckets run 15:45, 16:00, 16:15, ... so at the 16:00 frozen clock the
+    matched bucket is index 1 and `RATE_LOOKBACK` reaches back to 15:30,
+    covering index 0 as well.
+    """
+    payload = load_fixture("nowcast.json")
+    parameters = payload["features"][0]["properties"]["parameters"]
+    count = len(payload["timestamps"])
+    parameters["rr"]["data"] = (rr + [0.0] * count)[:count]
+    parameters["pt"]["data"] = [1.0] * count
+    return payload
+
+
+async def test_a_dry_bucket_does_not_hide_the_cell_that_just_passed(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The lull between cells of an active storm still reads as a storm.
+
+    The matched bucket reads 0.0 while the one 15 min earlier caught 2 mm
+    (8 mm/h). Taking the matched bucket alone reports 0 mm/h, which starves
+    the downpour override that lets observed rain overrule a modelled CIN lid.
+    """
+    freezer.move_to(FROZEN_NOW)
+    # Capped, so only the observed rate can carry it to `lightning-rainy`.
+    aioclient_mock.get(AROME_URL, json=stormy_arome(indexes=(1,), cin=-80.0))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=_storm_nowcast([2.0, 0.0]))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await _setup(hass, mock_config_entry)
+
+    assert mock_config_entry.runtime_data.current.data.condition == "lightning-rainy"
+
+
+async def test_a_shower_that_already_ended_does_not_derive_a_storm(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Rain that stopped must not keep driving the condition.
+
+    INCA's `RR` is a total over the whole past hour, so 6 mm that fell early
+    in it and stopped is still on the books while only drizzle continues --
+    enough to keep `pt` non-zero. Reading that total as an instantaneous rate
+    would clear POURING_MM_PER_H and derive a thunderstorm from a capped,
+    drizzling sky. Every bucket inside RATE_LOOKBACK is dry, so it must not.
+    """
+    inca = load_fixture("inca.json")
+    inca["features"][0]["properties"]["parameters"]["RR"]["data"] = [6.0] * len(
+        inca["timestamps"]
+    )
+
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=stormy_arome(indexes=(1,), cin=-80.0))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=_storm_nowcast([0.0, 0.0]))
+    aioclient_mock.get(INCA_URL, json=inca)
+    await _setup(hass, mock_config_entry)
+
+    assert mock_config_entry.runtime_data.current.data.condition == "rainy"
 
 
 async def test_inca_refresh_keyed_on_data_age(
