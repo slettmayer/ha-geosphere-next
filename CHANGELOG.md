@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.3
+
+- Bump dependency (Dependabot)
+
 ## 0.9.2
 
 - Fix: the forecast now really does start at the hour already under way. Processing skipped the first step of the series and the API trims the forecast to the current hour, so that step *was* the in-progress hour — dropped ever since the behaviour was introduced. One hour of history is now requested, anchored to the top of the hour rather than to `now`: the API honours a `start` that lands exactly on a stamp but rounds a mid-hour one up to the next, so anchoring to `now` at 15:30 comes back at 16:00 with the in-progress hour already gone
