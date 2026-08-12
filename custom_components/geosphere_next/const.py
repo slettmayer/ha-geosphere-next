@@ -88,6 +88,11 @@ HOURLY_LOOKBACK_HOURS = 1
 # condition. Anything inside this window is still falling.
 RATE_LOOKBACK = timedelta(minutes=30)
 
+# Nowcast `rr` buckets carry the millimetres that fell within one 15-min step,
+# so an hourly rate is the bucket value times this. Tied to the nowcast
+# cadence: a move to 10-min buckets makes it 6.
+NOWCAST_BUCKETS_PER_HOUR = 4.0
+
 # How old the cached INCA slice may get before it is re-fetched (seconds).
 INCA_MAX_AGE_SECONDS = 55 * 60
 # INCA analyses trail real time by <1 h; query a window of the last 3 hours.

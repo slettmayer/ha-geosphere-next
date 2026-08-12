@@ -52,8 +52,9 @@ value. The order encodes which source is trusted most for each field:
   `rr` buckets at/before now.
 - **Precipitation type / `is_precipitating`**: nowcast `pt` (255 = none).
 - **Precipitation rate** (mm/h, feeds the condition): the matched nowcast `rr`
-  bucket × 4, else INCA's hourly `RR` where there is no nowcast at all. When
-  `pt` says it *is* precipitating, the peak across the last `RATE_LOOKBACK`
+  bucket × `NOWCAST_BUCKETS_PER_HOUR`, else INCA's hourly `RR` where there is
+  no nowcast at all. When `pt` says it *is* precipitating, the peak across the
+  last `RATE_LOOKBACK`
   (30 min) of buckets is used instead of the matched one alone — a single
   bucket can round to 0.0 in the gap between cells, and a rate of 0 mm/h would
   then starve both the `pouring` branch and the downpour override in

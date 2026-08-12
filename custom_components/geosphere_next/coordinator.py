@@ -50,6 +50,7 @@ from .const import (
     INCA_LOOKBACK_HOURS,
     INCA_MAX_AGE_SECONDS,
     INCA_PARAMETERS,
+    NOWCAST_BUCKETS_PER_HOUR,
     NOWCAST_PARAMETERS,
     POP_DRY_PCT,
     POP_P10_WET_PCT,
@@ -197,7 +198,12 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
     ) -> ForecastData:
         now = dt_util.utcnow()
         hourly: list[HourlyForecast] = []
-        first_future_index: int | None = None
+        # Read off the row that becomes `hourly[0]`, below. Both are
+        # instantaneous at that row's own stamp, so they describe the same hour
+        # as `current` by construction rather than by a second index kept in
+        # step with it.
+        symbol: float | None = None
+        snow_limit: float | None = None
 
         # Ensemble hours align with AROME's whole-hour stamps (both 1 h grids,
         # matched by exact timestamp); missing hours yield no probability.
@@ -247,8 +253,9 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
             if ts < cutoff:
                 continue
             nxt = i + 1
-            if first_future_index is None:
-                first_future_index = i
+            if not hourly:
+                symbol = response.value_at("sy", i)
+                snow_limit = response.value_at("snowlmt", i)
             wind_speed, wind_bearing = wind_from_components(
                 response.value_at("u10m", i), response.value_at("v10m", i)
             )
@@ -294,22 +301,13 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         if not hourly:
             raise UpdateFailed("AROME response contained no future forecast hours")
 
-        symbol = (
-            response.value_at("sy", first_future_index)
-            if first_future_index is not None
-            else None
-        )
         return ForecastData(
             reference_time=response.reference_time,
             grid_latitude=response.grid_latitude,
             grid_longitude=response.grid_longitude,
             hourly=hourly,
             current=hourly[0],
-            snow_limit=(
-                response.value_at("snowlmt", first_future_index)
-                if first_future_index is not None
-                else None
-            ),
+            snow_limit=snow_limit,
             weather_symbol=int(symbol) if symbol is not None else None,
         )
 
@@ -412,20 +410,21 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         if forecast_data is not None:
             arome = hour_at(forecast_data.hourly, now) or forecast_data.current
 
-        def now_index() -> int | None:
-            """Index of the nowcast bucket nearest `now`, if there is one."""
-            if nowcast is None or not nowcast.timestamps:
-                return None
-            return min(
+        # Index of the nowcast bucket nearest `now`. Resolved once and reused by
+        # every nowcast field below and by `observed_at`: the bucket cannot
+        # change within this call. Nearest in *either* direction -- see the
+        # clamp on `observed_at`.
+        nowcast_index: int | None = None
+        if nowcast is not None and nowcast.timestamps:
+            nowcast_index = min(
                 range(len(nowcast.timestamps)),
                 key=lambda i: abs((nowcast.timestamps[i] - now).total_seconds()),
             )
 
         def now_value(name: str) -> float | None:
-            index = now_index()
-            if index is None:
+            if nowcast is None or nowcast_index is None:
                 return None
-            return nowcast.value_at(name, index)
+            return nowcast.value_at(name, nowcast_index)
 
         def inca_latest(name: str) -> tuple[float | None, datetime | None]:
             if inca is None:
@@ -484,7 +483,11 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         pt_raw = now_value("pt")
         precipitation_type = int(pt_raw) if pt_raw is not None else None
         nowcast_rr = now_value("rr")
-        rate_mm_h = nowcast_rr * 4.0 if nowcast_rr is not None else (rr_1h or 0.0)
+        rate_mm_h = (
+            nowcast_rr * NOWCAST_BUCKETS_PER_HOUR
+            if nowcast_rr is not None
+            else (rr_1h or 0.0)
+        )
         # A single bucket can round to 0.0 in the gap between cells of an
         # active storm, reporting 0 mm/h mid-thunderstorm and starving both
         # the `pouring` branch and the downpour override that lets observed
@@ -511,7 +514,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
                 if now - RATE_LOOKBACK <= ts <= now and value is not None
             ]
             if recent:
-                rate_mm_h = max(rate_mm_h, max(recent) * 4.0)
+                rate_mm_h = max(rate_mm_h, max(recent) * NOWCAST_BUCKETS_PER_HOUR)
         night = is_night(self.latitude, self.longitude, now)
 
         # When the conditions below actually describe: the stamp of whichever
@@ -533,7 +536,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         # time can never be in the future. The nowcast needs it as much as the
         # AROME row does: the bucket match is *nearest*, not nearest-in-the-
         # past, so at 15:38 it selects the 15:45 bucket.
-        nowcast_t2m_index = now_index()
+        nowcast_t2m_index = nowcast_index
         if nowcast_t2m_index is not None and (
             nowcast.value_at("t2m", nowcast_t2m_index) is None
         ):

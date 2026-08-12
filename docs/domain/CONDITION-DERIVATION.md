@@ -89,8 +89,8 @@ Keyword-only inputs including the nowcast precipitation-type code and rate. The
    cloud ≥ 87.5 % → `fog`.
 3. otherwise delegate to `derive_condition` with zeroed precipitation.
 
-The current precipitation rate comes from the nowcast `rr` (15-min bucket × 4 to
-mm/h) when available, else the INCA 1 h `RR`.
+The current precipitation rate comes from the nowcast `rr` (15-min bucket ×
+`NOWCAST_BUCKETS_PER_HOUR` to mm/h) when available, else the INCA 1 h `RR`.
 
 ### Helper math
 

@@ -96,7 +96,10 @@ async def test_forecast_processing(
     assert first.cloud_coverage == 0
     # Magnus from t2m 28.6 / rh2m 50.1.
     assert first.dew_point == pytest.approx(17.2)
+    # Snow limit and weather symbol are instantaneous, and are read off the same
+    # row that becomes `current` -- 16:00Z here, not the series' first stamp.
     assert data.snow_limit == pytest.approx(3371.9)
+    assert data.weather_symbol == 26
     assert data.current is first
 
     # Stepped probability from the ensemble rr percentiles, read one stamp on
