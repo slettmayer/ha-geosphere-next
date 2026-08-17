@@ -164,6 +164,34 @@ async def test_cape_max_is_diagnostic_and_disabled(
     assert hass.states.get("sensor.geosphere_next_cape_max_12h") is None
 
 
+async def test_model_run_reports_the_arome_reference_time(
+    hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
+) -> None:
+    """The run stamp is what tells a stale forecast from a wrong one.
+
+    Enabled by default (diagnostic category), like `observation_time`: a
+    sensor nobody enables cannot answer the question it exists for. The
+    fixture's AROME run is 12:00Z, four hours behind the frozen clock —
+    exactly the gap the sensor is there to make visible.
+    """
+    freezer.move_to(FROZEN_NOW)
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.geosphere_next_model_run")
+    assert state is not None
+    assert state.state == "2026-07-15T12:00:00+00:00"
+
+
+def test_model_run_carries_no_state_class() -> None:
+    """A run stamp is an identifier, not a measurement to aggregate."""
+    from custom_components.geosphere_next.sensor import FORECAST_SENSORS
+
+    for description in FORECAST_SENSORS:
+        assert description.state_class is None, description.key
+
+
 async def test_outlook_entity_ids_match_their_keys(
     hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
 ) -> None:

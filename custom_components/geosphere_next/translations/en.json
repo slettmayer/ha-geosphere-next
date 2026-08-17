@@ -61,6 +61,7 @@
       "precipitation_type": { "name": "Precipitation type code" },
       "weather_symbol": { "name": "Weather symbol code" },
       "observation_time": { "name": "Observation time" },
+      "model_run": { "name": "Model run" },
       "nitrogen_dioxide": { "name": "Nitrogen dioxide" },
       "ozone": { "name": "Ozone" },
       "pm10": { "name": "PM10" },

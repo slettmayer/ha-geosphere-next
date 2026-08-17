@@ -76,6 +76,7 @@ forecast interval — and re-pushed to any live subscribers at every full hour.
 | `global_radiation` | Downward shortwave (solar) irradiance | W/m² |
 | `snow_limit` | Altitude of the rain/snow line | m |
 | `observation_time` (Observation time) | Which hour the current conditions actually describe — the INCA analysis they came from, which can be ~90 min old (diagnostic category, but enabled: see the FAQ) | timestamp |
+| `model_run` (Model run) | Which AROME run the forecast comes from — its `reference_time`, which can be several hours behind (diagnostic category, but enabled: see the FAQ) | timestamp |
 
 Values are merged from INCA analysis → INCA nowcast → AROME forecast with a
 per-field fallback chain, so an individual field stays populated even when its
@@ -264,6 +265,26 @@ switching to it when INCA is stale would make this worse rather than better:
 its temperature extrapolates from an analysis roughly 2 hours behind, which was
 measured against TAWES stations to lag by up to ±2 °C on diurnal ramps (too
 cold while warming, too warm while cooling) — precisely the situation above.
+
+**How often does the integration actually hit the API?**
+Less often than the interval sliders suggest. The models rerun on fixed
+cadences — AROME every 3 hours, the C-LAEF ensemble every 12 — so between
+reruns a request would return exactly what the integration already holds. Those
+requests are skipped: the forecast coordinator still wakes on your configured
+interval and re-derives everything that depends on the clock, but only reaches
+the network once the run it holds could have been superseded.
+
+That last part is why the intervals are not simply scheduled against the model
+run times. GeoSphere computes a run well after the hour it is stamped for, and
+the lag is neither published nor constant — measured on 2026-08-17 at 05:02
+UTC, the newest AROME run was 00:00 UTC (the 03:00 run was not out yet) and the
+newest ensemble run was the *previous day's* 12:00 UTC. A schedule pinned to
+00/03/06 would fetch before the data exists; waiting for the run stamp to change
+needs no guess about the lag and adapts on its own if GeoSphere shifts it.
+
+The **Model run** sensor (diagnostic, enabled by default) shows which run is on
+display. If it looks old, that is usually GeoSphere's publication lag rather
+than a stuck integration — compare it against the run cadence above.
 
 **Why is there no daily forecast?**
 AROME is a deliberately high-resolution, *short-range* model: its +60 h
