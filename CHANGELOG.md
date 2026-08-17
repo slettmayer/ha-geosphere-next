@@ -1,11 +1,14 @@
 # Changelog
 
-## 0.9.3
+## 0.10.0
 
 - Change: AROME and the C-LAEF ensemble are no longer re-fetched while the run already held cannot have been superseded. AROME reruns every 3 hours and C-LAEF every 12, against a coordinator that ticks every 30 minutes by default, so most requests were returning byte-for-byte what was already in memory — the ensemble worst of all, at roughly 24 requests per useful one. The coordinator still wakes on the configured interval and re-derives everything that depends on the clock; it just skips the network call. Same freshness policy the INCA slice has always used, keyed on the run stamp rather than on the fetch time
 - Change: scheduling the fetches against the model run times was considered and rejected. GeoSphere computes a run well after the hour it is stamped for and the lag is neither published nor constant — measured 2026-08-17 05:02 UTC, the newest AROME run was 00:00 UTC and the newest ensemble run was the *previous day's* 12:00 UTC — so a cron on 00/03/06 would fetch before the data exists. Waiting for the run stamp to change needs no estimate of the lag, self-corrects if GeoSphere shifts it, and leaves the interval option meaningful
 - Change: a failing ensemble *re*-fetch now keeps the previous run instead of blanking the precipitation probability across the whole forecast. The percentiles are matched to AROME by timestamp, so a superseded run still has a value for every hour it covers; hours it has run past report no probability, as before. A first fetch that fails still yields none, there being nothing to fall back to. The fallback is bounded at two cadences: a superseded run is an older and worse forecast rather than the same answer, and nothing on display says which run a probability came from, so an endpoint that never recovers drops the probability instead of quietly serving a days-old run
 - Add: a **Model run** sensor showing which AROME run the forecast comes from. The value was already parsed and stored but surfaced nowhere, so there was no way to tell a forecast waiting on GeoSphere's publication lag from a stuck integration. Diagnostic category, enabled by default, for the same reason as **Observation time**
+
+## 0.9.3
+
 - Bump dependency (Dependabot)
 
 ## 0.9.2
