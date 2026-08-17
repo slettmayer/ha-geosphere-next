@@ -17,6 +17,7 @@
       "cin": { "default": "mdi:arrow-collapse-down" },
       "precipitation_type": { "default": "mdi:weather-rainy" },
       "weather_symbol": { "default": "mdi:code-tags" },
+      "model_run": { "default": "mdi:clock-start" },
       "nitrogen_dioxide": { "default": "mdi:molecule" },
       "ozone": { "default": "mdi:molecule" },
       "pm10": { "default": "mdi:blur" },

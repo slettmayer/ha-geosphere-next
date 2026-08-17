@@ -5,12 +5,15 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from freezegun import freeze_time
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
 )
+
+from custom_components.geosphere_next.models import GeoSphereResponse
 
 from .conftest import (
     AROME_URL,
@@ -227,6 +230,258 @@ async def test_ensemble_failure_omits_probability(
     data = mock_config_entry.runtime_data.forecast.data
     assert len(data.hourly) == 56
     assert all(hour.precipitation_probability is None for hour in data.hourly)
+
+
+def _forecast_calls(mock_api: AiohttpClientMocker) -> tuple[int, int]:
+    """(AROME, ensemble) request counts recorded so far."""
+    calls = [str(call[1]) for call in mock_api.mock_calls]
+    return (
+        sum("nwp-v1-1h-2500m" in call for call in calls),
+        sum("ensemble-v1-1h-2500m" in call for call in calls),
+    )
+
+
+async def test_forecast_serves_a_run_that_cannot_have_been_superseded(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_api: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Neither dataset is re-fetched inside its own rerun cadence.
+
+    Both fixtures are stamped `reference_time` 12:00Z. AROME reruns every 3 h
+    and C-LAEF every 12 h, so at a 13:30Z clock (run + 1.5 h) a re-fetch of
+    either would return byte-for-byte what is already held.
+
+    The clock is deliberately *earlier* than this module's usual 16:00Z, which
+    is already 4 h past the fixture's AROME run and so cannot show the cached
+    branch at all.
+    """
+    freezer.move_to("2026-07-15T13:30:00+00:00")
+    await _setup(hass, mock_config_entry)
+    assert _forecast_calls(mock_api) == (1, 1)
+
+    coordinator = mock_config_entry.runtime_data.forecast
+
+    # One interval on, still inside AROME's 3 h cadence: no request at all.
+    freezer.move_to("2026-07-15T14:00:00+00:00")
+    await coordinator.async_refresh()
+    assert _forecast_calls(mock_api) == (1, 1)
+    # ...and the forecast is still published, re-processed against the new
+    # clock rather than served as a frozen snapshot.
+    assert coordinator.last_update_success
+    assert (
+        coordinator.data.hourly[0].datetime.isoformat() == "2026-07-15T15:00:00+00:00"
+    )
+
+    # Past run + 3 h, AROME can have been rerun and is fetched again. The
+    # ensemble's 12 h cadence has not elapsed, so it stays cached.
+    freezer.move_to("2026-07-15T15:05:00+00:00")
+    await coordinator.async_refresh()
+    assert _forecast_calls(mock_api) == (2, 1)
+
+
+async def test_forecast_refetches_every_cycle_once_the_cadence_has_elapsed(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_api: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Past the cadence the gate must open every cycle, not back off.
+
+    GeoSphere publishes a run well after the hour it is stamped for, so the
+    window between "could have been rerun" and "actually published" is hours
+    long. Retrying throughout it is what picks the new run up promptly; the
+    alternative — caching until some estimated publication time — would sit
+    on a superseded run whenever GeoSphere ran early.
+    """
+    freezer.move_to(FROZEN_NOW)  # 16:00Z, four hours past the fixture's run
+    await _setup(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data.forecast
+    assert _forecast_calls(mock_api)[0] == 1
+
+    for minute in (30, 60, 90):
+        freezer.move_to(
+            datetime(2026, 7, 15, 16, tzinfo=UTC) + timedelta(minutes=minute)
+        )
+        await coordinator.async_refresh()
+    assert _forecast_calls(mock_api)[0] == 4
+    # The ensemble's 12 h cadence has not elapsed across any of them.
+    assert _forecast_calls(mock_api)[1] == 1
+
+
+async def test_ensemble_failure_degrades_to_the_cached_run(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A failed *re*-fetch keeps the previous run rather than dropping to none.
+
+    The percentiles are matched to AROME by timestamp, so a superseded run
+    still has a value for every hour it covers. Blanking the probability
+    across the whole forecast because one request failed would throw away a
+    usable, if older, answer. The bound on how old is asserted separately.
+    """
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await _setup(hass, mock_config_entry)
+
+    coordinator = mock_config_entry.runtime_data.forecast
+    baseline = {
+        hour.datetime: hour.precipitation_probability
+        for hour in coordinator.data.hourly
+    }
+    assert any(value is not None for value in baseline.values())
+
+    # Past the 12 h cadence the ensemble is re-fetched — and fails.
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, status=500)
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    freezer.move_to("2026-07-16T04:00:00+00:00")
+    await coordinator.async_refresh()
+
+    # Guard against a vacuous pass: the gate must actually have opened, or the
+    # assertions below would only be re-reading an untouched cache.
+    assert _forecast_calls(aioclient_mock)[1] == 1
+    assert coordinator.last_update_success
+    probabilities = {
+        hour.datetime: hour.precipitation_probability
+        for hour in coordinator.data.hourly
+    }
+    assert any(value is not None for value in probabilities.values())
+    # Every hour the cached run still covers reports what it reported before.
+    assert all(value == baseline[ts] for ts, value in probabilities.items())
+
+
+async def test_ensemble_fallback_is_bounded(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """An endpoint that never recovers must not keep a stale run in service.
+
+    A superseded run is not the same answer as the current one — it is an
+    older, worse forecast for the same hour — and nothing on display says
+    which run a probability came from. Past `ENSEMBLE_MAX_FALLBACK_AGE` the
+    probability disappears instead, which is visible rather than quietly
+    wrong.
+    """
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await _setup(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data.forecast
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, status=500)
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+
+    # Run 12:00Z, now +17 h: past the 12 h cadence, inside the 24 h bound.
+    freezer.move_to("2026-07-16T05:00:00+00:00")
+    await coordinator.async_refresh()
+    assert any(
+        hour.precipitation_probability is not None for hour in coordinator.data.hourly
+    )
+
+    # +25 h: past the bound. The run is dropped, not quietly kept.
+    freezer.move_to("2026-07-16T13:00:00+00:00")
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success
+    assert all(
+        hour.precipitation_probability is None for hour in coordinator.data.hourly
+    )
+
+
+async def test_an_unprocessable_arome_run_is_not_cached(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A run that parses but cannot be processed must not pin the gate.
+
+    Caching before `_process` validates would hold an unusable payload for a
+    whole cadence, re-raising the same `UpdateFailed` on every tick — where
+    ungated fetching recovered on the very next one. The truncated run below
+    is stamped *fresh* on purpose: a stale stamp would reopen the gate by
+    itself and hide the bug.
+    """
+    freezer.move_to("2026-07-15T13:30:00+00:00")
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await _setup(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data.forecast
+    assert coordinator.last_update_success
+
+    # One stamp survives, so `_process` has no row with a successor to read
+    # its interval fields from and raises.
+    truncated = load_fixture("arome.json")
+    truncated["reference_time"] = "2026-07-15T15:00+00:00"
+    truncated["timestamps"] = truncated["timestamps"][:1]
+    for parameter in truncated["features"][0]["properties"]["parameters"].values():
+        parameter["data"] = parameter["data"][:1]
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(AROME_URL, json=truncated)
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    freezer.move_to("2026-07-15T15:05:00+00:00")
+    await coordinator.async_refresh()
+    assert not coordinator.last_update_success
+
+    # The next tick is still inside the truncated run's 3 h cadence, so a
+    # cached copy of it would be served again instead of re-fetching.
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    freezer.move_to("2026-07-15T15:20:00+00:00")
+    await coordinator.async_refresh()
+    assert _forecast_calls(aioclient_mock)[0] == 1
+    assert coordinator.last_update_success
+
+
+def test_run_gate_rejects_a_reference_time_in_the_future() -> None:
+    """A host clock behind real time must not pin a run indefinitely.
+
+    `now - reference_time < cadence` is satisfied by any negative delta, so an
+    un-synced clock would hold a run for the skew plus a whole cadence.
+    """
+    from custom_components.geosphere_next.coordinator import _run_is_current
+
+    def response(reference_time: datetime) -> GeoSphereResponse:
+        return GeoSphereResponse(
+            resource_id="nwp-v1-1h-2500m",
+            reference_time=reference_time,
+            timestamps=[],
+            parameters={},
+            grid_latitude=48.0,
+            grid_longitude=16.0,
+        )
+
+    now = datetime(2026, 7, 15, 16, tzinfo=UTC)
+    with freeze_time(now):
+        # Positive control: an hour-old run is inside a 3 h cadence.
+        assert _run_is_current(response(now - timedelta(hours=1)), timedelta(hours=3))
+        assert not _run_is_current(
+            response(now + timedelta(hours=2)), timedelta(hours=3)
+        )
+        assert not _run_is_current(None, timedelta(hours=3))
 
 
 async def test_current_merge(

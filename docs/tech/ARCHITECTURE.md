@@ -63,7 +63,10 @@ forecast processing in [../domain/FORECAST.md](../domain/FORECAST.md).
 ### Coordinators
 
 Three `TimestampDataUpdateCoordinator[T]` subclasses, one per dataset shape:
-- `GeoSphereForecastCoordinator[ForecastData]` — AROME + ensemble.
+- `GeoSphereForecastCoordinator[ForecastData]` — AROME + ensemble; caches both
+  responses on the instance and re-fetches each only once its model rerun
+  cadence has elapsed (`_run_is_current`), while still re-processing every
+  cycle because `_process` depends on `now`.
 - `GeoSphereCurrentCoordinator[CurrentConditions]` — nowcast + INCA + AROME
   fallback; holds a direct reference to the forecast coordinator and caches INCA
   on the instance with a timestamp-based freshness policy.

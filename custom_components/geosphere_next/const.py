@@ -98,6 +98,30 @@ INCA_MAX_AGE_SECONDS = 55 * 60
 # INCA analyses trail real time by <1 h; query a window of the last 3 hours.
 INCA_LOOKBACK_HOURS = 3
 
+# Model rerun cadences, used to gate re-fetches (see `_run_is_current`). A run
+# cannot be superseded before its cadence has elapsed, so until then a re-fetch
+# returns byte-for-byte what is already cached and the request is pure waste.
+#
+# These are *cadences*, not publication times: GeoSphere computes a run well
+# after the hour it is stamped for. Measured 2026-08-17 05:02Z, the newest
+# AROME run was 00:00Z (the 03:00Z run was not yet published, so >2 h of
+# latency) and the newest C-LAEF run was the *previous day's* 12:00Z (>5 h).
+# Gating on the bare cadence therefore under-caches — once `reference_time +
+# cadence` passes, every update cycle retries until the new run appears. That
+# is the intended behaviour: it never serves a run that has been superseded,
+# and it picks the new one up within one update interval of publication.
+# Adding a latency estimate here would cache longer at the risk of sitting on
+# a stale run whenever GeoSphere publishes early.
+AROME_RUN_INTERVAL = timedelta(hours=3)
+ENSEMBLE_RUN_INTERVAL = timedelta(hours=12)
+
+# How old the held C-LAEF run may get while its endpoint keeps failing, before
+# the precipitation probability is dropped rather than derived from it. Serving
+# a superseded run through a brief outage is worth more than a blank field;
+# serving one indefinitely is not, because nothing on display says which run a
+# probability came from. Two cadences allows one whole missed rerun.
+ENSEMBLE_MAX_FALLBACK_AGE = 2 * ENSEMBLE_RUN_INTERVAL
+
 # Stepped precipitation probability from the ensemble rr percentiles: a
 # percentile above PRECIP_MIN_MM bounds the fraction of wet ensemble members
 # (p10 wet -> >=90 %, p50 wet -> >=50 %, p90 wet -> >=10 %); the displayed

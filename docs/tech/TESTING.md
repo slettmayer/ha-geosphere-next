@@ -61,8 +61,16 @@ Document the test framework, fixtures, patterns, and commands for the test suite
 
 ### What is covered
 Config-flow validation and out-of-domain handling, API error mapping, coordinator
-merging/differencing/fallback, sensor value extraction, weather forecast
-assembly, air-quality processing, and condition derivation.
+merging/differencing/fallback, run gating (which fetches are skipped inside a
+model's rerun cadence, and that the gate reopens every cycle once it elapses),
+sensor value extraction, weather forecast assembly, air-quality processing, and
+condition derivation.
+
+Run-gating tests move the frozen clock relative to a fixture's `reference_time`
+(12:00Z for `arome.json` and `ensemble.json`) rather than relative to the fetch,
+and assert on request counts taken from `AiohttpClientMocker.mock_calls`. Note
+that this module's usual 16:00Z clock is already 4 h past the AROME run, so the
+cached branch is only observable at an earlier clock.
 
 ## Dependencies
 - `pytest-homeassistant-custom-component` (pinned; tracks HA core).

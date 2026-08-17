@@ -65,6 +65,18 @@ class GeoSphereOutlookSensorEntityDescription(SensorEntityDescription):
     attributes_fn: Callable[[ForecastData, datetime], dict[str, object]] | None = None
 
 
+@dataclass(frozen=True, kw_only=True)
+class GeoSphereForecastSensorEntityDescription(SensorEntityDescription):
+    """Forecast-metadata sensor description with a value extractor.
+
+    Distinct from the outlook descriptions above: these report a property of
+    the forecast *itself* rather than a window scanned out of it, so they take
+    no `now` and need no hour-boundary re-evaluation.
+    """
+
+    value_fn: Callable[[ForecastData], datetime | None]
+
+
 SENSORS: tuple[GeoSphereSensorEntityDescription, ...] = (
     GeoSphereSensorEntityDescription(
         key="temperature",
@@ -362,6 +374,22 @@ OUTLOOK_SENSORS: tuple[GeoSphereOutlookSensorEntityDescription, ...] = (
 )
 
 
+# Enabled by default, for the same reason as `observation_time` above: AROME
+# reruns every 3 h but publishes well behind its own stamp, so a forecast can
+# be several hours old while every entity built from it presents it as the
+# current outlook. Without this there is nothing that says which run is on
+# display, which makes a stale forecast indistinguishable from a wrong one.
+FORECAST_SENSORS: tuple[GeoSphereForecastSensorEntityDescription, ...] = (
+    GeoSphereForecastSensorEntityDescription(
+        key="model_run",
+        translation_key="model_run",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: data.reference_time,
+    ),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: GeoSphereNextConfigEntry,
@@ -375,6 +403,10 @@ async def async_setup_entry(
     entities.extend(
         GeoSphereOutlookSensor(entry.runtime_data.forecast, entry, description)
         for description in OUTLOOK_SENSORS
+    )
+    entities.extend(
+        GeoSphereForecastSensor(entry.runtime_data.forecast, entry, description)
+        for description in FORECAST_SENSORS
     )
     if (air_quality := entry.runtime_data.air_quality) is not None:
         entities.extend(
@@ -436,6 +468,36 @@ class GeoSphereAirQualitySensor(
     @property
     def extra_state_attributes(self) -> dict[str, object]:
         return self.entity_description.attributes_fn(self.coordinator.data)
+
+
+class GeoSphereForecastSensor(
+    CoordinatorEntity[GeoSphereForecastCoordinator], SensorEntity
+):
+    """A forecast-metadata sensor backed by the forecast coordinator."""
+
+    entity_description: GeoSphereForecastSensorEntityDescription
+    _attr_has_entity_name = True
+    _attr_attribution = ATTRIBUTION
+
+    def __init__(
+        self,
+        coordinator: GeoSphereForecastCoordinator,
+        entry: GeoSphereNextConfigEntry,
+        description: GeoSphereForecastSensorEntityDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = f"{entry.entry_id}-{description.key}"
+        self._attr_device_info = device_info(entry)
+
+    @property
+    def native_value(self) -> datetime | None:
+        # `None` when there is no forecast to read, matching
+        # `GeoSphereOutlookSensor._refresh_outlook`. Unreachable while
+        # `async_config_entry_first_refresh` guarantees data.
+        if (data := self.coordinator.data) is None:
+            return None
+        return self.entity_description.value_fn(data)
 
 
 class GeoSphereOutlookSensor(

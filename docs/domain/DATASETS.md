@@ -85,10 +85,29 @@ INCA analysis and nowcast are Austria-only. The config flow probes both AROME
 and nowcast at setup to decide `has_nowcast` — see
 [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md).
 
+### Publication latency
+
+A run's `reference_time` is the hour it is stamped for, not the moment it
+becomes available — GeoSphere computes it well afterwards, and the lag is not
+published. Measured at 47.07/15.44 on 2026-08-17 05:02Z:
+
+| Dataset | Cadence | Newest `reference_time` | Implied lag |
+|---|---|---|---|
+| AROME | 3 h | `2026-08-17T00:00Z` | 03:00Z run not yet out → >2 h |
+| C-LAEF ensemble | 12 h | `2026-08-16T12:00Z` | 00:00Z run not yet out → >5 h |
+| INCA nowcast | 15 min | `2026-08-17T04:30Z` | ~30 min |
+| WRF-Chem | 1 d | `2026-08-17T00:00Z` | — |
+
+This is why fetches are gated on the cadence rather than scheduled against the
+run hours — see [FORECAST.md](FORECAST.md#run-gating).
+
 ## Dependencies
 - GeoSphere Austria Dataset API — `https://dataset.api.hub.geosphere.at/v1`.
-- Request budget: 5 req/s, 240 req/h (no key). Default polling uses ~9 req/h,
-  ~11 with air quality enabled.
+- Request budget: 5 req/s, 240 req/h (no key). Default polling stays well under
+  it: the forecast coordinator skips AROME and ensemble requests whose run
+  cannot have been superseded, so it costs ~2 req/h at rest and up to ~4 req/h
+  while hunting for a new run, plus the current coordinator's ~4–6 req/h and
+  ~2 req/h with air quality enabled.
 
 ## Design Decisions
 - Datasets are `(mode, resource_id)` tuples so `get_timeseries(*DATASET_X, ...)`

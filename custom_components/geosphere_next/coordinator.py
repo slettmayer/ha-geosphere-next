@@ -31,6 +31,7 @@ from .condition import (
 from .const import (
     AIR_QUALITY_INTERVAL_MINUTES,
     AROME_PARAMETERS,
+    AROME_RUN_INTERVAL,
     CHEM_AQI_PARAMETERS,
     CHEM_PARAMETERS,
     CONF_CURRENT_INTERVAL,
@@ -45,7 +46,9 @@ from .const import (
     DEFAULT_CURRENT_INTERVAL_MINUTES,
     DEFAULT_FORECAST_INTERVAL_MINUTES,
     DOMAIN,
+    ENSEMBLE_MAX_FALLBACK_AGE,
     ENSEMBLE_PARAMETERS,
+    ENSEMBLE_RUN_INTERVAL,
     HOURLY_LOOKBACK_HOURS,
     INCA_LOOKBACK_HOURS,
     INCA_MAX_AGE_SECONDS,
@@ -111,6 +114,33 @@ def _precipitation_probability(
     return POP_DRY_PCT
 
 
+def _run_is_current(response: GeoSphereResponse | None, cadence: timedelta) -> bool:
+    """True while a cached run cannot yet have been superseded by a newer one.
+
+    A forecast dataset only changes when its model reruns, so within one
+    cadence of `reference_time` a re-fetch returns exactly what is already
+    held and the request buys nothing. Keyed on the run stamp rather than on
+    the fetch time, the same way `_async_get_inca` keys on the newest analysis
+    stamp: what matters is the age of the *data*, not of the HTTP call.
+
+    Conservative in the only direction that can hurt. A run published late
+    (the normal case — see the cadence constants) merely means a few retries
+    against a 240 req/h budget; a run published early would otherwise be
+    ignored until the cache expired, so this never extends past the point
+    where a newer run could exist.
+
+    A response without a `reference_time` cannot be reasoned about and is
+    always treated as stale. So is one stamped in the *future*: a bare
+    `delta < cadence` is satisfied by any negative delta, so a host clock
+    behind real time (an un-synced RPi at boot) would pin a run for the skew
+    plus a whole cadence. Re-fetching under a wrong clock is the harmless
+    direction.
+    """
+    if response is None or response.reference_time is None:
+        return False
+    return timedelta(0) <= dt_util.utcnow() - response.reference_time < cadence
+
+
 def _diff(series: list[float | None], index: int) -> float | None:
     """Hourly value from a run-accumulated series: acc[i] - acc[i-1].
 
@@ -149,24 +179,60 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         self._client = client
         self.latitude: float = config_entry.data[CONF_LATITUDE]
         self.longitude: float = config_entry.data[CONF_LONGITUDE]
+        self._arome: GeoSphereResponse | None = None
+        self._ensemble: GeoSphereResponse | None = None
 
     async def _async_update_data(self) -> ForecastData:
-        # Anchored to the top of the hour, plus an hour of margin — see
-        # HOURLY_LOOKBACK_HOURS. The anchor is the part that matters: the API
-        # rounds a mid-hour `start` up to the next whole stamp, so anchoring
-        # to `now` at 15:30 would come back at 16:00 and drop the hour already
-        # under way. `_process` drops whatever precedes the cutoff.
-        series_start = dt_util.utcnow().replace(
-            minute=0, second=0, microsecond=0
-        ) - timedelta(hours=HOURLY_LOOKBACK_HOURS)
+        # Both responses may come from cache (see `_run_is_current`), but
+        # `_process` always re-runs: its cutoff, the derived conditions and the
+        # day/night flags are all functions of `now`, so the coordinator still
+        # publishes a forecast that starts at the hour under way on every tick
+        # of the configured interval, fetch or no fetch.
+        arome = await self._async_get_arome()
+        ensemble = await self._async_get_ensemble()
+        data = self._process(arome, ensemble)
+
+        # Cache only what produced a usable forecast. A run that parses but
+        # cannot be processed — a truncated series, or one whose every stamp
+        # already precedes the cutoff — would otherwise be pinned here by
+        # `_run_is_current` for a whole cadence, re-raising the same
+        # `UpdateFailed` on every tick. Committing after `_process` keeps the
+        # pre-gating recovery: the next tick fetches again.
+        self._arome = arome
+        self._ensemble = ensemble
+        return data
+
+    def _series_start(self) -> datetime:
+        """Left bound for the AROME and ensemble requests.
+
+        Anchored to the top of the hour, plus an hour of margin — see
+        HOURLY_LOOKBACK_HOURS. The anchor is the part that matters: the API
+        rounds a mid-hour `start` up to the next whole stamp, so anchoring to
+        `now` at 15:30 would come back at 16:00 and drop the hour already
+        under way. `_process` drops whatever precedes the cutoff.
+        """
+        return dt_util.utcnow().replace(minute=0, second=0, microsecond=0) - timedelta(
+            hours=HOURLY_LOOKBACK_HOURS
+        )
+
+    async def _async_get_arome(self) -> GeoSphereResponse:
+        """Return the AROME run, re-fetching only once it can have been rerun.
+
+        A cached run is served with a `start` bound older than this tick would
+        have requested, which is harmless: the extra leading rows precede
+        `_process`'s cutoff and are dropped there.
+        """
+        cached = self._arome
+        if cached is not None and _run_is_current(cached, AROME_RUN_INTERVAL):
+            return cached
 
         try:
-            response = await self._client.get_timeseries(
+            return await self._client.get_timeseries(
                 *DATASET_AROME,
                 parameters=AROME_PARAMETERS,
                 latitude=self.latitude,
                 longitude=self.longitude,
-                start=series_start,
+                start=self._series_start(),
             )
         except GeoSphereRateLimitError as err:
             raise UpdateFailed(
@@ -175,23 +241,47 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         except GeoSphereApiError as err:
             raise UpdateFailed(f"AROME update failed: {err}") from err
 
-        # The C-LAEF ensemble percentiles only add the precipitation
-        # probability; their failure must not take the forecast down.
-        ensemble: GeoSphereResponse | None = None
+    async def _async_get_ensemble(self) -> GeoSphereResponse | None:
+        """Return the C-LAEF run, re-fetching only once it can have been rerun.
+
+        The 12 h cadence makes this the biggest saving of the two: polled
+        blind, an ensemble that changes twice a day was re-fetched on every
+        tick of a 30 min interval.
+
+        The percentiles only add the precipitation probability, so a failure
+        must not take the forecast down. A failed *re*-fetch degrades to the
+        run already held rather than to nothing — the percentiles are matched
+        to AROME by timestamp, so a superseded run still has a value for every
+        hour it covers, and the hours it has run past report no probability.
+
+        That fallback is bounded. A superseded run is not the same answer as
+        the current one, it is an older and worse forecast for the same hour,
+        and nothing on display distinguishes the two. Past
+        `ENSEMBLE_MAX_FALLBACK_AGE` an endpoint that never recovers would
+        otherwise keep a days-old run in service until its horizon ran out, so
+        the cache is dropped and the probability disappears instead — visible,
+        rather than quietly wrong.
+        """
+        cached = self._ensemble
+        if cached is not None and _run_is_current(cached, ENSEMBLE_RUN_INTERVAL):
+            return cached
+
         try:
-            ensemble = await self._client.get_timeseries(
+            return await self._client.get_timeseries(
                 *DATASET_ENSEMBLE,
                 parameters=ENSEMBLE_PARAMETERS,
                 latitude=self.latitude,
                 longitude=self.longitude,
-                start=series_start,
+                start=self._series_start(),
             )
         except GeoSphereApiError as err:
             _LOGGER.warning(
                 "Ensemble update failed, omitting precipitation probability: %s", err
             )
 
-        return self._process(response, ensemble)
+        if cached is not None and _run_is_current(cached, ENSEMBLE_MAX_FALLBACK_AGE):
+            return cached
+        return None
 
     def _process(
         self, response: GeoSphereResponse, ensemble: GeoSphereResponse | None = None
