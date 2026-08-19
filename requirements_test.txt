@@ -1,2 +1,2 @@
 # Tracks HA core — bump together with .python-version (currently Python 3.14).
-pytest-homeassistant-custom-component==0.13.355
+pytest-homeassistant-custom-component==0.13.356
