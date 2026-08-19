@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.1
+
+- Bump dependency (Dependabot)
+
 ## 0.10.0
 
 - Change: AROME and the C-LAEF ensemble are no longer re-fetched while the run already held cannot have been superseded. AROME reruns every 3 hours and C-LAEF every 12, against a coordinator that ticks every 30 minutes by default, so most requests were returning byte-for-byte what was already in memory — the ensemble worst of all, at roughly 24 requests per useful one. The coordinator still wakes on the configured interval and re-derives everything that depends on the clock; it just skips the network call. Same freshness policy the INCA slice has always used, keyed on the run stamp rather than on the fetch time
