@@ -175,8 +175,12 @@ CO, SO₂, NH₃, NO — keep another source if you need those.
 
 ## Installation
 
-1. Add this repository as a [HACS custom repository](https://hacs.xyz/docs/faq/custom_repositories/)
-   (type: Integration), then install **GeoSphere Austria Next**.
+Requires Home Assistant 2025.12.0 or newer.
+
+1. In HACS, search for **GeoSphere Austria Next** and install it. If it does not
+   show up, add this repository as a
+   [custom repository](https://hacs.xyz/docs/faq/custom_repositories/)
+   (type: Integration) first.
 2. Restart Home Assistant.
 3. Settings → Devices & Services → Add Integration → **GeoSphere Austria Next**.
 4. Pick a location (defaults to your home coordinates).

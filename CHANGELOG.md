@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.3
+
+- Fix: the minimum Home Assistant version in `hacs.json` is now `2025.12.0`, which is what the code has actually required since 0.9.x. The declared floor was still `2025.7.0`, so HACS would install onto instances the integration cannot run on. `config_flow.py` subclasses `OptionsFlowWithReload`, added in 2025.8.0 — below that the config flow fails to import and the integration cannot be set up at all. The coordinator passes `retry_after` to `UpdateFailed`, a keyword added in 2025.12.0 — below that a GeoSphere rate limit raises `TypeError` instead of backing off, taking the weather entity and every sensor unavailable on what should be a self-healing retry
+- Chore: the README install step leads with installing from HACS directly, keeping the custom-repository route as the fallback
+
 ## 0.10.2
 
 - Bump dependency (Dependabot)
