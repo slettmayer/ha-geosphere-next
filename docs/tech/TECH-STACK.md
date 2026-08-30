@@ -25,7 +25,7 @@ test this Home Assistant custom integration.
 ### Framework
 - **Home Assistant Core** — the integration provides `weather` and `sensor`
   platform entities and uses HA's config-entry, coordinator, entity, device
-  registry, and diagnostics APIs. Minimum HA version `2025.7.0` (`hacs.json`).
+  registry, and diagnostics APIs. Minimum HA version `2025.12.0` (`hacs.json`).
 
 ### Runtime libraries
 - **aiohttp** — async HTTP client for the GeoSphere API (shared HA client

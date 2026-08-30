@@ -36,7 +36,7 @@ quality) poll the GeoSphere Dataset API at independent intervals for one
 configured lat/lon. See [ARCHITECTURE.md](docs/tech/ARCHITECTURE.md).
 
 ## Tech Stack
-- Python 3.14; Home Assistant Core (min `2025.7.0`).
+- Python 3.14; Home Assistant Core (min `2025.12.0`).
 - aiohttp (API client), astral (day/night), voluptuous (config schema).
 - Ruff (lint + format); pytest + pytest-homeassistant-custom-component.
 - No runtime PyPI requirements; HACS-distributed. See [TECH-STACK.md](docs/tech/TECH-STACK.md).
