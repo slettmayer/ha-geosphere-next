@@ -157,6 +157,13 @@ def is_precipitating(
         return True
     if precipitation_rate_mm_h is not None:
         return precipitation_rate_mm_h >= PRECIP_MIN_MM
+    # Reached only by a `pt` of 255 with no rate alongside it, which is rare —
+    # the nowcast normally carries `rr` for the same bucket and the branch
+    # above decides. `False` here rests entirely on 255 meaning "no
+    # precipitation", the one value of the code table GeoSphere's silence
+    # leaves us reasonably sure of. Worth knowing that the GRIB2 4.201
+    # hypothesis under test in issue #31 reads 255 as *Missing* instead; if
+    # that is confirmed, this branch should return `None`, not `False`.
     return None if precipitation_type is None else False
 
 
