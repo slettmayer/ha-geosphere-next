@@ -5,6 +5,9 @@
 - Add: a `precipitating` binary sensor (device class `moisture`, so it reads Wet/Dry) reporting whether precipitation is falling right now. The current-conditions model has carried an `is_precipitating` field since the nowcast was wired in, but nothing read it — it reached Home Assistant only as a key in the diagnostics dump. It is now an entity, on the current coordinator, and reports `unknown` rather than a confident `off` when there are no current conditions
 - Change: "precipitating" now has a single definition, `condition.is_precipitating`, shared by the new sensor and by `derive_current_condition`. The two had drifted: the condition derivation counted either the nowcast `pt` code **or** an observed rate of at least `PRECIP_MIN_MM`, while the model field counted only `pt`. Since `pt` is absent wherever the nowcast is unavailable (`CONF_HAS_NOWCAST`), the field would have read a permanent, confident "dry" at those points once exposed — the rate is what keeps it honest there
 - Chore: documented that GeoSphere publishes no code table for the raw `pt` precipitation-type code. Only 255 (no precipitation) is known, so the integration reads it as a yes/no signal and splits rain from snow by temperature rather than decoding it. Tracked in [#31](https://github.com/slettmayer/ha-geosphere-next/issues/31), which carries the GRIB2 4.201 hypothesis and how to confirm it against real snowfall
+## 0.10.4
+
+- Bump dependency (Dependabot)
 
 ## 0.10.3
 
