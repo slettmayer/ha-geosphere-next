@@ -66,7 +66,9 @@ Keyword-only inputs including the nowcast precipitation-type code and rate. The
 *that* it precipitates; rain vs snow is decided by temperature
 (`SNOW_MAX_T2M_C` = 1.0 °C):
 
-1. precipitating (pt ≠ 255, or rate ≥ 0.1 mm/h) → `snowy` (T ≤ 1 °C), else
+1. precipitating (pt ≠ 255, or rate ≥ 0.1 mm/h — where an INCA-sourced rate
+   counts only while its analysis hour still touches the present, see
+   [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md)) → `snowy` (T ≤ 1 °C), else
    `lightning-rainy` (thunder), `pouring` (≥ 4 mm/h), or `rainy`.
    **Thunder here passes the normal gate *or* CAPE alone when the observed
    rate is ≥ `POURING_MM_PER_H`.** The precipitation is *observed* (INCA / the

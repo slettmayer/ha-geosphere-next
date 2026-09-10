@@ -54,6 +54,7 @@ from .const import (
     INCA_LOOKBACK_HOURS,
     INCA_MAX_AGE_SECONDS,
     INCA_PARAMETERS,
+    INCA_RR_MAX_AGE_SECONDS,
     NOWCAST_BUCKETS_PER_HOUR,
     NOWCAST_PARAMETERS,
     POP_DRY_PCT,
@@ -559,7 +560,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         cin = arome.cin if arome else None
 
         p0, _ = inca_latest("P0")
-        rr_1h, _ = inca_latest("RR")
+        rr_1h, rr_1h_time = inca_latest("RR")
         if rr_1h is None and nowcast is not None:
             # Sum the last four 15-min nowcast buckets at/before now.
             past = [
@@ -570,6 +571,8 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
                 if ts <= now and value is not None
             ]
             rr_1h = round(sum(past[-4:]), 2) if past else None
+            # Summed from buckets at/before now, so current by construction.
+            rr_1h_time = now if rr_1h is not None else None
 
         pt_raw = now_value("pt")
         precipitation_type = int(pt_raw) if pt_raw is not None else None
@@ -592,8 +595,24 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         nowcast_rate_mm_h = (
             nowcast_rr * NOWCAST_BUCKETS_PER_HOUR if nowcast_rr is not None else None
         )
+        # The condition has to name *something*, so unlike `is_precipitating`
+        # it does fall back to `RR` -- but only while `RR` still describes a
+        # window touching the present. `inca_latest` returns the newest
+        # non-None value at any age and the cached slice is served on for
+        # INCA_MAX_AGE_SECONDS (indefinitely while refreshes fail), so an
+        # ungated read derived `rainy` under a clear sky from rain that had
+        # stopped hours ago -- and held there. Past the bound the derivation
+        # falls through to cloud cover, which is what the sky actually says.
+        # `precipitation_1h` still reports the accumulation itself: it is a
+        # real measurement of a past hour, and `observation_time` dates it.
+        rr_1h_is_current = (
+            rr_1h_time is not None
+            and (now - rr_1h_time).total_seconds() <= INCA_RR_MAX_AGE_SECONDS
+        )
         rate_mm_h = (
-            nowcast_rate_mm_h if nowcast_rate_mm_h is not None else (rr_1h or 0.0)
+            nowcast_rate_mm_h
+            if nowcast_rate_mm_h is not None
+            else ((rr_1h or 0.0) if rr_1h_is_current else 0.0)
         )
         # A single bucket can round to 0.0 in the gap between cells of an
         # active storm, reporting 0 mm/h mid-thunderstorm and starving both

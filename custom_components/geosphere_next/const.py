@@ -97,6 +97,13 @@ NOWCAST_BUCKETS_PER_HOUR = 4.0
 INCA_MAX_AGE_SECONDS = 55 * 60
 # INCA analyses trail real time by <1 h; query a window of the last 3 hours.
 INCA_LOOKBACK_HOURS = 3
+# How long INCA's hourly `RR` stays evidence about *now* (seconds). `RR` is an
+# accumulation over the hour ending at its own stamp, so one hour past that
+# stamp the window it describes has fully receded into the past and it says
+# nothing about the present. Only the condition derivation consults it (the
+# `precipitating` binary sensor never does); beyond this age the derivation
+# falls back to cloud cover rather than reporting rain that has stopped.
+INCA_RR_MAX_AGE_SECONDS = 60 * 60
 
 # Model rerun cadences, used to gate re-fetches (see `_run_is_current`). A run
 # cannot be superseded before its cadence has elapsed, so until then a re-fetch

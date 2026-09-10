@@ -72,7 +72,16 @@ value. The order encodes which source is trusted most for each field:
   derivation (which must decide either way) use it.
 - **Precipitation rate** (mm/h, feeds the condition): the matched nowcast `rr`
   bucket × `NOWCAST_BUCKETS_PER_HOUR`, else INCA's hourly `RR` where there is
-  no nowcast at all. When `pt` says it *is* precipitating, the peak across the
+  no nowcast at all — but only while that `RR` is younger than
+  `INCA_RR_MAX_AGE_SECONDS` (1 h). `RR` accumulates over the hour ending at
+  its own stamp, so an hour past that stamp the window has fully receded and
+  says nothing about now; `inca_latest` returns the newest value at any age
+  and the cached slice is served on indefinitely while refreshes fail, so an
+  ungated read derived `rainy` under a clear sky from rain that had stopped
+  hours earlier. Past the bound the derivation falls through to cloud cover.
+  The condition must still name something, which is why it keeps the fallback
+  at all — `is_precipitating` drops `RR` outright. When `pt` says it *is*
+  precipitating, the peak across the
   last `RATE_LOOKBACK`
   (30 min) of buckets is used instead of the matched one alone — a single
   bucket can round to 0.0 in the gap between cells, and a rate of 0 mm/h would
