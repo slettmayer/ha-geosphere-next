@@ -864,15 +864,20 @@ async def test_stale_inca_rr_does_not_derive_rain(
     returns the newest non-None value at any age, and the cached slice is
     served on for `INCA_MAX_AGE_SECONDS` — indefinitely while refreshes fail.
     With the nowcast down that fed the condition directly, so 2.4 mm falling
-    in the hour to 15:00Z derived `rainy` at 16:50Z under a 0 %-cloud AROME
-    sky, and stayed there. Past `INCA_RR_MAX_AGE_SECONDS` the derivation now
-    falls through to cloud cover.
+    in the hour to 15:00Z kept deriving `rainy` under a 0 %-cloud AROME sky
+    indefinitely. Past `INCA_RR_MAX_AGE_SECONDS` the derivation now falls
+    through to cloud cover. The bound sits well past INCA's own ~90 min
+    worst-case lag, so it marks a slice that stopped updating rather than
+    ordinary publishing delay — see `test_current_inca_rr_still_derives_rain`.
     """
     aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
     aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
     aioclient_mock.get(NOWCAST_URL, exc=TimeoutError)
     aioclient_mock.get(INCA_URL, json=_wet_inca())
-    freezer.move_to("2026-07-15T16:50:00+00:00")  # 1h50m past the 15:00Z stamp
+    # 2h35m past the 15:00Z stamp: INCA should have published two newer
+    # analyses by now, so the slice has demonstrably stopped updating. Well
+    # clear of the ~90 min a healthy publish cycle can legitimately reach.
+    freezer.move_to("2026-07-15T17:35:00+00:00")
     await _setup(hass, mock_config_entry)
 
     data = mock_config_entry.runtime_data.current.data
@@ -899,7 +904,10 @@ async def test_current_inca_rr_still_derives_rain(
     aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
     aioclient_mock.get(NOWCAST_URL, exc=TimeoutError)
     aioclient_mock.get(INCA_URL, json=_wet_inca())
-    freezer.move_to("2026-07-15T15:30:00+00:00")  # 30 min past the 15:00Z stamp
+    # 85 min past the 15:00Z stamp — within the ~90 min a healthy INCA
+    # publish cycle reaches, so this is the freshest data the source has and
+    # rejecting it would flap the condition once an hour through steady rain.
+    freezer.move_to("2026-07-15T16:25:00+00:00")
     await _setup(hass, mock_config_entry)
 
     data = mock_config_entry.runtime_data.current.data

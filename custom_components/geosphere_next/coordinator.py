@@ -596,15 +596,21 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
             nowcast_rr * NOWCAST_BUCKETS_PER_HOUR if nowcast_rr is not None else None
         )
         # The condition has to name *something*, so unlike `is_precipitating`
-        # it does fall back to `RR` -- but only while `RR` still describes a
-        # window touching the present. `inca_latest` returns the newest
-        # non-None value at any age and the cached slice is served on for
-        # INCA_MAX_AGE_SECONDS (indefinitely while refreshes fail), so an
-        # ungated read derived `rainy` under a clear sky from rain that had
-        # stopped hours ago -- and held there. Past the bound the derivation
-        # falls through to cloud cover, which is what the sky actually says.
-        # `precipitation_1h` still reports the accumulation itself: it is a
-        # real measurement of a past hour, and `observation_time` dates it.
+        # it does fall back to `RR` -- but not to a slice that has stopped
+        # updating. `inca_latest` returns the newest non-None value at any age
+        # and `_async_get_inca` serves a cached slice indefinitely while
+        # refreshes fail, so an ungated read derived `rainy` under a clear sky
+        # from rain that had stopped hours ago, and held there. Past
+        # INCA_RR_MAX_AGE_SECONDS the derivation falls through to cloud cover,
+        # which is what the sky actually says. The bound is deliberately well
+        # past INCA's own ~90 min worst-case lag so ordinary publishing never
+        # trips it -- see the constant.
+        #
+        # `precipitation_1h` keeps reporting the accumulation regardless: it
+        # is a real measurement of a past hour. Note it is NOT dated by
+        # `observation_time`, which anchors to whichever source supplied the
+        # temperature (see below) and can therefore be newer than the `RR`
+        # stamp -- the two are read from the same slice but not the same row.
         rr_1h_is_current = (
             rr_1h_time is not None
             and (now - rr_1h_time).total_seconds() <= INCA_RR_MAX_AGE_SECONDS
