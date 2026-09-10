@@ -126,6 +126,47 @@ def derive_condition(
     return "cloudy"
 
 
+def is_precipitating(
+    precipitation_type: int | None,
+    precipitation_rate_mm_h: float | None,
+) -> bool | None:
+    """Whether precipitation is falling right now, or `None` if nothing says.
+
+    Two independent signals, either of which is sufficient: the nowcast `pt`
+    code, and an instantaneous rate. Both come from the 15-min nowcast, the
+    only source that observes precipitation *now* — the caller must not
+    substitute INCA's hourly `RR`, an accumulation that answers a different
+    question (see `GeoSphereCurrentCoordinator._merge`).
+
+    `None` when *neither* spoke, which is not the same as "dry" and must not
+    render as one. Two ways to get there: a point outside the Austrian grid,
+    where `CONF_HAS_NOWCAST` skips the nowcast and INCA alike (they share the
+    grid — see `_async_get_inca`), and a transient nowcast fetch failure.
+    Both leave nothing observing precipitation, so a confident "dry" would be
+    invented. `precipitation_1h` already reports `unknown` in the first case;
+    this keeps the pair consistent.
+
+    Sole definition of "precipitating" for the integration: both
+    `derive_current_condition` and `GeoSphereCurrentCoordinator._merge` (which
+    stores the result as `CurrentConditions.is_precipitating`) call this
+    rather than restating the comparison. A caller that must decide either way
+    (the condition derivation) passes a rate defaulted to 0.0 and so never
+    sees `None`.
+    """
+    if precipitation_type is not None and precipitation_type != PT_NO_PRECIPITATION:
+        return True
+    if precipitation_rate_mm_h is not None:
+        return precipitation_rate_mm_h >= PRECIP_MIN_MM
+    # Reached only by a `pt` of 255 with no rate alongside it, which is rare —
+    # the nowcast normally carries `rr` for the same bucket and the branch
+    # above decides. `False` here rests entirely on 255 meaning "no
+    # precipitation", the one value of the code table GeoSphere's silence
+    # leaves us reasonably sure of. Worth knowing that the GRIB2 4.201
+    # hypothesis under test in issue #31 reads 255 as *Missing* instead; if
+    # that is confirmed, this branch should return `None`, not `False`.
+    return None if precipitation_type is None else False
+
+
 def derive_current_condition(
     *,
     precipitation_type: int | None,
@@ -153,17 +194,14 @@ def derive_current_condition(
     letting it veto would render a thunderstorm in progress as plain `rainy`.
 
     Intensity is the whole qualifier. Observed precipitation alone is far too
-    weak a signal to spend the gate on — `precipitating` is true of drizzle,
+    weak a signal to spend the gate on — `is_precipitating` is true of drizzle,
     and high CAPE under a strong lid with light stratiform rain off a frontal
     deck is a real pattern, not a storm. Below that rate the full CAPE/CIN
     gate applies, as it does on the non-precipitating branch and throughout
     `derive_condition`, both of which are forecast-driven end to end.
     """
     rate = precipitation_rate_mm_h or 0.0
-    precipitating = (
-        precipitation_type is not None and precipitation_type != PT_NO_PRECIPITATION
-    ) or rate >= PRECIP_MIN_MM
-    if precipitating:
+    if is_precipitating(precipitation_type, rate):
         thunder = is_thunder(cape, cin) or (
             rate >= POURING_MM_PER_H and cape is not None and cape >= THUNDER_CAPE_JKG
         )

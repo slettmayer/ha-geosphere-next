@@ -97,6 +97,22 @@ NOWCAST_BUCKETS_PER_HOUR = 4.0
 INCA_MAX_AGE_SECONDS = 55 * 60
 # INCA analyses trail real time by <1 h; query a window of the last 3 hours.
 INCA_LOOKBACK_HOURS = 3
+# How old INCA's hourly `RR` may get before the condition derivation stops
+# treating it as evidence about *now* (seconds). Only that derivation consults
+# it; the `precipitating` binary sensor never does.
+#
+# This bound catches a slice that has stopped updating, NOT ordinary lag. INCA
+# publishes ~30 min after the hour it analyses and the previous slice is
+# served until the next appears, so the freshest `RR` in existence is
+# routinely up to ~90 min old (see `_merge`, which says the same of
+# `observed_at`). A bound at or below that would reject the best data the
+# source has for part of every publish cycle, flapping the condition between
+# `rainy` and cloud-derived once an hour through steady rain — worse than the
+# staleness it set out to fix. Two hours is comfortably past the normal worst
+# case: by then INCA should have published two newer analyses, so a slice this
+# old means refreshes are failing and `_async_get_inca` is serving a cached
+# one indefinitely. That is the unbounded case this exists for.
+INCA_RR_MAX_AGE_SECONDS = 2 * 60 * 60
 
 # Model rerun cadences, used to gate re-fetches (see `_run_is_current`). A run
 # cannot be superseded before its cadence has elapsed, so until then a re-fetch

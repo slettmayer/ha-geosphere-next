@@ -70,7 +70,8 @@
       "next_thunderstorm": { "name": "Nächstes Gewitter" }
     },
     "binary_sensor": {
-      "thunderstorm_expected_1h": { "name": "Gewitter in der nächsten Stunde" }
+      "thunderstorm_expected_1h": { "name": "Gewitter in der nächsten Stunde" },
+      "precipitating": { "name": "Niederschlag" }
     }
   }
 }

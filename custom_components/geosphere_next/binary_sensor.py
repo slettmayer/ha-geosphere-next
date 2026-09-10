@@ -1,4 +1,8 @@
-"""Forecast-outlook binary sensors for GeoSphere Austria Next."""
+"""Binary sensors for GeoSphere Austria Next.
+
+Two groups on two coordinators: forecast-outlook sensors scan the hourly
+series ahead, current-condition sensors report the analysis for now.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from homeassistant.components.binary_sensor import (
+    BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
@@ -16,9 +21,13 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .const import ATTRIBUTION, OUTLOOK_SHORT_HORIZON_HOURS
-from .coordinator import GeoSphereForecastCoordinator, GeoSphereNextConfigEntry
+from .coordinator import (
+    GeoSphereCurrentCoordinator,
+    GeoSphereForecastCoordinator,
+    GeoSphereNextConfigEntry,
+)
 from .entity import HourBoundaryRefreshMixin, device_info
-from .models import ForecastData
+from .models import CurrentConditions, ForecastData
 from .outlook import thunderstorm_outlook
 
 
@@ -43,16 +52,38 @@ BINARY_SENSORS: tuple[GeoSphereBinarySensorEntityDescription, ...] = (
 )
 
 
+@dataclass(frozen=True, kw_only=True)
+class GeoSphereCurrentBinarySensorEntityDescription(BinarySensorEntityDescription):
+    """Binary sensor description reading the current-conditions model."""
+
+    value_fn: Callable[[CurrentConditions], bool | None]
+
+
+CURRENT_BINARY_SENSORS: tuple[GeoSphereCurrentBinarySensorEntityDescription, ...] = (
+    GeoSphereCurrentBinarySensorEntityDescription(
+        key="precipitating",
+        translation_key="precipitating",
+        device_class=BinarySensorDeviceClass.MOISTURE,
+        value_fn=lambda data: data.is_precipitating,
+    ),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: GeoSphereNextConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the binary sensor platform."""
-    async_add_entities(
+    entities: list[BinarySensorEntity] = [
         GeoSphereBinarySensor(entry.runtime_data.forecast, entry, description)
         for description in BINARY_SENSORS
+    ]
+    entities.extend(
+        GeoSphereCurrentBinarySensor(entry.runtime_data.current, entry, description)
+        for description in CURRENT_BINARY_SENSORS
     )
+    async_add_entities(entities)
 
 
 class GeoSphereBinarySensor(
@@ -91,3 +122,31 @@ class GeoSphereBinarySensor(
         if self.coordinator.data is None:
             return None
         return self.entity_description.value_fn(self.coordinator.data, dt_util.utcnow())
+
+
+class GeoSphereCurrentBinarySensor(
+    CoordinatorEntity[GeoSphereCurrentCoordinator], BinarySensorEntity
+):
+    """A current-condition binary sensor backed by the current coordinator."""
+
+    entity_description: GeoSphereCurrentBinarySensorEntityDescription
+    _attr_has_entity_name = True
+    _attr_attribution = ATTRIBUTION
+
+    def __init__(
+        self,
+        coordinator: GeoSphereCurrentCoordinator,
+        entry: GeoSphereNextConfigEntry,
+        description: GeoSphereCurrentBinarySensorEntityDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = f"{entry.entry_id}-{description.key}"
+        self._attr_device_info = device_info(entry)
+
+    @property
+    def is_on(self) -> bool | None:
+        """Tri-state: None (unknown) when there are no current conditions."""
+        if self.coordinator.data is None:
+            return None
+        return self.entity_description.value_fn(self.coordinator.data)

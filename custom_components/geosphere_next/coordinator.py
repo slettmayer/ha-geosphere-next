@@ -26,6 +26,7 @@ from .condition import (
     derive_current_condition,
     dew_point_from_t_rh,
     is_night,
+    is_precipitating,
     wind_from_components,
 )
 from .const import (
@@ -53,6 +54,7 @@ from .const import (
     INCA_LOOKBACK_HOURS,
     INCA_MAX_AGE_SECONDS,
     INCA_PARAMETERS,
+    INCA_RR_MAX_AGE_SECONDS,
     NOWCAST_BUCKETS_PER_HOUR,
     NOWCAST_PARAMETERS,
     POP_DRY_PCT,
@@ -558,7 +560,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         cin = arome.cin if arome else None
 
         p0, _ = inca_latest("P0")
-        rr_1h, _ = inca_latest("RR")
+        rr_1h, rr_1h_time = inca_latest("RR")
         if rr_1h is None and nowcast is not None:
             # Sum the last four 15-min nowcast buckets at/before now.
             past = [
@@ -569,14 +571,54 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
                 if ts <= now and value is not None
             ]
             rr_1h = round(sum(past[-4:]), 2) if past else None
+            # Summed from buckets at/before now, so current by construction.
+            rr_1h_time = now if rr_1h is not None else None
 
         pt_raw = now_value("pt")
         precipitation_type = int(pt_raw) if pt_raw is not None else None
         nowcast_rr = now_value("rr")
+        # `None`, not 0.0, when the nowcast observed nothing: `is_precipitating`
+        # has to tell "no precipitation" apart from "no observation", which it
+        # cannot do once the absence has been defaulted away.
+        #
+        # INCA's hourly `RR` is deliberately NOT a fallback here, though it is
+        # one for `rate_mm_h` below. "Is it precipitating right now" is an
+        # instantaneous question and `RR` is an accumulation over the hour it
+        # is stamped for, so it answers a different one. `inca_latest` returns
+        # the newest non-None value at any age and `_async_get_inca` serves a
+        # cached slice for up to INCA_MAX_AGE_SECONDS -- indefinitely while
+        # refreshes keep failing -- so reading it here reported rain that had
+        # already stopped: 2.4 mm falling in the hour to 15:00 still read
+        # "wet" at 16:50. On a `moisture` entity, which is what gets wired to
+        # closing an awning, that is a wrong answer with consequences. With no
+        # instantaneous source the honest answer is `None`.
+        nowcast_rate_mm_h = (
+            nowcast_rr * NOWCAST_BUCKETS_PER_HOUR if nowcast_rr is not None else None
+        )
+        # The condition has to name *something*, so unlike `is_precipitating`
+        # it does fall back to `RR` -- but not to a slice that has stopped
+        # updating. `inca_latest` returns the newest non-None value at any age
+        # and `_async_get_inca` serves a cached slice indefinitely while
+        # refreshes fail, so an ungated read derived `rainy` under a clear sky
+        # from rain that had stopped hours ago, and held there. Past
+        # INCA_RR_MAX_AGE_SECONDS the derivation falls through to cloud cover,
+        # which is what the sky actually says. The bound is deliberately well
+        # past INCA's own ~90 min worst-case lag so ordinary publishing never
+        # trips it -- see the constant.
+        #
+        # `precipitation_1h` keeps reporting the accumulation regardless: it
+        # is a real measurement of a past hour. Note it is NOT dated by
+        # `observation_time`, which anchors to whichever source supplied the
+        # temperature (see below) and can therefore be newer than the `RR`
+        # stamp -- the two are read from the same slice but not the same row.
+        rr_1h_is_current = (
+            rr_1h_time is not None
+            and (now - rr_1h_time).total_seconds() <= INCA_RR_MAX_AGE_SECONDS
+        )
         rate_mm_h = (
-            nowcast_rr * NOWCAST_BUCKETS_PER_HOUR
-            if nowcast_rr is not None
-            else (rr_1h or 0.0)
+            nowcast_rate_mm_h
+            if nowcast_rate_mm_h is not None
+            else ((rr_1h or 0.0) if rr_1h_is_current else 0.0)
         )
         # A single bucket can round to 0.0 in the gap between cells of an
         # active storm, reporting 0 mm/h mid-thunderstorm and starving both
@@ -659,10 +701,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
             wind_gust_speed=gust,
             precipitation_1h=rr_1h,
             precipitation_type=precipitation_type,
-            is_precipitating=(
-                precipitation_type is not None
-                and precipitation_type != PT_NO_PRECIPITATION
-            ),
+            is_precipitating=is_precipitating(precipitation_type, nowcast_rate_mm_h),
             cloud_coverage=cloud,
             global_radiation=inca_latest("GL")[0],
             snow_limit=forecast_data.snow_limit if forecast_data else None,

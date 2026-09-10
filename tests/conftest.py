@@ -75,6 +75,26 @@ def stormy_arome(
     return payload
 
 
+def wet_nowcast(
+    *,
+    precipitation_type: float = 1.0,
+    rate_mm: float = 0.0,
+) -> dict:
+    """The recorded nowcast fixture with precipitation patched into it.
+
+    SYNTHETIC, derived from `nowcast.json` — the recording is dry throughout
+    (`pt` 255, `rr` 0.0), which leaves every "precipitating" path untestable.
+    Both series are set for every bucket so the value matched at the frozen
+    clock is wet regardless of which bucket that is. `rate_mm` is per 15-min
+    bucket, so 0.1 mm is 0.4 mm/h.
+    """
+    payload = load_fixture("nowcast.json")
+    parameters = payload["features"][0]["properties"]["parameters"]
+    parameters["pt"]["data"] = [precipitation_type for _ in parameters["pt"]["data"]]
+    parameters["rr"]["data"] = [rate_mm for _ in parameters["rr"]["data"]]
+    return payload
+
+
 @pytest.fixture
 def mock_config_entry() -> MockConfigEntry:
     return MockConfigEntry(

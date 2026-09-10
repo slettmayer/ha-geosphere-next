@@ -843,3 +843,74 @@ async def test_current_falls_back_when_the_forecast_aged_out(
     assert coordinator.data.cloud_coverage == step_zero.cloud_coverage
     assert coordinator.data.cape == step_zero.cape
     assert coordinator.data.cin == step_zero.cin
+
+
+def _wet_inca(millimetres: float = 2.4) -> dict:
+    """The recorded INCA fixture with rain in its newest analysis (15:00Z)."""
+    inca = load_fixture("inca.json")
+    inca["features"][0]["properties"]["parameters"]["RR"]["data"][-1] = millimetres
+    return inca
+
+
+async def test_stale_inca_rr_does_not_derive_rain(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """An `RR` whose hour has fully receded must not keep the condition rainy.
+
+    `RR` accumulates over the hour ending at its own stamp, `inca_latest`
+    returns the newest non-None value at any age, and the cached slice is
+    served on for `INCA_MAX_AGE_SECONDS` — indefinitely while refreshes fail.
+    With the nowcast down that fed the condition directly, so 2.4 mm falling
+    in the hour to 15:00Z kept deriving `rainy` under a 0 %-cloud AROME sky
+    indefinitely. Past `INCA_RR_MAX_AGE_SECONDS` the derivation now falls
+    through to cloud cover. The bound sits well past INCA's own ~90 min
+    worst-case lag, so it marks a slice that stopped updating rather than
+    ordinary publishing delay — see `test_current_inca_rr_still_derives_rain`.
+    """
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, exc=TimeoutError)
+    aioclient_mock.get(INCA_URL, json=_wet_inca())
+    # 2h35m past the 15:00Z stamp: INCA should have published two newer
+    # analyses by now, so the slice has demonstrably stopped updating. Well
+    # clear of the ~90 min a healthy publish cycle can legitimately reach.
+    freezer.move_to("2026-07-15T17:35:00+00:00")
+    await _setup(hass, mock_config_entry)
+
+    data = mock_config_entry.runtime_data.current.data
+    assert data.condition == "sunny"
+    assert data.is_precipitating is None
+    # The accumulation is still reported — a real measurement of a past hour,
+    # dated by `observation_time`. It just is not evidence about now.
+    assert data.precipitation_1h == 2.4
+
+
+async def test_current_inca_rr_still_derives_rain(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The other side of the bound: a fresh `RR` keeps its fallback.
+
+    Gating staleness must not amount to dropping the fallback — with the
+    nowcast down and an analysis whose hour still touches the present, INCA
+    remains the best evidence there is and the condition follows it.
+    """
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, exc=TimeoutError)
+    aioclient_mock.get(INCA_URL, json=_wet_inca())
+    # 85 min past the 15:00Z stamp — within the ~90 min a healthy INCA
+    # publish cycle reaches, so this is the freshest data the source has and
+    # rejecting it would flap the condition once an hour through steady rain.
+    freezer.move_to("2026-07-15T16:25:00+00:00")
+    await _setup(hass, mock_config_entry)
+
+    data = mock_config_entry.runtime_data.current.data
+    assert data.condition == "rainy"
+    # Still `None`: the rate gate feeds the condition, never the binary sensor.
+    assert data.is_precipitating is None

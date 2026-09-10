@@ -50,10 +50,43 @@ value. The order encodes which source is trusted most for each field:
   per hour, so they age with the forecast interval.
 - **1 h precipitation**: INCA `RR`; if absent, sum the last four 15-min nowcast
   `rr` buckets at/before now.
-- **Precipitation type / `is_precipitating`**: nowcast `pt` (255 = none).
+- **Precipitation type**: nowcast `pt`, passed through raw as a diagnostic
+  sensor. GeoSphere publishes no code table for it, so only 255 (= none) is
+  known and the code is never decoded into rain/snow/hail.
+- **`is_precipitating`** (the `precipitating` binary sensor): `pt` ≠ 255 **or**
+  precipitation rate ≥ `PRECIP_MIN_MM`, via `condition.is_precipitating` —
+  the integration's single definition, shared with the condition derivation.
+  Either source suffices, and both come from the 15-min nowcast — the only
+  source that observes precipitation *now*. `None` when neither spoke, which
+  happens outside the Austrian grid (`CONF_HAS_NOWCAST` skips the nowcast and
+  INCA alike) and on a failed nowcast fetch; a "dry" there would be invented.
+  The coordinator therefore keeps the unobserved rate as `None` rather than
+  defaulting it to 0.0.
+
+  INCA's hourly `RR` is deliberately **not** a fallback for this field. It is
+  an accumulation over the hour it is stamped for, `inca_latest` returns the
+  newest non-`None` value at any age, and the cached slice is served for up
+  to `INCA_MAX_AGE_SECONDS` (indefinitely while refreshes fail) — so reading
+  it as an instantaneous rate reports rain that has already stopped. Only
+  `precipitation_1h` (the measurement it actually is) and the condition
+  derivation (which must decide either way) use it.
 - **Precipitation rate** (mm/h, feeds the condition): the matched nowcast `rr`
   bucket × `NOWCAST_BUCKETS_PER_HOUR`, else INCA's hourly `RR` where there is
-  no nowcast at all. When `pt` says it *is* precipitating, the peak across the
+  no nowcast at all — but only while that `RR` is younger than
+  `INCA_RR_MAX_AGE_SECONDS` (2 h). `inca_latest` returns the newest value at
+  any age and the cached slice is served on indefinitely while refreshes
+  fail, so an ungated read derived `rainy` under a clear sky from rain that
+  had stopped hours earlier, and held there. The bound marks a slice that has
+  **stopped updating**, not ordinary lag — INCA's freshest `RR` is routinely
+  up to ~90 min old (same publish cycle that makes `observed_at` trail by
+  ~90 min), and a tighter bound would reject the best data the source has for
+  part of every cycle, flapping the condition hourly through steady rain.
+  Past the bound the derivation falls through to cloud cover. The condition
+  must still name something, which is why it keeps the fallback at all —
+  `is_precipitating` drops `RR` outright. Note `observation_time` does **not**
+  date the accumulation: it anchors to whichever source supplied the
+  temperature, which can be a newer row of the same slice. When `pt` says it
+  *is* precipitating, the peak across the
   last `RATE_LOOKBACK`
   (30 min) of buckets is used instead of the matched one alone — a single
   bucket can round to 0.0 in the gap between cells, and a rate of 0 mm/h would
