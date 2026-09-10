@@ -259,21 +259,23 @@ def test_dew_point_from_t_rh() -> None:
         (1, 0.0, True),
         (5, 0.0, True),
         (255, 0.0, False),
-        # ...and the observed rate alone is sufficient, which is what keeps a
-        # point outside nowcast coverage (`pt` None) from reading a permanent
-        # "dry". PRECIP_MIN_MM (0.1) is the floor.
+        # ...and the observed rate alone is sufficient, which is what carries
+        # the answer when the nowcast fetch fails and INCA's hourly `RR` is all
+        # that is left. PRECIP_MIN_MM (0.1) is the floor.
         (None, 0.5, True),
         (None, 0.1, True),
         (None, 0.09, False),
         (None, 0.0, False),
-        (None, None, False),
+        # Neither source spoke: unknown, NOT dry. Defaulting this to False is
+        # what invents a confident "dry" outside the Austrian grid.
+        (None, None, None),
         # A dry `pt` does not veto an observed rate, nor the reverse.
         (255, 0.5, True),
         (1, None, True),
     ],
 )
 def test_is_precipitating(
-    precipitation_type: int | None, rate: float | None, expected: bool
+    precipitation_type: int | None, rate: float | None, expected: bool | None
 ) -> None:
-    """Either source is sufficient; neither vetoes the other."""
+    """Either source is sufficient; neither vetoes the other; silence is `None`."""
     assert is_precipitating(precipitation_type, rate) is expected

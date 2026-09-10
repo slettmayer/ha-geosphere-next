@@ -574,11 +574,14 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         pt_raw = now_value("pt")
         precipitation_type = int(pt_raw) if pt_raw is not None else None
         nowcast_rr = now_value("rr")
-        rate_mm_h = (
-            nowcast_rr * NOWCAST_BUCKETS_PER_HOUR
-            if nowcast_rr is not None
-            else (rr_1h or 0.0)
+        # `None`, not 0.0, when neither source observed a rate: `is_precipitating`
+        # has to tell "no precipitation" apart from "no observation", which it
+        # cannot do once the absence has been defaulted away. The condition
+        # derivation must decide either way, so it takes the 0.0 form below.
+        observed_rate_mm_h = (
+            nowcast_rr * NOWCAST_BUCKETS_PER_HOUR if nowcast_rr is not None else rr_1h
         )
+        rate_mm_h = observed_rate_mm_h or 0.0
         # A single bucket can round to 0.0 in the gap between cells of an
         # active storm, reporting 0 mm/h mid-thunderstorm and starving both
         # the `pouring` branch and the downpour override that lets observed
@@ -660,7 +663,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
             wind_gust_speed=gust,
             precipitation_1h=rr_1h,
             precipitation_type=precipitation_type,
-            is_precipitating=is_precipitating(precipitation_type, rate_mm_h),
+            is_precipitating=is_precipitating(precipitation_type, observed_rate_mm_h),
             cloud_coverage=cloud,
             global_radiation=inca_latest("GL")[0],
             snow_limit=forecast_data.snow_limit if forecast_data else None,

@@ -56,8 +56,13 @@ value. The order encodes which source is trusted most for each field:
 - **`is_precipitating`** (the `precipitating` binary sensor): `pt` ≠ 255 **or**
   precipitation rate ≥ `PRECIP_MIN_MM`, via `condition.is_precipitating` —
   the integration's single definition, shared with the condition derivation.
-  Either source suffices: the rate keeps a point outside nowcast coverage
-  (`pt` absent) from reading a permanent "dry".
+  Either source suffices; the rate half is what answers when the nowcast
+  fetch fails and INCA's hourly `RR` is all that is left. `None` when
+  *neither* spoke — outside the Austrian grid `CONF_HAS_NOWCAST` skips the
+  nowcast and INCA alike, so no rate is observed either and a "dry" would be
+  invented. The coordinator therefore keeps the unobserved rate as `None`
+  rather than defaulting it to 0.0; only the condition derivation, which must
+  decide either way, takes the 0.0 form.
 - **Precipitation rate** (mm/h, feeds the condition): the matched nowcast `rr`
   bucket × `NOWCAST_BUCKETS_PER_HOUR`, else INCA's hourly `RR` where there is
   no nowcast at all. When `pt` says it *is* precipitating, the peak across the

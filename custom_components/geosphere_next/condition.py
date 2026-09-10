@@ -129,23 +129,33 @@ def derive_condition(
 def is_precipitating(
     precipitation_type: int | None,
     precipitation_rate_mm_h: float | None,
-) -> bool:
-    """Whether precipitation is falling right now, from either source.
+) -> bool | None:
+    """Whether precipitation is falling right now, or `None` if nothing says.
 
     Two independent signals, either of which is sufficient. The nowcast `pt`
     code is the sharper one — it resolves a shower the hourly sum has not
-    accumulated yet — but the nowcast is not available at every point (see
-    `CONF_HAS_NOWCAST`). The observed rate covers that gap, so a location
-    outside nowcast coverage reports honestly instead of reading a permanent
-    "dry".
+    accumulated yet — while the observed rate carries the answer when the
+    nowcast fetch fails and INCA's hourly `RR` is all that is left.
+
+    `None` when *neither* source spoke, which is not the same as "dry" and
+    must not render as one. It is the state at a point outside the Austrian
+    grid: `CONF_HAS_NOWCAST` skips the nowcast and INCA alike (they share the
+    grid — see `GeoSphereCurrentCoordinator._async_get_inca`), so nothing
+    observes precipitation there at all and a confident "dry" would be
+    invented. `precipitation_1h` already reports `unknown` in that case; this
+    keeps the pair consistent.
 
     Sole definition of "precipitating" for the integration: both
     `derive_current_condition` and `CurrentConditions.is_precipitating` call
-    this rather than restating the comparison.
+    this rather than restating the comparison. A caller that must decide
+    either way (the condition derivation) passes a rate defaulted to 0.0 and
+    so never sees `None`.
     """
-    return (
-        precipitation_type is not None and precipitation_type != PT_NO_PRECIPITATION
-    ) or (precipitation_rate_mm_h or 0.0) >= PRECIP_MIN_MM
+    if precipitation_type is not None and precipitation_type != PT_NO_PRECIPITATION:
+        return True
+    if precipitation_rate_mm_h is not None:
+        return precipitation_rate_mm_h >= PRECIP_MIN_MM
+    return None if precipitation_type is None else False
 
 
 def derive_current_condition(

@@ -72,7 +72,7 @@ forecast interval — and re-pushed to any live subscribers at every full hour.
 | `wind_bearing` (Wind direction) | Direction the wind blows *from* | ° |
 | `cloud_coverage` | Fraction of sky covered by cloud | % |
 | `precipitation_1h` (Precipitation, last hour) | Rain/snow accumulated over the last hour | mm |
-| `precipitating` (binary sensor, `moisture`) | On while precipitation is falling now — on from either the nowcast `pt` code or an observed rate ≥ 0.1 mm/h, so it still works outside nowcast coverage; `unknown` when there are no current conditions | — |
+| `precipitating` (binary sensor, `moisture`) | On while precipitation is falling now — from either the nowcast `pt` code or an observed rate ≥ 0.1 mm/h, so a nowcast outage still answers from INCA. `unknown`, never `off`, when neither source observed anything: outside the Austrian grid there is no nowcast *and* no INCA, so a "dry" would be invented | — |
 | `condition` | The derived HA condition as a plain text sensor | — |
 | `global_radiation` | Downward shortwave (solar) irradiance | W/m² |
 | `snow_limit` | Altitude of the rain/snow line | m |
