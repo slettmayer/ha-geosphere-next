@@ -574,14 +574,27 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         pt_raw = now_value("pt")
         precipitation_type = int(pt_raw) if pt_raw is not None else None
         nowcast_rr = now_value("rr")
-        # `None`, not 0.0, when neither source observed a rate: `is_precipitating`
+        # `None`, not 0.0, when the nowcast observed nothing: `is_precipitating`
         # has to tell "no precipitation" apart from "no observation", which it
-        # cannot do once the absence has been defaulted away. The condition
-        # derivation must decide either way, so it takes the 0.0 form below.
-        observed_rate_mm_h = (
-            nowcast_rr * NOWCAST_BUCKETS_PER_HOUR if nowcast_rr is not None else rr_1h
+        # cannot do once the absence has been defaulted away.
+        #
+        # INCA's hourly `RR` is deliberately NOT a fallback here, though it is
+        # one for `rate_mm_h` below. "Is it precipitating right now" is an
+        # instantaneous question and `RR` is an accumulation over the hour it
+        # is stamped for, so it answers a different one. `inca_latest` returns
+        # the newest non-None value at any age and `_async_get_inca` serves a
+        # cached slice for up to INCA_MAX_AGE_SECONDS -- indefinitely while
+        # refreshes keep failing -- so reading it here reported rain that had
+        # already stopped: 2.4 mm falling in the hour to 15:00 still read
+        # "wet" at 16:50. On a `moisture` entity, which is what gets wired to
+        # closing an awning, that is a wrong answer with consequences. With no
+        # instantaneous source the honest answer is `None`.
+        nowcast_rate_mm_h = (
+            nowcast_rr * NOWCAST_BUCKETS_PER_HOUR if nowcast_rr is not None else None
         )
-        rate_mm_h = observed_rate_mm_h or 0.0
+        rate_mm_h = (
+            nowcast_rate_mm_h if nowcast_rate_mm_h is not None else (rr_1h or 0.0)
+        )
         # A single bucket can round to 0.0 in the gap between cells of an
         # active storm, reporting 0 mm/h mid-thunderstorm and starving both
         # the `pouring` branch and the downpour override that lets observed
@@ -663,7 +676,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
             wind_gust_speed=gust,
             precipitation_1h=rr_1h,
             precipitation_type=precipitation_type,
-            is_precipitating=is_precipitating(precipitation_type, observed_rate_mm_h),
+            is_precipitating=is_precipitating(precipitation_type, nowcast_rate_mm_h),
             cloud_coverage=cloud,
             global_radiation=inca_latest("GL")[0],
             snow_limit=forecast_data.snow_limit if forecast_data else None,

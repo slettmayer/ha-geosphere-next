@@ -56,13 +56,20 @@ value. The order encodes which source is trusted most for each field:
 - **`is_precipitating`** (the `precipitating` binary sensor): `pt` ≠ 255 **or**
   precipitation rate ≥ `PRECIP_MIN_MM`, via `condition.is_precipitating` —
   the integration's single definition, shared with the condition derivation.
-  Either source suffices; the rate half is what answers when the nowcast
-  fetch fails and INCA's hourly `RR` is all that is left. `None` when
-  *neither* spoke — outside the Austrian grid `CONF_HAS_NOWCAST` skips the
-  nowcast and INCA alike, so no rate is observed either and a "dry" would be
-  invented. The coordinator therefore keeps the unobserved rate as `None`
-  rather than defaulting it to 0.0; only the condition derivation, which must
-  decide either way, takes the 0.0 form.
+  Either source suffices, and both come from the 15-min nowcast — the only
+  source that observes precipitation *now*. `None` when neither spoke, which
+  happens outside the Austrian grid (`CONF_HAS_NOWCAST` skips the nowcast and
+  INCA alike) and on a failed nowcast fetch; a "dry" there would be invented.
+  The coordinator therefore keeps the unobserved rate as `None` rather than
+  defaulting it to 0.0.
+
+  INCA's hourly `RR` is deliberately **not** a fallback for this field. It is
+  an accumulation over the hour it is stamped for, `inca_latest` returns the
+  newest non-`None` value at any age, and the cached slice is served for up
+  to `INCA_MAX_AGE_SECONDS` (indefinitely while refreshes fail) — so reading
+  it as an instantaneous rate reports rain that has already stopped. Only
+  `precipitation_1h` (the measurement it actually is) and the condition
+  derivation (which must decide either way) use it.
 - **Precipitation rate** (mm/h, feeds the condition): the matched nowcast `rr`
   bucket × `NOWCAST_BUCKETS_PER_HOUR`, else INCA's hourly `RR` where there is
   no nowcast at all. When `pt` says it *is* precipitating, the peak across the

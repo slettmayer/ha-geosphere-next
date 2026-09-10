@@ -213,29 +213,41 @@ async def test_precipitating_is_unknown_without_nowcast_coverage(
     )
 
 
-async def test_precipitating_is_on_from_inca_when_the_nowcast_fetch_fails(
+async def test_precipitating_is_unknown_when_the_nowcast_fetch_fails(
     hass: HomeAssistant,
     mock_config_entry,
     aioclient_mock: AiohttpClientMocker,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """The real rate-only path: nowcast down, `pt` absent, INCA `RR` wet.
+    """A stale INCA `RR` must not hold this on — regression guard.
 
-    This is what the observed-rate half of `condition.is_precipitating`
-    actually buys — a transient nowcast outage inside the grid, not a point
-    outside it (that case has no rate either, see the test above).
+    INCA's hourly `RR` is an accumulation over the hour it is stamped for, so
+    it cannot answer "is it precipitating right now". `inca_latest` returns
+    the newest non-None value at any age and `_async_get_inca` serves its
+    cached slice for up to `INCA_MAX_AGE_SECONDS`, so reading `RR` here used
+    to report rain that had already stopped: the 2.4 mm below fell in the
+    hour to 15:00Z and the entity still read `on` at 16:50Z, holding
+    indefinitely while INCA refreshes kept failing. With the nowcast down
+    there is no instantaneous observation left, so the honest answer is
+    `unknown`.
     """
-    freezer.move_to(FROZEN_NOW)
     inca = load_fixture("inca.json")
+    # Rain in the hour ending 15:00Z (the newest analysis), then it stops.
     inca["features"][0]["properties"]["parameters"]["RR"]["data"][-1] = 2.4
     aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
     aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
     aioclient_mock.get(NOWCAST_URL, exc=TimeoutError)
     aioclient_mock.get(INCA_URL, json=inca)
+    freezer.move_to("2026-07-15T16:50:00+00:00")
     mock_config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
 
     state = hass.states.get(PRECIPITATING_ENTITY_ID)
     assert state is not None
-    assert state.state == "on"
+    assert state.state == "unknown"
+    # The accumulation itself is still reported — it is a real measurement of
+    # the past hour; it just is not evidence about now.
+    assert hass.states.get("sensor.geosphere_next_precipitation_last_hour").state == (
+        "2.4"
+    )

@@ -132,24 +132,26 @@ def is_precipitating(
 ) -> bool | None:
     """Whether precipitation is falling right now, or `None` if nothing says.
 
-    Two independent signals, either of which is sufficient. The nowcast `pt`
-    code is the sharper one — it resolves a shower the hourly sum has not
-    accumulated yet — while the observed rate carries the answer when the
-    nowcast fetch fails and INCA's hourly `RR` is all that is left.
+    Two independent signals, either of which is sufficient: the nowcast `pt`
+    code, and an instantaneous rate. Both come from the 15-min nowcast, the
+    only source that observes precipitation *now* — the caller must not
+    substitute INCA's hourly `RR`, an accumulation that answers a different
+    question (see `GeoSphereCurrentCoordinator._merge`).
 
-    `None` when *neither* source spoke, which is not the same as "dry" and
-    must not render as one. It is the state at a point outside the Austrian
-    grid: `CONF_HAS_NOWCAST` skips the nowcast and INCA alike (they share the
-    grid — see `GeoSphereCurrentCoordinator._async_get_inca`), so nothing
-    observes precipitation there at all and a confident "dry" would be
-    invented. `precipitation_1h` already reports `unknown` in that case; this
-    keeps the pair consistent.
+    `None` when *neither* spoke, which is not the same as "dry" and must not
+    render as one. Two ways to get there: a point outside the Austrian grid,
+    where `CONF_HAS_NOWCAST` skips the nowcast and INCA alike (they share the
+    grid — see `_async_get_inca`), and a transient nowcast fetch failure.
+    Both leave nothing observing precipitation, so a confident "dry" would be
+    invented. `precipitation_1h` already reports `unknown` in the first case;
+    this keeps the pair consistent.
 
     Sole definition of "precipitating" for the integration: both
-    `derive_current_condition` and `CurrentConditions.is_precipitating` call
-    this rather than restating the comparison. A caller that must decide
-    either way (the condition derivation) passes a rate defaulted to 0.0 and
-    so never sees `None`.
+    `derive_current_condition` and `GeoSphereCurrentCoordinator._merge` (which
+    stores the result as `CurrentConditions.is_precipitating`) call this
+    rather than restating the comparison. A caller that must decide either way
+    (the condition derivation) passes a rate defaulted to 0.0 and so never
+    sees `None`.
     """
     if precipitation_type is not None and precipitation_type != PT_NO_PRECIPITATION:
         return True
