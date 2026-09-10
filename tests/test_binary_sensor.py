@@ -18,10 +18,12 @@ from .conftest import (
     NOWCAST_URL,
     load_fixture,
     stormy_arome,
+    wet_nowcast,
 )
 
 FROZEN_NOW = "2026-07-15T16:00:00+00:00"
 ENTITY_ID = "binary_sensor.geosphere_next_thunderstorm_expected_next_hour"
+PRECIPITATING_ENTITY_ID = "binary_sensor.geosphere_next_precipitating"
 
 
 def _mock_api_with(aioclient_mock: AiohttpClientMocker, arome: dict) -> None:
@@ -97,3 +99,66 @@ async def test_thunderstorm_expected_re_evaluates_on_the_hour(
     await hass.async_block_till_done()
 
     assert hass.states.get(ENTITY_ID).state == "on"
+
+
+async def test_precipitating_is_off_for_a_dry_analysis(
+    hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
+) -> None:
+    """The recorded fixtures are dry: `pt` 255 and no measurable rate."""
+    freezer.move_to(FROZEN_NOW)
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(PRECIPITATING_ENTITY_ID)
+    assert state is not None
+    assert state.state == "off"
+    assert state.attributes["device_class"] == "moisture"
+
+
+async def test_precipitating_is_on_from_the_nowcast_code(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A `pt` code other than 255 turns it on with no measurable rate."""
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=wet_nowcast(rate_mm=0.0))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(PRECIPITATING_ENTITY_ID)
+    assert state is not None
+    assert state.state == "on"
+
+
+async def test_precipitating_is_on_from_the_rate_alone(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The rate alone carries it: a dry `pt` 255 must not veto observed rain.
+
+    This is the path a point outside nowcast coverage takes, where `pt` is
+    absent entirely rather than 255.
+    """
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(
+        NOWCAST_URL, json=wet_nowcast(precipitation_type=255.0, rate_mm=0.5)
+    )
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(PRECIPITATING_ENTITY_ID)
+    assert state is not None
+    assert state.state == "on"

@@ -126,6 +126,28 @@ def derive_condition(
     return "cloudy"
 
 
+def is_precipitating(
+    precipitation_type: int | None,
+    precipitation_rate_mm_h: float | None,
+) -> bool:
+    """Whether precipitation is falling right now, from either source.
+
+    Two independent signals, either of which is sufficient. The nowcast `pt`
+    code is the sharper one — it resolves a shower the hourly sum has not
+    accumulated yet — but the nowcast is not available at every point (see
+    `CONF_HAS_NOWCAST`). The observed rate covers that gap, so a location
+    outside nowcast coverage reports honestly instead of reading a permanent
+    "dry".
+
+    Sole definition of "precipitating" for the integration: both
+    `derive_current_condition` and `CurrentConditions.is_precipitating` call
+    this rather than restating the comparison.
+    """
+    return (
+        precipitation_type is not None and precipitation_type != PT_NO_PRECIPITATION
+    ) or (precipitation_rate_mm_h or 0.0) >= PRECIP_MIN_MM
+
+
 def derive_current_condition(
     *,
     precipitation_type: int | None,
@@ -153,17 +175,14 @@ def derive_current_condition(
     letting it veto would render a thunderstorm in progress as plain `rainy`.
 
     Intensity is the whole qualifier. Observed precipitation alone is far too
-    weak a signal to spend the gate on — `precipitating` is true of drizzle,
+    weak a signal to spend the gate on — `is_precipitating` is true of drizzle,
     and high CAPE under a strong lid with light stratiform rain off a frontal
     deck is a real pattern, not a storm. Below that rate the full CAPE/CIN
     gate applies, as it does on the non-precipitating branch and throughout
     `derive_condition`, both of which are forecast-driven end to end.
     """
     rate = precipitation_rate_mm_h or 0.0
-    precipitating = (
-        precipitation_type is not None and precipitation_type != PT_NO_PRECIPITATION
-    ) or rate >= PRECIP_MIN_MM
-    if precipitating:
+    if is_precipitating(precipitation_type, rate):
         thunder = is_thunder(cape, cin) or (
             rate >= POURING_MM_PER_H and cape is not None and cape >= THUNDER_CAPE_JKG
         )

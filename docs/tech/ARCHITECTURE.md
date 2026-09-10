@@ -86,6 +86,11 @@ reads `entity_description.value_fn(coordinator.data)`. All entities share one
 `SERVICE` `DeviceInfo` from `entity.py`. Unique IDs: `{entry_id}` (weather),
 `{entry_id}-{key}` (sensors).
 
+`binary_sensor.py` holds two groups on two coordinators: `BINARY_SENSORS`
+(forecast-outlook, `GeoSphereBinarySensor`) and `CURRENT_BINARY_SENSORS`
+(current conditions, `GeoSphereCurrentBinarySensor`) — the latter is a plain
+`value_fn(data)` on the current coordinator, with no hour-boundary refresh.
+
 The forecast-outlook entities (`OUTLOOK_SENSORS` in `sensor.py`,
 `BINARY_SENSORS` in `binary_sensor.py`) follow the same shape but take a
 `value_fn(data, now)` and delegate to `outlook.py`. Because their answers are

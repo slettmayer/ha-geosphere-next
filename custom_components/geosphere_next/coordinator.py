@@ -26,6 +26,7 @@ from .condition import (
     derive_current_condition,
     dew_point_from_t_rh,
     is_night,
+    is_precipitating,
     wind_from_components,
 )
 from .const import (
@@ -659,10 +660,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
             wind_gust_speed=gust,
             precipitation_1h=rr_1h,
             precipitation_type=precipitation_type,
-            is_precipitating=(
-                precipitation_type is not None
-                and precipitation_type != PT_NO_PRECIPITATION
-            ),
+            is_precipitating=is_precipitating(precipitation_type, rate_mm_h),
             cloud_coverage=cloud,
             global_radiation=inca_latest("GL")[0],
             snow_limit=forecast_data.snow_limit if forecast_data else None,

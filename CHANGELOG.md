@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.0
+
+- Add: a `precipitating` binary sensor (device class `moisture`, so it reads Wet/Dry) reporting whether precipitation is falling right now. The current-conditions model has carried an `is_precipitating` field since the nowcast was wired in, but nothing read it — it reached Home Assistant only as a key in the diagnostics dump. It is now an entity, on the current coordinator, and reports `unknown` rather than a confident `off` when there are no current conditions
+- Change: "precipitating" now has a single definition, `condition.is_precipitating`, shared by the new sensor and by `derive_current_condition`. The two had drifted: the condition derivation counted either the nowcast `pt` code **or** an observed rate of at least `PRECIP_MIN_MM`, while the model field counted only `pt`. Since `pt` is absent wherever the nowcast is unavailable (`CONF_HAS_NOWCAST`), the field would have read a permanent, confident "dry" at those points once exposed — the rate is what keeps it honest there
+- Chore: documented that GeoSphere publishes no code table for the raw `pt` precipitation-type code. Only 255 (no precipitation) is known, so the integration reads it as a yes/no signal and splits rain from snow by temperature rather than decoding it. Tracked in [#31](https://github.com/slettmayer/ha-geosphere-next/issues/31), which carries the GRIB2 4.201 hypothesis and how to confirm it against real snowfall
+
 ## 0.10.3
 
 - Fix: the minimum Home Assistant version in `hacs.json` is now `2025.12.0`, which is what the code has actually required since 0.9.x. The declared floor was still `2025.7.0`, so HACS would install onto instances the integration cannot run on. `config_flow.py` subclasses `OptionsFlowWithReload`, added in 2025.8.0 — below that the config flow fails to import and the integration cannot be set up at all. The coordinator passes `retry_after` to `UpdateFailed`, a keyword added in 2025.12.0 — below that a GeoSphere rate limit raises `TypeError` instead of backing off, taking the weather entity and every sensor unavailable on what should be a self-healing retry

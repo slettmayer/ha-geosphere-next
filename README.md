@@ -72,6 +72,7 @@ forecast interval — and re-pushed to any live subscribers at every full hour.
 | `wind_bearing` (Wind direction) | Direction the wind blows *from* | ° |
 | `cloud_coverage` | Fraction of sky covered by cloud | % |
 | `precipitation_1h` (Precipitation, last hour) | Rain/snow accumulated over the last hour | mm |
+| `precipitating` (binary sensor, `moisture`) | On while precipitation is falling now — on from either the nowcast `pt` code or an observed rate ≥ 0.1 mm/h, so it still works outside nowcast coverage; `unknown` when there are no current conditions | — |
 | `condition` | The derived HA condition as a plain text sensor | — |
 | `global_radiation` | Downward shortwave (solar) irradiance | W/m² |
 | `snow_limit` | Altitude of the rain/snow line | m |
@@ -93,7 +94,7 @@ Enable these per-entity in Home Assistant if you want them.
 |---|---|---|
 | `cape` | Convective Available Potential Energy — thunderstorm-potential indicator used in the condition derivation | J/kg |
 | `cin` (entity id: `convective_inhibition`) | Convective inhibition — negative J/kg, `0` = uncapped; gates the thunder decision so capped high-CAPE air does not read as a storm | J/kg |
-| `precipitation_type` | Raw GeoSphere precipitation-type code (diagnostic) | — |
+| `precipitation_type` | Raw GeoSphere precipitation-type code (diagnostic). GeoSphere publishes no code table for it; only `255` (no precipitation) is known, so the integration reads it as a yes/no signal and splits rain from snow by temperature. For "is it raining right now" use the `precipitating` binary sensor instead | — |
 | `weather_symbol` | Raw GeoSphere weather-symbol code (diagnostic; the HA condition is derived independently — see the FAQ) | — |
 
 ### Storm outlook (enabled by default, except `cape_max_12h`)

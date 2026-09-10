@@ -12,6 +12,7 @@ from custom_components.geosphere_next.condition import (
     derive_current_condition,
     dew_point_from_t_rh,
     is_night,
+    is_precipitating,
     wind_from_components,
 )
 
@@ -248,3 +249,31 @@ def test_dew_point_from_t_rh() -> None:
     assert dew_point_from_t_rh(None, 50.0) is None
     assert dew_point_from_t_rh(20.0, None) is None
     assert dew_point_from_t_rh(20.0, 0.0) is None
+
+
+@pytest.mark.parametrize(
+    ("precipitation_type", "rate", "expected"),
+    [
+        # The nowcast `pt` code alone is sufficient: any code but 255 is wet,
+        # even with no measurable rate behind it yet.
+        (1, 0.0, True),
+        (5, 0.0, True),
+        (255, 0.0, False),
+        # ...and the observed rate alone is sufficient, which is what keeps a
+        # point outside nowcast coverage (`pt` None) from reading a permanent
+        # "dry". PRECIP_MIN_MM (0.1) is the floor.
+        (None, 0.5, True),
+        (None, 0.1, True),
+        (None, 0.09, False),
+        (None, 0.0, False),
+        (None, None, False),
+        # A dry `pt` does not veto an observed rate, nor the reverse.
+        (255, 0.5, True),
+        (1, None, True),
+    ],
+)
+def test_is_precipitating(
+    precipitation_type: int | None, rate: float | None, expected: bool
+) -> None:
+    """Either source is sufficient; neither vetoes the other."""
+    assert is_precipitating(precipitation_type, rate) is expected

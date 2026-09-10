@@ -4,6 +4,10 @@
       "thunderstorm_expected_1h": {
         "default": "mdi:weather-lightning",
         "state": { "off": "mdi:weather-cloudy" }
+      },
+      "precipitating": {
+        "default": "mdi:weather-pouring",
+        "state": { "off": "mdi:weather-cloudy" }
       }
     },
     "sensor": {

@@ -50,7 +50,14 @@ value. The order encodes which source is trusted most for each field:
   per hour, so they age with the forecast interval.
 - **1 h precipitation**: INCA `RR`; if absent, sum the last four 15-min nowcast
   `rr` buckets at/before now.
-- **Precipitation type / `is_precipitating`**: nowcast `pt` (255 = none).
+- **Precipitation type**: nowcast `pt`, passed through raw as a diagnostic
+  sensor. GeoSphere publishes no code table for it, so only 255 (= none) is
+  known and the code is never decoded into rain/snow/hail.
+- **`is_precipitating`** (the `precipitating` binary sensor): `pt` ≠ 255 **or**
+  precipitation rate ≥ `PRECIP_MIN_MM`, via `condition.is_precipitating` —
+  the integration's single definition, shared with the condition derivation.
+  Either source suffices: the rate keeps a point outside nowcast coverage
+  (`pt` absent) from reading a permanent "dry".
 - **Precipitation rate** (mm/h, feeds the condition): the matched nowcast `rr`
   bucket × `NOWCAST_BUCKETS_PER_HOUR`, else INCA's hourly `RR` where there is
   no nowcast at all. When `pt` says it *is* precipitating, the peak across the

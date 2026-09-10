@@ -33,7 +33,8 @@ it publishes and the external dataset API it consumes.
   (`entity.py: device_info`). Current-condition sensors are backed by the current
   coordinator; five optional air-quality sensors by the air-quality coordinator.
   Some sensors are disabled-by-default diagnostics (CAPE, CIN, raw `pt` code,
-  raw `sy` symbol code). Five forecast-outlook entities — `wind_gust_max_1h`,
+  raw `sy` symbol code). The `precipitating` binary sensor reports whether
+  precipitation is falling now, backed by the current coordinator. Five forecast-outlook entities — `wind_gust_max_1h`,
   `wind_gust_max_12h`, `cape_max_12h` (diagnostic, disabled by default),
   `next_thunderstorm`, and the `thunderstorm_expected_1h` binary sensor — are
   backed by the forecast coordinator: their data refreshes on its interval,
