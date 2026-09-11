@@ -615,9 +615,20 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         # `observation_time`, which anchors to whichever source supplied the
         # temperature (see below) and can therefore be newer than the `RR`
         # stamp -- the two are read from the same slice but not the same row.
+        # Bounded at BOTH ends. A bare `age <= INCA_RR_MAX_AGE_SECONDS` is
+        # also satisfied by a NEGATIVE age, so a future-stamped `RR` would
+        # read as the freshest reading there is and derive `pouring` from an
+        # hour that has not happened yet. `_async_get_inca` requests
+        # `end=now`, so the API does not hand one back today, and the cached
+        # slice only ages further as `now` advances -- but nothing in this
+        # method's signature enforces that, and `observation_time` below
+        # already clamps every rung to `now` on exactly this principle: an
+        # observation can never be in the future.
+        rr_1h_age_s = (
+            (now - rr_1h_time).total_seconds() if rr_1h_time is not None else None
+        )
         rr_1h_is_current = (
-            rr_1h_time is not None
-            and (now - rr_1h_time).total_seconds() <= INCA_RR_MAX_AGE_SECONDS
+            rr_1h_age_s is not None and 0 <= rr_1h_age_s <= INCA_RR_MAX_AGE_SECONDS
         )
         rate_mm_h = (
             nowcast_rate_mm_h

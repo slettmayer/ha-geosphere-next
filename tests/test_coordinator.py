@@ -889,6 +889,39 @@ async def test_stale_inca_rr_does_not_derive_rain(
     assert data.precipitation_1h == 2.4
 
 
+async def test_future_dated_inca_rr_does_not_derive_rain(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A negative age is not freshness.
+
+    The bound compared only its upper end, and `age <= INCA_RR_MAX_AGE_SECONDS`
+    is satisfied by a negative age too — so an `RR` stamped ahead of `now`
+    passed as the freshest reading there is and fed the condition an hour that
+    has not happened yet. `_async_get_inca` requests `end=now` so the live API
+    does not return one, but nothing in `_merge` enforces that pairing, and
+    `observation_time` already clamps every rung to `now` on the same
+    principle.
+    """
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, exc=TimeoutError)
+    aioclient_mock.get(INCA_URL, json=_wet_inca())
+    # Two hours BEFORE the 15:00Z stamp the fixture's rain is dated to.
+    freezer.move_to("2026-07-15T13:00:00+00:00")
+    await _setup(hass, mock_config_entry)
+
+    data = mock_config_entry.runtime_data.current.data
+    # Pinned to the cloud-derived value, not merely "not rainy": with the
+    # lower bound removed this derives `rainy` from the future hour, so a
+    # loose assertion would pass with the defect present.
+    assert data.condition == "cloudy"
+    # Still reported as the measurement it is, exactly as in the stale case.
+    assert data.precipitation_1h == 2.4
+
+
 async def test_current_inca_rr_still_derives_rain(
     hass: HomeAssistant,
     mock_config_entry,
