@@ -68,11 +68,19 @@ as `grid_latitude` / `grid_longitude`, which differs from the requested point.
   reason `precipitation_1h` is not reconstructed from it (see
   [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md)). An undocumented
   `forecast_offset` (0-5, per the dataset metadata's
-  `available_forecast_reftimes`) reaches older runs and is not used.
-  Availability is the reason: measured over 48 h at three locations
-  (2026-09-09/11) the endpoint dropped roughly one update in four hours per
-  location, and the dropouts coincide across locations rather than being
-  independent per point query — so extra requests do not route around them.
+  `available_forecast_reftimes`) reaches older runs and is not used;
+  availability is the reason. Measured 2026-09-09/11 — ~48 h, all three of the
+  author's locations, on the **pre-0.12.0 build** (the `start` anchor changes
+  which buckets come back, not whether the request succeeds) — the nowcast
+  yielded no value in 11 / 11 / 10 episodes, roughly one every four hours per
+  location, each clearing within a poll or two. The dropouts **coincide**: all
+  three locations failed within ~75 s of each other on three occasions, two of
+  three on four more. Three coordinates and three separate requests, so that
+  points at the endpoint rather than at any one point query. Four
+  `forecast_offset` requests are therefore very unlikely to be independent
+  draws against that rate — not tested directly, but they are four calls to
+  the same endpoint inside the same window. See
+  [#35](https://github.com/slettmayer/ha-geosphere-next/issues/35).
 - **WRF-Chem** — `("forecast", "chem-v2-1h-3km")`. Chemical-weather forecast,
   3 km grid, one model run per day, ~73 h hourly. Parameters (`CHEM_PARAMETERS`):
   `no2surf`, `o3surf`, `pm10surf`, `pm25surf` (µg/m³). Optional.
