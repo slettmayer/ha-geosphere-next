@@ -61,6 +61,14 @@ as `grid_latitude` / `grid_longitude`, which differs from the requested point.
   `rh2m`, `rr` (15-min precipitation), `pt` (precipitation-type code), `dd` (wind
   direction), `ff` (wind speed), `fx` (wind gust). Supplies precipitation
   type/rate and gusts, and is a fallback for INCA-analysis fields.
+  Requested with a `start` of `NOWCAST_LOOKBACK` before the 15-min floor of
+  `now`: unbounded, the response begins at the bucket covering `now` and so
+  carries exactly one stamp at or before it. Even anchored it reaches no
+  further than the serving run's own t0, which trails by ~25-35 min — the
+  reason `precipitation_1h` is not reconstructed from it (see
+  [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md)). An undocumented
+  `forecast_offset` (0-5, per the dataset metadata's
+  `available_forecast_reftimes`) reaches older runs and is not used.
 - **WRF-Chem** — `("forecast", "chem-v2-1h-3km")`. Chemical-weather forecast,
   3 km grid, one model run per day, ~73 h hourly. Parameters (`CHEM_PARAMETERS`):
   `no2surf`, `o3surf`, `pm10surf`, `pm25surf` (µg/m³). Optional.

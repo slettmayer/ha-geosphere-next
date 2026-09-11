@@ -22,6 +22,7 @@ from .conftest import (
     NOWCAST_URL,
     load_fixture,
     stormy_arome,
+    wet_nowcast,
 )
 
 FROZEN_NOW = "2026-07-15T16:00:00+00:00"
@@ -914,3 +915,58 @@ async def test_current_inca_rr_still_derives_rain(
     assert data.condition == "rainy"
     # Still `None`: the rate gate feeds the condition, never the binary sensor.
     assert data.is_precipitating is None
+
+
+async def test_precipitation_1h_is_unknown_without_inca(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """No INCA `RR`, no hourly accumulation -- the nowcast cannot stand in.
+
+    Summing the nowcast's own buckets was tried and removed. The endpoint
+    serves a single run clamped to its own t0, which sits ~25-35 min back, so
+    the sum covered a fraction of an hour and was published as a full one.
+    The instantaneous fields are unaffected: they read the matched bucket.
+    """
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=wet_nowcast(rate_mm=0.5))
+    aioclient_mock.get(INCA_URL, status=500)
+    await _setup(hass, mock_config_entry)
+
+    data = mock_config_entry.runtime_data.current.data
+    assert data.precipitation_1h is None
+    assert data.is_precipitating is True
+
+
+async def test_nowcast_request_reaches_back_past_the_matched_bucket(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_api: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The nowcast `start` is anchored to the 15-min grid, one lookback back.
+
+    Unbounded, the endpoint begins at the bucket covering `now` -- exactly one
+    stamp at or before it, measured 2026-09-11 at all three of the author's
+    locations. That leaves the `RATE_LOOKBACK` peak with nothing to look back
+    at, silently reducing it to the matched bucket it exists to widen.
+
+    The anchor is load-bearing, as it is for the AROME request: the API rounds
+    a mid-interval `start` *up* to the next stamp, so an unfloored 15:22 would
+    come back at 15:30.
+    """
+    freezer.move_to("2026-07-15T16:07:00+00:00")
+    await _setup(hass, mock_config_entry)
+
+    starts = [
+        call[1].query["start"]
+        for call in mock_api.mock_calls
+        if "nowcast-v1-15min-1km" in str(call[1])
+    ]
+    # 16:07 floors to 16:00; `NOWCAST_LOOKBACK` (RATE_LOOKBACK + one bucket)
+    # reaches back to 15:15.
+    assert starts == ["2026-07-15T15:15"]

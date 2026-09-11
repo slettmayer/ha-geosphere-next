@@ -56,6 +56,7 @@ from .const import (
     INCA_PARAMETERS,
     INCA_RR_MAX_AGE_SECONDS,
     NOWCAST_BUCKETS_PER_HOUR,
+    NOWCAST_LOOKBACK,
     NOWCAST_PARAMETERS,
     POP_DRY_PCT,
     POP_P10_WET_PCT,
@@ -436,12 +437,20 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
     async def _async_update_data(self) -> CurrentConditions:
         nowcast: GeoSphereResponse | None = None
         if self.has_nowcast:
+            # Anchored to the 15-min grid: the API rounds a mid-interval
+            # `start` up to the next stamp, which would drop the bucket
+            # covering `now` along with everything before it.
+            now = dt_util.utcnow()
+            bucket = now.replace(
+                minute=now.minute - now.minute % 15, second=0, microsecond=0
+            )
             try:
                 nowcast = await self._client.get_timeseries(
                     *DATASET_NOWCAST,
                     parameters=NOWCAST_PARAMETERS,
                     latitude=self.latitude,
                     longitude=self.longitude,
+                    start=bucket - NOWCAST_LOOKBACK,
                 )
             except GeoSphereApiError as err:
                 _LOGGER.warning("Nowcast update failed, falling back: %s", err)
@@ -560,19 +569,14 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         cin = arome.cin if arome else None
 
         p0, _ = inca_latest("P0")
+        # INCA `RR` is the only source for the hourly accumulation. Summing
+        # nowcast buckets was tried and removed: the API serves a single run,
+        # clamped to its own t0 ~25-35 min back, so the sum covered 15-45 min
+        # and was published as an hour. Reconstructing a true hour needs the
+        # t0 bucket of four consecutive runs (`forecast_offset=0..3`), four
+        # requests per location per update against an endpoint that already
+        # fails often enough to matter. `unknown` is the honest answer here.
         rr_1h, rr_1h_time = inca_latest("RR")
-        if rr_1h is None and nowcast is not None:
-            # Sum the last four 15-min nowcast buckets at/before now.
-            past = [
-                value
-                for ts, value in zip(
-                    nowcast.timestamps, nowcast.series("rr"), strict=True
-                )
-                if ts <= now and value is not None
-            ]
-            rr_1h = round(sum(past[-4:]), 2) if past else None
-            # Summed from buckets at/before now, so current by construction.
-            rr_1h_time = now if rr_1h is not None else None
 
         pt_raw = now_value("pt")
         precipitation_type = int(pt_raw) if pt_raw is not None else None

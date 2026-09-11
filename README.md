@@ -71,7 +71,7 @@ forecast interval — and re-pushed to any live subscribers at every full hour.
 | `wind_gust_speed` | Peak wind gust speed | km/h |
 | `wind_bearing` (Wind direction) | Direction the wind blows *from* | ° |
 | `cloud_coverage` | Fraction of sky covered by cloud | % |
-| `precipitation_1h` (Precipitation, last hour) | Rain/snow accumulated over the last hour | mm |
+| `precipitation_1h` (Precipitation, last hour) | Rain/snow accumulated over the last hour, from INCA's hourly `RR`. `unknown` when INCA has none: the 15-min nowcast serves one model run clamped to its own start, so its buckets cover a fraction of an hour and summing them reported a quarter-hour as a full one | mm |
 | `precipitating` (binary sensor, `moisture`) | On while precipitation is falling now — from the nowcast `pt` code or its instantaneous rate ≥ 0.1 mm/h. `unknown`, never `off`, whenever the nowcast is unavailable (outside the Austrian grid, or a failed fetch): INCA's hourly `RR` is an accumulation, not evidence about *now*, so there is nothing left to answer with and a "dry" would be invented | — |
 | `condition` | The derived HA condition as a plain text sensor | — |
 | `global_radiation` | Downward shortwave (solar) irradiance | W/m² |
