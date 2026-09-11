@@ -6,9 +6,9 @@ import pytest
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import (
-    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
     CONF_LATITUDE,
     CONF_LONGITUDE,
+    UnitOfDensity,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
@@ -102,7 +102,7 @@ async def test_air_quality_sensors(
         assert state.state == value, f"{entity_id}: {state.state} != {value}"
         assert (
             state.attributes["unit_of_measurement"]
-            == CONCENTRATION_MICROGRAMS_PER_CUBIC_METER
+            == UnitOfDensity.MICROGRAMS_PER_CUBIC_METER
         )
         forecast = state.attributes["forecast"]
         assert len(forecast) == 8

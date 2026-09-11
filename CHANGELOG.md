@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.1
+
+- Chore: the four air-quality sensors declare their unit as `UnitOfDensity.MICROGRAMS_PER_CUBIC_METER` instead of `CONCENTRATION_MICROGRAMS_PER_CUBIC_METER`, which Home Assistant removes in Core 2027.8. The deprecated name is already an alias for that enum member, so both resolve to the same `μg/m³` string: no entity changes unit, no statistics are rewritten, and nothing about the sensors' behaviour moves. What stops is the warning Home Assistant logged on every restart, naming this integration and asking its author to fix it
+
 ## 0.11.0
 
 - Add: a `precipitating` binary sensor (device class `moisture`, so it reads Wet/Dry) reporting whether precipitation is falling right now. The current-conditions model has carried an `is_precipitating` field since the nowcast was wired in, but nothing read it — it reached Home Assistant only as a key in the diagnostics dump. It is now an entity, on the current coordinator, and reports `unknown` rather than a confident `off` when there are no current conditions
