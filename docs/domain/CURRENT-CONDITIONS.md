@@ -23,6 +23,12 @@ the nowcast (if `has_nowcast`), obtains the cached-or-refreshed INCA analysis,
 and picks the AROME hour covering `now`, then merges them in `_merge` into a
 `CurrentConditions` dataclass (`models.py`).
 
+The nowcast request carries a `start` of `NOWCAST_LOOKBACK` before the 15-min
+floor of `now`. Unbounded, the endpoint begins at the bucket covering `now`, so
+the series holds exactly one stamp at or before it and `RATE_LOOKBACK` has
+nothing to look back at. As with the AROME request the *anchor* is what matters:
+the API rounds a mid-interval `start` up to the next stamp.
+
 The AROME hour is selected per merge with `outlook.hour_at(hourly, now)`, which
 matches the top-of-hour floor of `now` — not the `ForecastData.current` snapshot
 taken when the forecast was fetched. The forecast coordinator can run up to
@@ -48,8 +54,8 @@ value. The order encodes which source is trusted most for each field:
   `.weather_symbol`, which the forecast coordinator computes once per fetch
   from its first future hour. Unlike the fields above these are not re-picked
   per hour, so they age with the forecast interval.
-- **1 h precipitation**: INCA `RR`; if absent, sum the last four 15-min nowcast
-  `rr` buckets at/before now.
+- **1 h precipitation**: INCA `RR` only. `None` when INCA has none — the
+  nowcast cannot stand in, see [Design Decisions](#design-decisions).
 - **Precipitation type**: nowcast `pt`, passed through raw as a diagnostic
   sensor. GeoSphere publishes no code table for it, so only 255 (= none) is
   known and the code is never decoded into rain/snow/hail.
@@ -175,6 +181,17 @@ available at all, `_async_update_data` raises `UpdateFailed`.
   coordinators.
 - Preferring INCA analysis over the nowcast for thermodynamics/wind was a
   measured decision (v0.6.0).
+- **The nowcast does not back `precipitation_1h`** (v0.12.0). Summing its `rr`
+  buckets looks like a free hourly total, but the endpoint serves one model run
+  clamped to that run's own t0, published ~25-35 min after the analysis it is
+  stamped for. Measured 2026-09-11: an unbounded request returns a single
+  bucket at/before now, and an anchored one reaches only the current run's
+  start — 2 buckets at 11:42Z, 3 at 05:33Z. The sum therefore covered 15-45 min
+  and was reported as a full hour, under-reporting by up to 4× on exactly the
+  degraded path it exists for. A true hour needs the t0 bucket of four
+  consecutive runs (`forecast_offset=0..3`), four requests per location per
+  update against an endpoint that already fails often enough to matter, so the
+  field reports `unknown` instead.
 
 ## Known Risks
 - The nowcast `pt` code table is undocumented; only "255 = none" is trusted, and

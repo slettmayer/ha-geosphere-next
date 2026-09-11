@@ -88,6 +88,18 @@ HOURLY_LOOKBACK_HOURS = 1
 # condition. Anything inside this window is still falling.
 RATE_LOOKBACK = timedelta(minutes=30)
 
+# How far back the nowcast request reaches, anchored to a bucket boundary.
+# Without a `start` the endpoint begins at the bucket covering `now`, so the
+# series carries exactly one stamp at or before it -- measured 2026-09-11 at
+# all three configured locations, 11 buckets each, ten of them in the future.
+# That silently disabled the `RATE_LOOKBACK` peak, which needs more than the
+# matched bucket to mean anything. Like `HOURLY_LOOKBACK_HOURS` the anchor is
+# what matters: the API rounds a mid-interval `start` *up* to the next stamp,
+# so it is floored to the 15-min grid before this is subtracted. One bucket of
+# slack past `RATE_LOOKBACK`; the API clamps to the newest run's own t0
+# regardless, which sits ~25-35 min back, so asking for more buys nothing.
+NOWCAST_LOOKBACK = RATE_LOOKBACK + timedelta(minutes=15)
+
 # Nowcast `rr` buckets carry the millimetres that fell within one 15-min step,
 # so an hourly rate is the bucket value times this. Tied to the nowcast
 # cadence: a move to 10-min buckets makes it 6.
