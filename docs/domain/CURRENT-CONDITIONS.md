@@ -190,8 +190,16 @@ available at all, `_async_update_data` raises `UpdateFailed`.
   and was reported as a full hour, under-reporting by up to 4× on exactly the
   degraded path it exists for. A true hour needs the t0 bucket of four
   consecutive runs (`forecast_offset=0..3`), four requests per location per
-  update against an endpoint that already fails often enough to matter, so the
-  field reports `unknown` instead.
+  update against an endpoint that already fails often enough to matter:
+  measured over 48 h at all three of the author's locations (2026-09-09/11),
+  the nowcast yielded no value roughly once every four hours per location, and
+  those dropouts **coincide across locations** — three separate coordinates,
+  three separate requests, failing within ~75 s of each other. The four offsets
+  are therefore not four independent draws against that rate; one outage takes
+  out every offset at once, so the reconstruction would be unavailable during
+  precisely the gaps it exists to fill while costing 4x the requests the rest
+  of the time. The field reports `unknown` instead. See
+  [#35](https://github.com/slettmayer/ha-geosphere-next/issues/35).
 
 ## Known Risks
 - The nowcast `pt` code table is undocumented; only "255 = none" is trusted, and

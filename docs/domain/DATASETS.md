@@ -69,6 +69,10 @@ as `grid_latitude` / `grid_longitude`, which differs from the requested point.
   [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md)). An undocumented
   `forecast_offset` (0-5, per the dataset metadata's
   `available_forecast_reftimes`) reaches older runs and is not used.
+  Availability is the reason: measured over 48 h at three locations
+  (2026-09-09/11) the endpoint dropped roughly one update in four hours per
+  location, and the dropouts coincide across locations rather than being
+  independent per point query — so extra requests do not route around them.
 - **WRF-Chem** — `("forecast", "chem-v2-1h-3km")`. Chemical-weather forecast,
   3 km grid, one model run per day, ~73 h hourly. Parameters (`CHEM_PARAMETERS`):
   `no2surf`, `o3surf`, `pm10surf`, `pm25surf` (µg/m³). Optional.
