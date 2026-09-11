@@ -190,8 +190,12 @@ available at all, `_async_update_data` raises `UpdateFailed`.
   and was reported as a full hour, under-reporting by up to 4× on exactly the
   degraded path it exists for. A true hour needs the t0 bucket of four
   consecutive runs (`forecast_offset=0..3`), four requests per location per
-  update against an endpoint that already fails often enough to matter, so the
-  field reports `unknown` instead.
+  update against an endpoint whose failures are both frequent and *correlated
+  across locations* — so an outage would very likely take out every offset at
+  once, leaving the reconstruction unavailable during precisely the gaps it
+  exists to fill while costing 4x the requests the rest of the time. The field
+  reports `unknown` instead. Measurements and their provenance in
+  [DATASETS.md](DATASETS.md#forecast-datasets).
 
 ## Known Risks
 - The nowcast `pt` code table is undocumented; only "255 = none" is trusted, and
