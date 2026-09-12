@@ -196,6 +196,22 @@ available at all, `_async_update_data` raises `UpdateFailed`.
   exists to fill while costing 4x the requests the rest of the time. The field
   reports `unknown` instead. Measurements and their provenance in
   [DATASETS.md](DATASETS.md#forecast-datasets).
+- **The nowcast bucket is matched nearest-in-either-direction** — reviewed and accepted, not an
+  oversight. `_merge` picks the bucket minimising the absolute distance to `now`, so from `HH:MM+7:30`
+  the *next* 15-min bucket is the closest one and wins. Every nowcast-sourced field rides that single
+  index — `t2m`, `rh2m`, `td`, `dd`, `ff`, `fx`, `pt`, `rr` — so `is_precipitating` can read `on` at
+  15:40 from rain the nowcast places at 15:45, and so can the temperature and gust beside it. Only the
+  reported *time* is clamped (`observation_time` takes `min(stamp, now)`), because an observation time
+  in the future is simply wrong; a *value* from the nearest bucket is not.
+
+  Raised in a review of the sibling geosphere-mcp-server (2026-09-11) against `is_precipitating`, whose
+  contract says "falling right now", and declined. The nowcast is a short-range forecast at *every*
+  bucket, including the one behind `now` — no bucket observes the present. Snapping backwards would not
+  buy an observation, it would substitute a staler estimate for a nearer one, and past the 7.5-minute
+  boundary the next bucket genuinely is the better answer. The residual sits inside the ordinary
+  uncertainty of the source. Recorded because the code states the behaviour (`# Nearest in *either*
+  direction -- see the clamp on observed_at`) but not the verdict, so the next reviewer re-derives the
+  finding and re-raises it.
 
 ## Known Risks
 - The nowcast `pt` code table is undocumented; only "255 = none" is trusted, and
