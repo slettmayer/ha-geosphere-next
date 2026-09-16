@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.2
+
+- Bump dependency (Dependabot)
+
 ## 0.12.1
 
 - Fix: a future-dated INCA `RR` stamp no longer counts as the freshest reading there is. The freshness bound added in 0.11.0 compared only the upper end — `age <= INCA_RR_MAX_AGE_SECONDS` — and a negative age satisfies that, so an `RR` stamped ahead of `now` would pass the gate and feed `derive_current_condition` as an instantaneous rate, deriving `pouring` from an hour that has not happened yet. Not reachable through the integration's own fetch path: `_async_get_inca` requests `end=now`, and a cached slice only ages further as `now` advances. It is a hole in the gate rather than an observed failure — but `_merge` is one refactor away from being handed a `now` it did not request against, and `observation_time` in the same method already clamps every rung to `now` on exactly this principle, which left the `RR` gate the odd one out rather than deliberately lenient. The bound is now `0 <= age <= INCA_RR_MAX_AGE_SECONDS`. Found by a code review of the sibling geosphere-mcp-server, which had inherited the same comparison
