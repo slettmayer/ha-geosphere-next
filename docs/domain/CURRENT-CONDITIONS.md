@@ -66,6 +66,10 @@ value. The order encodes which source is trusted most for each field:
   source that observes precipitation *now*. `None` when neither spoke, which
   happens outside the Austrian grid (`CONF_HAS_NOWCAST` skips the nowcast and
   INCA alike) and on a failed nowcast fetch; a "dry" there would be invented.
+  "Failed" means the API client's whole retry budget is spent — a single 502,
+  which GeoSphere serves on this endpoint often enough to matter, is retried
+  away without the coordinator ever seeing it and leaves this field alone
+  (see [../tech/ARCHITECTURE.md](../tech/ARCHITECTURE.md#failure-handling)).
   The coordinator therefore keeps the unobserved rate as `None` rather than
   defaulting it to 0.0.
 

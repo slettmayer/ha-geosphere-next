@@ -13,6 +13,7 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
 )
 
+from custom_components.geosphere_next import api
 from custom_components.geosphere_next.models import GeoSphereResponse
 
 from .conftest import (
@@ -348,8 +349,9 @@ async def test_ensemble_failure_degrades_to_the_cached_run(
     await coordinator.async_refresh()
 
     # Guard against a vacuous pass: the gate must actually have opened, or the
-    # assertions below would only be re-reading an untouched cache.
-    assert _forecast_calls(aioclient_mock)[1] == 1
+    # assertions below would only be re-reading an untouched cache. A failed
+    # fetch costs the client's full retry budget, since a 500 is retryable.
+    assert _forecast_calls(aioclient_mock)[1] == api.MAX_ATTEMPTS
     assert coordinator.last_update_success
     probabilities = {
         hour.datetime: hour.precipitation_probability
