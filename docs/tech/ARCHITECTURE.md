@@ -83,9 +83,11 @@ per attempt and spread by `RETRY_JITTER` in both directions. The retry sits in
 the client rather than the coordinators on purpose: a fault that clears on a
 later attempt is never *observed* upstream, so nothing logs it, nothing falls
 back, and no entity is blanked for a request that was about to succeed. Only
-the final attempt's failure propagates. A 429, every 4xx, and a 200 in an
-unexpected shape are returned as-is — the first means the request budget is
-already gone, the rest would be answered identically three times.
+the final attempt's failure propagates. A 429, every 4xx, and a 200 whose body
+is unusable propagate on the first attempt without retry, spending none of the
+budget: the 429 means the request budget is already gone, a 4xx would be
+rejected identically three times, and an unusable body raises
+`GeoSphereApiError`.
 
 The split is response-level vs transport-level, not `aiohttp` class: a
 `ClientResponseError` (typically `ContentTypeError`) means the server answered
