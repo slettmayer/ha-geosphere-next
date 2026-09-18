@@ -72,9 +72,41 @@ Three `TimestampDataUpdateCoordinator[T]` subclasses, one per dataset shape:
   on the instance with a timestamp-based freshness policy.
 - `GeoSphereAirQualityCoordinator[AirQualityData]` — WRF-Chem + AQI (optional).
 
-Primary-dataset failures raise `UpdateFailed` (rate limits propagate
-`retry_after`); secondary datasets (ensemble, AQI) are caught, logged at warning
-level, and degrade gracefully.
+### Failure handling
+
+Two layers, and the lower one absorbs most of what the upper one used to see.
+
+`GeoSphereApiClient.get_timeseries` retries transient faults — anything under
+`GeoSphereTransientError`, i.e. 5xx responses and connection errors including
+timeouts — up to `MAX_ATTEMPTS` (3) times, waiting `RETRY_BASE_DELAY` doubled
+per attempt and spread by `RETRY_JITTER` in both directions. The retry sits in
+the client rather than the coordinators on purpose: a fault that clears on a
+later attempt is never *observed* upstream, so nothing logs it, nothing falls
+back, and no entity is blanked for a request that was about to succeed. Only
+the final attempt's failure propagates. A 429, every 4xx, and a 200 whose body
+is unusable propagate on the first attempt without retry, spending none of the
+budget: the 429 means the request budget is already gone, a 4xx would be
+rejected identically three times, and an unusable body raises
+`GeoSphereApiError`.
+
+The split is response-level vs transport-level, not `aiohttp` class: a
+`ClientResponseError` (typically `ContentTypeError`) means the server answered
+and the answer is unusable, so it is reported rather than retried, while a
+fault mid-body (`ClientPayloadError`, `ServerDisconnectedError`) is a transport
+failure and stays retryable. A 200 whose body will not decode raises
+`GeoSphereApiError` too — the `ValueError` it produces is not an
+`aiohttp.ClientError` and would otherwise escape the hierarchy altogether.
+
+What retrying costs: a failing dataset now issues `MAX_ATTEMPTS` requests
+instead of one, so a sustained outage triples that dataset's request rate
+against the 240 req/h budget, and a single `get_timeseries` can block for
+roughly `MAX_ATTEMPTS × REQUEST_TIMEOUT` plus backoff (~94 s) instead of 30 s.
+Both are bounded and well inside the poll intervals, but they are the price of
+not surfacing a fault that clears by itself.
+
+Above that, primary-dataset failures raise `UpdateFailed` (rate limits
+propagate `retry_after`); secondary datasets (ensemble, AQI) are caught, logged
+at warning level, and degrade gracefully.
 
 ### Entity-description pattern
 

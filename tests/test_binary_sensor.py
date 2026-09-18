@@ -25,6 +25,8 @@ from .conftest import (
     INCA_URL,
     NOWCAST_URL,
     load_fixture,
+    mock_response,
+    response_sequence,
     stormy_arome,
     wet_nowcast,
 )
@@ -251,3 +253,44 @@ async def test_precipitating_is_unknown_when_the_nowcast_fetch_fails(
     assert hass.states.get("sensor.geosphere_next_precipitation_last_hour").state == (
         "2.4"
     )
+
+
+async def test_precipitating_survives_a_retried_nowcast_fault(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A 502 that the client retries away must not surface at all.
+
+    The counterpart to `test_precipitating_is_unknown_when_the_nowcast_fetch_fails`:
+    `unknown` is the honest answer once the nowcast is *gone*, but a single
+    502 is not that. GeoSphere serves one often enough that these entities
+    used to blank for a whole poll interval (15 min by default) per fault --
+    11 of them in five days of one installation's log. With the retry inside
+    `GeoSphereApiClient` the coordinator never sees the fault, so the state
+    machine is never told anything about it and the entity holds its reading.
+    """
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    aioclient_mock.get(
+        NOWCAST_URL,
+        side_effect=response_sequence(
+            mock_response(status=502),
+            mock_response(json=wet_nowcast(rate_mm=0.5)),
+        ),
+    )
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(PRECIPITATING_ENTITY_ID)
+    assert state is not None
+    # Not `unknown`: the second attempt answered, so there *is* an observation.
+    assert state.state == "on"
+    nowcast_calls = sum(
+        "nowcast-v1-15min-1km" in str(call[1]) for call in aioclient_mock.mock_calls
+    )
+    assert nowcast_calls == 2

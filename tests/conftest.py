@@ -11,8 +11,10 @@ from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
+    AiohttpClientMockResponse,
 )
 
+from custom_components.geosphere_next import api
 from custom_components.geosphere_next.const import CONF_HAS_NOWCAST, DOMAIN
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -32,6 +34,44 @@ CHEM_AQI_URL = re.compile(r".*/timeseries/forecast/chem_aqi-v1-1d-3km\?.*")
 def auto_enable_custom_integrations(enable_custom_integrations):
     """Enable loading custom integrations in all tests."""
     return
+
+
+@pytest.fixture(autouse=True)
+def instant_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Collapse the API client's retry backoff for the whole suite.
+
+    `GeoSphereApiClient` waits ~1-3 s between attempts, and every test that
+    serves a 5xx or a connection error now exhausts `MAX_ATTEMPTS` before
+    failing. Zeroing the base keeps the delay arithmetic intact (and still
+    `await`s, so the loop is exercised) at no wall-clock cost. The one test
+    that asserts on the delays restores a real base itself.
+    """
+    monkeypatch.setattr(api, "RETRY_BASE_DELAY", 0.0)
+
+
+def mock_response(
+    *, status: int = 200, json: dict | None = None, exc: Exception | None = None
+) -> AiohttpClientMockResponse:
+    """One canned response, for a single attempt of a retry sequence."""
+    return AiohttpClientMockResponse(
+        "get", AROME_URL, status=status, json=json, exc=exc
+    )
+
+
+def response_sequence(*responses: AiohttpClientMockResponse):
+    """Serve a different response per request, repeating the last one.
+
+    `AiohttpClientMocker` answers every request with the first registered
+    match, so "fail, then succeed" cannot be expressed by registering two
+    mocks. Its `side_effect` hook can: the coroutine's return value replaces
+    the matched response on each call.
+    """
+    queue = list(responses)
+
+    async def side_effect(method, url, data):
+        return queue.pop(0) if len(queue) > 1 else queue[0]
+
+    return side_effect
 
 
 def load_fixture(name: str) -> dict:
