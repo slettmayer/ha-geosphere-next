@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.1
+
+- Bump dependency (Dependabot)
+
 ## 0.13.0
 
 - Add: `GeoSphereApiClient` retries transient faults — 5xx responses and connection errors, timeouts included — up to three attempts, waiting ~1 s then ~2 s with a ±50 % jitter band. The retry deliberately lives in the client rather than the coordinators, so a fault that clears on a later attempt is never *observed* upstream: nothing logs it, nothing falls back, and no entity is blanked for a request that was about to succeed. Only the last attempt's failure propagates. Measured against five days of one installation's log: 11 HTTP 502s, every one of them on `nowcast-v1-15min-1km`, plus ~35 connection failures across the nowcast and INCA. Each of those cost a whole poll interval — 15 min by default — of `unknown` on `precipitating` and `precipitation_type`, the two entities the nowcast is the sole source for, because both deliberately refuse INCA's hourly `RR` as a stand-in for an instantaneous observation (0.11.0). The 15-min window was therefore the visible cost of a fault that clears on the next request
