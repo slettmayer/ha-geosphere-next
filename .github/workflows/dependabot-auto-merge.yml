@@ -1,0 +1,32 @@
+name: Dependabot Auto-merge
+
+# Dependabot's PRs merge themselves once `gate` passes. That is safe only
+# because a Dependabot merge never cuts a release: nothing it updates is in
+# the release archive, so the version is not bumped and release.yml stops at
+# the existing tag. A PR that fails `gate` stays open for a human.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions: {}
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.GH_ACTION_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GH_ACTION_APP_PRIVATE_KEY }}
+
+      # The App token, not GITHUB_TOKEN: a merge made with GITHUB_TOKEN
+      # triggers no workflows, so Validate would never run on main after it.
+      - name: Enable auto-merge
+        run: gh pr merge --auto --squash "${PR_URL}"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
