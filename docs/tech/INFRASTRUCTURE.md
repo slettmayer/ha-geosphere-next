@@ -7,7 +7,7 @@ workflows.
 ## Responsibilities
 - The GitHub Actions workflows and what gates a merge.
 - The automated release pipeline and versioning rules.
-- Why a Dependabot merge produces no release.
+- Why a Dependabot merge produces no release, and its auto-merge.
 
 ## Non-Responsibilities
 - How to run tests locally — see [TESTING.md](TESTING.md).
@@ -71,7 +71,8 @@ Releases before 0.9.1 have no archive. Their tagged `hacs.json` has no
 downgrading keeps working.
 
 ### Dependabot
-`.github/dependabot.yml` opens weekly grouped PRs for `github-actions` and `pip`.
+`.github/dependabot.yml` opens weekly grouped PRs: `pip` on Mondays,
+`github-actions` on Thursdays.
 A Dependabot merge **does not produce a release**, and must not. Nothing it
 updates ships: it touches `requirements_*.txt` and workflow files, the release
 archive is built from `custom_components/geosphere_next/` alone, and
@@ -83,6 +84,19 @@ A `dependabot-version-bump.yml` workflow used to bump the patch version on every
 Dependabot PR, publishing releases that differed in their version string only —
 each still prompting users to update and restart Home Assistant. Do not bring
 it back.
+
+### Dependabot Auto-merge (`dependabot-auto-merge.yml`)
+On every Dependabot PR this enables auto-merge (squash), so the PR lands by
+itself once `gate` passes; one that fails `gate` waits for a human. It uses a
+GitHub App token rather than `GITHUB_TOKEN`, because a merge made with
+`GITHUB_TOKEN` triggers no workflows and Validate would never run on `main`
+afterwards.
+
+The ruleset requires an up-to-date branch and auto-merge never updates one —
+hence the two ecosystems on different days. A Dependabot PR left behind by a
+feature merge needs `@dependabot rebase`. An action used only in `release.yml`
+is not exercised before the merge; a breaking bump there surfaces on the next
+real release.
 
 ### Versioning and changelog
 Semver mapped to integration meaning (from `CONTRIBUTING.md`):
@@ -103,6 +117,10 @@ prefixes. Every changelog entry ships with a `manifest.json` version bump.
 
 ## Dependencies
 - GitHub Actions; `manifest.json` `codeowners: ["@slettmayer"]`.
+- The auto-merge workflow needs `GH_ACTION_APP_CLIENT_ID` / `GH_ACTION_APP_PRIVATE_KEY`
+  secrets, in both the Actions and Dependabot stores; the App needs Contents and
+  Pull requests write. The client ID (`Iv23li…`) is not the numeric App ID —
+  `create-github-app-token` deprecated `app-id`.
 
 ## Design Decisions
 - Release is fully automated off the manifest version — the changelog is the

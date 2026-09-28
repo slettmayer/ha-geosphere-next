@@ -1,9 +1,13 @@
 version: 2
+# The two ecosystems run on different days. Their PRs auto-merge, and the
+# ruleset requires a branch to be up to date with main -- which auto-merge
+# never does for you -- so a same-day pair would strand the second PR.
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "thursday"
     groups:
       github-actions:
         patterns:
@@ -12,6 +16,7 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
     groups:
       python-test-deps:
         patterns:
