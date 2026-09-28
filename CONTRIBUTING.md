@@ -27,7 +27,7 @@ No manual tagging or release creation needed.
 
 ### Dependabot PRs
 
-Dependabot PRs are auto-bumped: a workflow increments the patch version in `manifest.json` and prepends a changelog entry. Reviewers only need to approve and merge.
+Dependabot PRs get **no version bump and no `CHANGELOG.md` entry**: nothing they update is part of the installed integration, so merging one produces no release, and the update ships with the next real one. See [docs/tech/INFRASTRUCTURE.md](docs/tech/INFRASTRUCTURE.md#dependabot).
 
 ### Versioning
 

@@ -7,7 +7,7 @@ workflows.
 ## Responsibilities
 - The GitHub Actions workflows and what gates a merge.
 - The automated release pipeline and versioning rules.
-- Dependabot auto-bump behavior.
+- Why a Dependabot merge produces no release.
 
 ## Non-Responsibilities
 - How to run tests locally — see [TESTING.md](TESTING.md).
@@ -70,11 +70,19 @@ Releases before 0.9.1 have no archive. Their tagged `hacs.json` has no
 `zip_release`, so HACS falls back to the file-by-file download for them —
 downgrading keeps working.
 
-### Dependabot Version Bump (`dependabot-version-bump.yml`)
-On Dependabot PRs, a GitHub App token is used to auto-increment the patch version
-in `manifest.json` and prepend a `## X.Y.Z` changelog entry, so reviewers only
-approve and merge. Idempotent (skips if the changelog already has the new
-version).
+### Dependabot
+`.github/dependabot.yml` opens weekly grouped PRs for `github-actions` and `pip`.
+A Dependabot merge **does not produce a release**, and must not. Nothing it
+updates ships: it touches `requirements_*.txt` and workflow files, the release
+archive is built from `custom_components/geosphere_next/` alone, and
+`manifest.json` declares `"requirements": []` (which Dependabot does not read in
+any case). So the version is left alone, `release.yml` finds the tag already
+exists and stops, and the update ships with the next real release.
+
+A `dependabot-version-bump.yml` workflow used to bump the patch version on every
+Dependabot PR, publishing releases that differed in their version string only —
+each still prompting users to update and restart Home Assistant. Do not bring
+it back.
 
 ### Versioning and changelog
 Semver mapped to integration meaning (from `CONTRIBUTING.md`):
@@ -95,9 +103,6 @@ prefixes. Every changelog entry ships with a `manifest.json` version bump.
 
 ## Dependencies
 - GitHub Actions; `manifest.json` `codeowners: ["@slettmayer"]`.
-- Dependabot workflow needs `GH_ACTION_APP_CLIENT_ID` / `GH_ACTION_APP_PRIVATE_KEY`
-  secrets, in both the Actions and Dependabot stores. The client ID (`Iv23li…`)
-  is not the numeric App ID — `create-github-app-token` deprecated `app-id`.
 
 ## Design Decisions
 - Release is fully automated off the manifest version — the changelog is the
