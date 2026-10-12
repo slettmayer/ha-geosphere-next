@@ -207,6 +207,7 @@ def derive_current_condition(
     temperature, which cannot tell wet snow above freezing from rain. Only
     when the code names no kind — absent, 255 beside an observed rate, or a
     code outside GeoSphere's table — does temperature split rain from snow.
+    Snow outranks thunder; thunder outranks the mixed kinds.
 
     Note which evidence is which. Precipitation here is *observed* — INCA and
     the nowcast are anchored to measurements — while CAPE and CIN come from
@@ -224,12 +225,12 @@ def derive_current_condition(
     """
     rate = precipitation_rate_mm_h or 0.0
     if is_precipitating(precipitation_type, rate):
+        mixed = precipitation_type in (PT_RAIN_AND_SNOW, PT_FREEZING_RAIN)
         if precipitation_type == PT_SNOW:
             return "snowy"
-        if precipitation_type in (PT_RAIN_AND_SNOW, PT_FREEZING_RAIN):
-            return "snowy-rainy"
         snow_likely = (
             precipitation_type != PT_RAIN
+            and not mixed
             and temperature is not None
             and temperature <= SNOW_MAX_T2M_C
         )
@@ -238,8 +239,12 @@ def derive_current_condition(
         thunder = is_thunder(cape, cin) or (
             rate >= POURING_MM_PER_H and cape is not None and cape >= THUNDER_CAPE_JKG
         )
+        # Thunder outranks the mixed kinds: it is the hazard people act on,
+        # and a spring shower coded rain-and-snow can still be a storm.
         if thunder:
             return "lightning-rainy"
+        if mixed:
+            return "snowy-rainy"
         if rate >= POURING_MM_PER_H:
             return "pouring"
         return "rainy"

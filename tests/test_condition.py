@@ -107,6 +107,41 @@ def test_current_condition_pt_decides_the_precipitation_kind(
 
 
 @pytest.mark.parametrize(
+    ("precipitation_type", "cape", "expected"),
+    [
+        # A thunderstorm is the hazard people act on, so it outranks the mixed
+        # kinds: a spring shower coded rain-and-snow can still be a storm.
+        (7, 1500.0, "lightning-rainy"),
+        (3, 1500.0, "lightning-rainy"),
+        # Snow still outranks thunder, as the temperature rule always did.
+        (5, 1500.0, "snowy"),
+        # Without thunder a downpour of mixed kinds stays mixed, not `pouring`.
+        (7, 0.0, "snowy-rainy"),
+        (3, 0.0, "snowy-rainy"),
+    ],
+)
+def test_current_condition_thunder_outranks_mixed_precipitation(
+    precipitation_type: int, cape: float, expected: str
+) -> None:
+    """Observed downpour (8 mm/h) at 4 °C: the CAPE-alone override applies."""
+    assert (
+        derive_current_condition(
+            precipitation_type=precipitation_type,
+            precipitation_rate_mm_h=8.0,
+            temperature=4.0,
+            humidity=90.0,
+            wind_speed=3.0,
+            cloud_coverage=100.0,
+            cape=cape,
+            cin=-80.0,
+            gust_speed=5.0,
+            night=False,
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
     ("precipitation_type", "temperature", "expected"),
     [
         # No code at all: the rate says it precipitates, temperature splits it.
