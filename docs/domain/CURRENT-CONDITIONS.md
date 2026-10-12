@@ -56,9 +56,12 @@ value. The order encodes which source is trusted most for each field:
   per hour, so they age with the forecast interval.
 - **1 h precipitation**: INCA `RR` only. `None` when INCA has none — the
   nowcast cannot stand in, see [Design Decisions](#design-decisions).
-- **Precipitation type**: nowcast `pt`, passed through raw as a diagnostic
-  sensor. GeoSphere publishes no code table for it, so only 255 (= none) is
-  known and the code is never decoded into rain/snow/hail.
+- **Precipitation type**: nowcast `pt`, decoded through GeoSphere's code table
+  (`PRECIPITATION_TYPES`: 1 rain, 3 freezing rain, 5 snow, 7 rain and snow,
+  255 no precipitation — [confirmed by GeoSphere](https://github.com/Geosphere-Austria/dataset-api-docs/issues/71#issuecomment-6125846140),
+  not in the API's `/metadata`) into the `precipitation_kind` enum sensor. A
+  code outside the table is `None` there and logs one warning per code; the raw
+  code stays available as a disabled diagnostic sensor.
 - **`is_precipitating`** (the `precipitating` binary sensor): `pt` ≠ 255 **or**
   precipitation rate ≥ `PRECIP_MIN_MM`, via `condition.is_precipitating` —
   the integration's single definition, shared with the condition derivation.
@@ -223,8 +226,9 @@ available at all, `_async_update_data` raises `UpdateFailed`.
   finding and re-raises it.
 
 ## Known Risks
-- The nowcast `pt` code table is undocumented; only "255 = none" is trusted, and
-  rain-vs-snow is decided by temperature — see [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md).
+- The nowcast `pt` code table is hard-coded from GeoSphere's issue reply, as
+  `/metadata` carries no code list yet. GeoSphere plans to add `code_lists`
+  there; until then a new code shows up only as the one-time warning.
 - `observed_at` reflecting INCA delay may confuse users comparing to live
   stations (documented in the README FAQ).
 

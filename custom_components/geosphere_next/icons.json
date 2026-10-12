@@ -19,6 +19,15 @@
       "snow_limit": { "default": "mdi:snowflake-thermometer" },
       "cape": { "default": "mdi:weather-lightning" },
       "cin": { "default": "mdi:arrow-collapse-down" },
+      "precipitation_kind": {
+        "default": "mdi:weather-rainy",
+        "state": {
+          "freezing_rain": "mdi:snowflake-melt",
+          "snow": "mdi:weather-snowy",
+          "rain_and_snow": "mdi:weather-snowy-rainy",
+          "no_precipitation": "mdi:weather-cloudy"
+        }
+      },
       "precipitation_type": { "default": "mdi:weather-rainy" },
       "weather_symbol": { "default": "mdi:code-tags" },
       "model_run": { "default": "mdi:clock-start" },

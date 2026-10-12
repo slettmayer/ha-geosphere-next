@@ -34,7 +34,8 @@ it publishes and the external dataset API it consumes.
   coordinator; five optional air-quality sensors by the air-quality coordinator.
   Some sensors are disabled-by-default diagnostics (CAPE, CIN, raw `pt` code,
   raw `sy` symbol code). The `precipitating` binary sensor reports whether
-  precipitation is falling now, backed by the current coordinator. Five forecast-outlook entities — `wind_gust_max_1h`,
+  precipitation is falling now, and the `precipitation_kind` sensor what is
+  falling, both backed by the current coordinator. Five forecast-outlook entities — `wind_gust_max_1h`,
   `wind_gust_max_12h`, `cape_max_12h` (diagnostic, disabled by default),
   `next_thunderstorm`, and the `thunderstorm_expected_1h` binary sensor — are
   backed by the forecast coordinator: their data refreshes on its interval,
@@ -83,8 +84,8 @@ it publishes and the external dataset API it consumes.
 - **European Air Quality Index** — EEA 1–6 scale (1 very good … 6 very poor).
 - **`rr_acc` / `snow_acc`** — run-accumulated AROME totals; hourly values via
   differencing.
-- **`pt` (precipitation type)** — undocumented nowcast code; only 255 = none is
-  trusted.
+- **`pt` (precipitation type)** — nowcast code: 1 rain, 3 freezing rain, 5 snow,
+  7 rain and snow, 255 none. Confirmed by GeoSphere, not in `/metadata`.
 - **`sy` (weather symbol)** — GeoSphere's undocumented symbol code; exposed only
   as a diagnostic sensor.
 - **Grid/point sampling** — the API returns the nearest grid-cell centre
@@ -104,7 +105,8 @@ it publishes and the external dataset API it consumes.
 
 ## Known Risks
 - Per-concept risks live in the owning sub-file — see [DATASETS.md](DATASETS.md)
-  for the undocumented code tables (`sy`, `pt`) and versioned resource IDs.
+  for the undocumented `sy` code table, the `pt` table's source, and versioned
+  resource IDs.
 
 ## Extension Guidelines
 - Add a new domain concept as a new file here and index it in

@@ -24,7 +24,12 @@ from .const import (
     FOG_MIN_TCC_PCT,
     POURING_MM_PER_H,
     PRECIP_MIN_MM,
+    PRECIPITATION_TYPES,
+    PT_FREEZING_RAIN,
     PT_NO_PRECIPITATION,
+    PT_RAIN,
+    PT_RAIN_AND_SNOW,
+    PT_SNOW,
     SNOW_MAX_T2M_C,
     THUNDER_CAPE_JKG,
     WINDY_CLOUD_TCC_PCT,
@@ -159,12 +164,16 @@ def is_precipitating(
         return precipitation_rate_mm_h >= PRECIP_MIN_MM
     # Reached only by a `pt` of 255 with no rate alongside it, which is rare —
     # the nowcast normally carries `rr` for the same bucket and the branch
-    # above decides. `False` here rests entirely on 255 meaning "no
-    # precipitation", the one value of the code table GeoSphere's silence
-    # leaves us reasonably sure of. Worth knowing that the GRIB2 4.201
-    # hypothesis under test in issue #31 reads 255 as *Missing* instead; if
-    # that is confirmed, this branch should return `None`, not `False`.
+    # above decides. 255 is GeoSphere's "no precipitation", not GRIB2's
+    # "Missing" (see PRECIPITATION_TYPES), so this is an observed "dry".
     return None if precipitation_type is None else False
+
+
+def derive_precipitation_type(precipitation_type: int | None) -> str | None:
+    """GeoSphere's name for a nowcast `pt` code, or `None` outside its table."""
+    if precipitation_type is None:
+        return None
+    return PRECIPITATION_TYPES.get(precipitation_type)
 
 
 def derive_current_condition(
@@ -182,9 +191,11 @@ def derive_current_condition(
 ) -> str | None:
     """Current condition: nowcast precipitation type overrides cloud logic.
 
-    The nowcast `pt` code table is undocumented (255 = none), so any other
-    code only signals *that* it precipitates; rain vs snow is decided by
-    temperature.
+    The nowcast `pt` code decides the kind: snow, rain and snow, or freezing
+    rain (HA has no condition for it; `snowy-rainy` is the closest) win over
+    temperature, which cannot tell wet snow above freezing from rain. Only
+    when the code names no kind — absent, 255 beside an observed rate, or a
+    code outside GeoSphere's table — does temperature split rain from snow.
 
     Note which evidence is which. Precipitation here is *observed* — INCA and
     the nowcast are anchored to measurements — while CAPE and CIN come from
@@ -202,12 +213,20 @@ def derive_current_condition(
     """
     rate = precipitation_rate_mm_h or 0.0
     if is_precipitating(precipitation_type, rate):
+        if precipitation_type == PT_SNOW:
+            return "snowy"
+        if precipitation_type in (PT_RAIN_AND_SNOW, PT_FREEZING_RAIN):
+            return "snowy-rainy"
+        snow_likely = (
+            precipitation_type != PT_RAIN
+            and temperature is not None
+            and temperature <= SNOW_MAX_T2M_C
+        )
+        if snow_likely:
+            return "snowy"
         thunder = is_thunder(cape, cin) or (
             rate >= POURING_MM_PER_H and cape is not None and cape >= THUNDER_CAPE_JKG
         )
-        snow_likely = temperature is not None and temperature <= SNOW_MAX_T2M_C
-        if snow_likely:
-            return "snowy"
         if thunder:
             return "lightning-rainy"
         if rate >= POURING_MM_PER_H:

@@ -59,6 +59,16 @@
       "snow_limit": { "name": "Snow limit" },
       "cape": { "name": "CAPE" },
       "cin": { "name": "Convective inhibition" },
+      "precipitation_kind": {
+        "name": "Precipitation type",
+        "state": {
+          "rain": "Rain",
+          "freezing_rain": "Freezing rain",
+          "snow": "Snow",
+          "rain_and_snow": "Rain and snow",
+          "no_precipitation": "No precipitation"
+        }
+      },
       "precipitation_type": { "name": "Precipitation type code" },
       "weather_symbol": { "name": "Weather symbol code" },
       "observation_time": { "name": "Observation time" },

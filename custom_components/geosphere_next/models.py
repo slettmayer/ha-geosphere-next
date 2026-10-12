@@ -115,6 +115,7 @@ class CurrentConditions:
     wind_gust_speed: float | None = None
     precipitation_1h: float | None = None
     precipitation_type: int | None = None
+    precipitation_kind: str | None = None
     is_precipitating: bool | None = None
     cloud_coverage: float | None = None
     global_radiation: float | None = None
