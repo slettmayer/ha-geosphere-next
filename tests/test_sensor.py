@@ -183,6 +183,24 @@ async def test_precipitation_type_decodes_snow(
     assert hass.states.get("sensor.geosphere_next_condition").state == "snowy"
 
 
+async def test_precipitation_type_is_unknown_when_255_meets_an_observed_rate(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """`pt` 255 beside a measured rate names no kind; it must not read "none".
+
+    The rate alone makes `precipitating` on, so `no_precipitation` beside it
+    would contradict the binary sensor on the same device.
+    """
+    freezer.move_to(FROZEN_NOW)
+    await _setup_with_pt(hass, mock_config_entry, aioclient_mock, 255.0)
+
+    assert hass.states.get("binary_sensor.geosphere_next_precipitating").state == "on"
+    assert hass.states.get(PRECIPITATION_TYPE_ENTITY_ID).state == "unknown"
+
+
 async def test_precipitation_type_is_unknown_for_a_code_outside_the_table(
     hass: HomeAssistant,
     mock_config_entry,

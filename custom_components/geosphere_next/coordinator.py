@@ -615,6 +615,11 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         nowcast_rate_mm_h = (
             nowcast_rr * NOWCAST_BUCKETS_PER_HOUR if nowcast_rr is not None else None
         )
+        precipitating = is_precipitating(precipitation_type, nowcast_rate_mm_h)
+        # 255 beside a measured rate names no kind: reporting "none" there
+        # would contradict `precipitating` on the same device.
+        if precipitating and precipitation_type == PT_NO_PRECIPITATION:
+            precipitation_kind = None
         # The condition has to name *something*, so unlike `is_precipitating`
         # it does fall back to `RR` -- but not to a slice that has stopped
         # updating. `inca_latest` returns the newest non-None value at any age
@@ -733,7 +738,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
             precipitation_1h=rr_1h,
             precipitation_type=precipitation_type,
             precipitation_kind=precipitation_kind,
-            is_precipitating=is_precipitating(precipitation_type, nowcast_rate_mm_h),
+            is_precipitating=precipitating,
             cloud_coverage=cloud,
             global_radiation=inca_latest("GL")[0],
             snow_limit=forecast_data.snow_limit if forecast_data else None,
