@@ -63,8 +63,10 @@ value. The order encodes which source is trusted most for each field:
   code outside the table is `None` there and logs one warning per code. So is 255
   while the rate the condition uses (the nowcast's, or a current INCA `RR`)
   says it is precipitating: it names no kind, and "none" would contradict the
-  condition and `is_precipitating`. The raw
-  code stays available as a disabled diagnostic sensor.
+  condition. It does not always agree with `is_precipitating`, which reads the
+  nowcast rate only: with no nowcast `rr` and a current INCA `RR` showing rain,
+  the kind is `None` while `precipitating` stays off. The raw code stays
+  available as a disabled diagnostic sensor.
 - **`is_precipitating`** (the `precipitating` binary sensor): `pt` ≠ 255 **or**
   precipitation rate ≥ `PRECIP_MIN_MM`, via `condition.is_precipitating` —
   the integration's single definition, shared with the condition derivation.
