@@ -33,6 +33,7 @@ from .const import (
     ATTRIBUTION,
     OUTLOOK_LONG_HORIZON_HOURS,
     OUTLOOK_SHORT_HORIZON_HOURS,
+    PRECIPITATION_TYPES,
 )
 from .coordinator import (
     GeoSphereAirQualityCoordinator,
@@ -171,6 +172,16 @@ SENSORS: tuple[GeoSphereSensorEntityDescription, ...] = (
         key="condition",
         translation_key="condition",
         value_fn=lambda data: data.condition,
+    ),
+    # Decoded from the same nowcast `pt` code as the raw diagnostic below,
+    # which stays for codes outside GeoSphere's table (reported `unknown` here).
+    # The key differs from that sensor's so neither unique ID moves.
+    GeoSphereSensorEntityDescription(
+        key="precipitation_kind",
+        translation_key="precipitation_kind",
+        device_class=SensorDeviceClass.ENUM,
+        options=list(PRECIPITATION_TYPES.values()),
+        value_fn=lambda data: data.precipitation_kind,
     ),
     GeoSphereSensorEntityDescription(
         key="global_radiation",

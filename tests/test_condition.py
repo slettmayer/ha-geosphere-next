@@ -10,6 +10,7 @@ from custom_components.geosphere_next.condition import (
     apparent_temperature,
     derive_condition,
     derive_current_condition,
+    derive_precipitation_type,
     dew_point_from_t_rh,
     is_night,
     is_precipitating,
@@ -69,22 +70,119 @@ def test_current_condition_pt_override_rain() -> None:
     )
 
 
-def test_current_condition_pt_override_snow_by_temperature() -> None:
+def _current(
+    precipitation_type: int | None, temperature: float, rate: float = 1.0
+) -> str | None:
+    """`derive_current_condition` in an overcast, convectively quiet setting."""
+    return derive_current_condition(
+        precipitation_type=precipitation_type,
+        precipitation_rate_mm_h=rate,
+        temperature=temperature,
+        humidity=90.0,
+        wind_speed=3.0,
+        cloud_coverage=100.0,
+        cape=0.0,
+        cin=0.0,
+        gust_speed=5.0,
+        night=False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("precipitation_type", "temperature", "expected"),
+    [
+        # The confirmed `pt` code decides rain vs snow, not temperature: snow
+        # can reach the ground well above freezing, and rain fall below it.
+        (5, 3.0, "snowy"),
+        (1, -1.0, "rainy"),
+        (7, 4.0, "snowy-rainy"),
+        # HA has no freezing-rain condition; snowy-rainy is the closest.
+        (3, -2.0, "snowy-rainy"),
+    ],
+)
+def test_current_condition_pt_decides_the_precipitation_kind(
+    precipitation_type: int, temperature: float, expected: str
+) -> None:
+    assert _current(precipitation_type, temperature) == expected
+
+
+@pytest.mark.parametrize(
+    ("precipitation_type", "cape", "expected"),
+    [
+        # A thunderstorm is the hazard people act on, so it outranks the mixed
+        # kinds: a spring shower coded rain-and-snow can still be a storm.
+        (7, 1500.0, "lightning-rainy"),
+        (3, 1500.0, "lightning-rainy"),
+        # Snow still outranks thunder, as the temperature rule always did.
+        (5, 1500.0, "snowy"),
+        # Without thunder a downpour of mixed kinds stays mixed, not `pouring`.
+        (7, 0.0, "snowy-rainy"),
+        (3, 0.0, "snowy-rainy"),
+    ],
+)
+def test_current_condition_thunder_outranks_mixed_precipitation(
+    precipitation_type: int, cape: float, expected: str
+) -> None:
+    """Observed downpour (8 mm/h) at 4 °C: the CAPE-alone override applies."""
     assert (
         derive_current_condition(
-            precipitation_type=3,
-            precipitation_rate_mm_h=1.0,
-            temperature=-1.0,
+            precipitation_type=precipitation_type,
+            precipitation_rate_mm_h=8.0,
+            temperature=4.0,
             humidity=90.0,
             wind_speed=3.0,
             cloud_coverage=100.0,
-            cape=0.0,
-            cin=0.0,
+            cape=cape,
+            cin=-80.0,
             gust_speed=5.0,
             night=False,
         )
-        == "snowy"
+        == expected
     )
+
+
+@pytest.mark.parametrize(
+    ("precipitation_type", "temperature", "expected"),
+    [
+        # No code at all: the rate says it precipitates, temperature splits it.
+        (None, -1.0, "snowy"),
+        (None, 5.0, "rainy"),
+        # 255 alongside an observed rate: the code has no kind to offer.
+        (255, -1.0, "snowy"),
+        # A code outside GeoSphere's table says *that*, not *what*.
+        (2, -1.0, "snowy"),
+        (2, 5.0, "rainy"),
+    ],
+)
+def test_current_condition_falls_back_to_temperature_without_a_known_kind(
+    precipitation_type: int | None, temperature: float, expected: str
+) -> None:
+    assert _current(precipitation_type, temperature) == expected
+
+
+@pytest.mark.parametrize(
+    ("code", "rate", "expected"),
+    [
+        (1, None, "rain"),
+        (3, None, "freezing_rain"),
+        (5, None, "snow"),
+        (7, None, "rain_and_snow"),
+        (255, None, "no_precipitation"),
+        (255, 0.0, "no_precipitation"),
+        # 255 beside a rate that says it precipitates names no kind — and the
+        # rate here is the condition's own, INCA fallback included, so "none"
+        # would contradict the condition derived from it.
+        (255, 0.5, None),
+        (2, None, None),
+        (None, 0.5, None),
+        (None, None, None),
+    ],
+)
+def test_derive_precipitation_type(
+    code: int | None, rate: float | None, expected: str | None
+) -> None:
+    """GeoSphere's table, verbatim; anything outside it is unknown."""
+    assert derive_precipitation_type(code, rate) == expected
 
 
 def test_current_condition_thunder_ignores_the_forecast_cap() -> None:

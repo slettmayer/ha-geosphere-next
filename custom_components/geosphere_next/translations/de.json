@@ -55,6 +55,16 @@
       "snow_limit": { "name": "Schneefallgrenze" },
       "cape": { "name": "CAPE" },
       "cin": { "name": "Konvektive Hemmung" },
+      "precipitation_kind": {
+        "name": "Niederschlagsart",
+        "state": {
+          "rain": "Regen",
+          "freezing_rain": "Gefrierender Regen",
+          "snow": "Schnee",
+          "rain_and_snow": "Schneeregen",
+          "no_precipitation": "Kein Niederschlag"
+        }
+      },
       "precipitation_type": { "name": "Niederschlagsart-Code" },
       "weather_symbol": { "name": "Wettersymbol-Code" },
       "observation_time": { "name": "Beobachtungszeit" },

@@ -31,9 +31,11 @@ from .conftest import (
     NOWCAST_URL,
     load_fixture,
     stormy_arome,
+    wet_nowcast,
 )
 
 FROZEN_NOW = "2026-07-15T16:00:00+00:00"
+PRECIPITATION_TYPE_ENTITY_ID = "sensor.geosphere_next_precipitation_type"
 
 
 def test_wind_sensors_are_natively_kmh() -> None:
@@ -120,6 +122,108 @@ async def test_diagnostic_sensors_disabled_by_default(
         assert entry is not None
         assert registry.async_get(entry).disabled_by is not None, key
     assert hass.states.get("sensor.geosphere_next_cape") is None
+
+
+async def test_precipitation_type_reports_geosphere_s_code_table(
+    hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
+) -> None:
+    """The decoded sensor is enabled and enumerates GeoSphere's table.
+
+    The recorded nowcast is dry throughout (`pt` 255).
+    """
+    freezer.move_to(FROZEN_NOW)
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(PRECIPITATION_TYPE_ENTITY_ID)
+    assert state is not None
+    assert state.state == "no_precipitation"
+    assert state.attributes["device_class"] == "enum"
+    assert state.attributes["options"] == [
+        "rain",
+        "freezing_rain",
+        "snow",
+        "rain_and_snow",
+        "no_precipitation",
+    ]
+    # The raw code stays alongside it, as a disabled diagnostic.
+    assert hass.states.get("sensor.geosphere_next_precipitation_type_code") is None
+
+
+async def _setup_with_pt(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    precipitation_type: float,
+) -> None:
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(
+        NOWCAST_URL,
+        json=wet_nowcast(precipitation_type=precipitation_type, rate_mm=0.5),
+    )
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_precipitation_type_decodes_snow(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """`pt` 5 is snow — at the fixture's 30 °C, so temperature had no say."""
+    freezer.move_to(FROZEN_NOW)
+    await _setup_with_pt(hass, mock_config_entry, aioclient_mock, 5.0)
+
+    assert hass.states.get(PRECIPITATION_TYPE_ENTITY_ID).state == "snow"
+    assert hass.states.get("sensor.geosphere_next_condition").state == "snowy"
+
+
+async def test_precipitation_type_is_unknown_when_255_meets_an_observed_rate(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """`pt` 255 beside a measured rate names no kind; it must not read "none".
+
+    The rate alone makes `precipitating` on, so `no_precipitation` beside it
+    would contradict the binary sensor on the same device.
+    """
+    freezer.move_to(FROZEN_NOW)
+    await _setup_with_pt(hass, mock_config_entry, aioclient_mock, 255.0)
+
+    assert hass.states.get("binary_sensor.geosphere_next_precipitating").state == "on"
+    assert hass.states.get(PRECIPITATION_TYPE_ENTITY_ID).state == "unknown"
+
+
+async def test_precipitation_type_is_unknown_for_a_code_outside_the_table(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An unpublished code is `unknown`, and is reported once, not every poll."""
+    freezer.move_to(FROZEN_NOW)
+    await _setup_with_pt(hass, mock_config_entry, aioclient_mock, 2.0)
+
+    assert hass.states.get(PRECIPITATION_TYPE_ENTITY_ID).state == "unknown"
+    # Still precipitating: an unknown code says *that*, just not *what*.
+    assert hass.states.get("binary_sensor.geosphere_next_precipitating").state == "on"
+
+    await mock_config_entry.runtime_data.current.async_refresh()
+    await hass.async_block_till_done()
+    warnings = [
+        record
+        for record in caplog.records
+        if "precipitation-type code 2" in record.getMessage()
+    ]
+    assert len(warnings) == 1
 
 
 async def test_outlook_sensors(

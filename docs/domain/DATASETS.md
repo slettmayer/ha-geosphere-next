@@ -136,8 +136,10 @@ run hours — see [FORECAST.md](FORECAST.md#run-gating).
   precipitation-probability model — see [FORECAST.md](FORECAST.md).
 
 ## Known Risks
-- The `sy` weather-symbol and nowcast `pt` code tables are undocumented and
-  proprietary; the integration never relies on their exact semantics.
+- The `sy` weather-symbol code table is undocumented and proprietary; the
+  integration never relies on its exact semantics. The nowcast `pt` table is
+  not in `/metadata` either, but GeoSphere confirmed it on request — see
+  [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md).
 - Dataset resource IDs are versioned (`-v1-`, `-v2-`); a GeoSphere version bump
   would require updating `const.py`.
 

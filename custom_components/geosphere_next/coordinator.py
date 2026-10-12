@@ -24,6 +24,7 @@ from .condition import (
     apparent_temperature,
     derive_condition,
     derive_current_condition,
+    derive_precipitation_type,
     dew_point_from_t_rh,
     is_night,
     is_precipitating,
@@ -63,6 +64,7 @@ from .const import (
     POP_P50_WET_PCT,
     POP_P90_WET_PCT,
     PRECIP_MIN_MM,
+    PRECIPITATION_TYPES,
     PT_NO_PRECIPITATION,
     RATE_LOOKBACK,
 )
@@ -433,6 +435,9 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         self.longitude: float = config_entry.data[CONF_LONGITUDE]
         self.has_nowcast: bool = config_entry.data.get(CONF_HAS_NOWCAST, True)
         self._inca: GeoSphereResponse | None = None
+        # `pt` codes outside GeoSphere's table already reported, so a new one
+        # warns once rather than on every poll for as long as it is falling.
+        self._unknown_pt_codes: set[int] = set()
 
     async def _async_update_data(self) -> CurrentConditions:
         nowcast: GeoSphereResponse | None = None
@@ -580,6 +585,17 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
 
         pt_raw = now_value("pt")
         precipitation_type = int(pt_raw) if pt_raw is not None else None
+        if (
+            precipitation_type is not None
+            and precipitation_type not in PRECIPITATION_TYPES
+            and precipitation_type not in self._unknown_pt_codes
+        ):
+            self._unknown_pt_codes.add(precipitation_type)
+            _LOGGER.warning(
+                "Nowcast reported precipitation-type code %s, which is not in "
+                "GeoSphere's published table; reporting it as unknown",
+                precipitation_type,
+            )
         nowcast_rr = now_value("rr")
         # `None`, not 0.0, when the nowcast observed nothing: `is_precipitating`
         # has to tell "no precipitation" apart from "no observation", which it
@@ -716,6 +732,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
             wind_gust_speed=gust,
             precipitation_1h=rr_1h,
             precipitation_type=precipitation_type,
+            precipitation_kind=derive_precipitation_type(precipitation_type, rate_mm_h),
             is_precipitating=is_precipitating(precipitation_type, nowcast_rate_mm_h),
             cloud_coverage=cloud,
             global_radiation=inca_latest("GL")[0],

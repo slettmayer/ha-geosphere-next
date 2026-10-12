@@ -62,14 +62,18 @@ Thresholds are named constants in `const.py` (`THUNDER_CAPE_JKG`,
 ### `derive_current_condition` (now)
 
 Keyword-only inputs including the nowcast precipitation-type code and rate. The
-`pt` code table is undocumented (255 = none), so any other code only signals
-*that* it precipitates; rain vs snow is decided by temperature
-(`SNOW_MAX_T2M_C` = 1.0 °C):
+`pt` code decides the kind of precipitation; temperature (`SNOW_MAX_T2M_C` =
+1.0 °C) splits rain from snow only when the code names no kind — absent, 255
+beside an observed rate, or a code outside GeoSphere's table:
 
 1. precipitating (pt ≠ 255, or rate ≥ 0.1 mm/h — where an INCA-sourced rate
    counts only while its analysis hour still touches the present, see
-   [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md)) → `snowy` (T ≤ 1 °C), else
-   `lightning-rainy` (thunder), `pouring` (≥ 4 mm/h), or `rainy`.
+   [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md)) → `snowy` (pt 5, or no
+   kind and T ≤ 1 °C), else `lightning-rainy` (thunder), else `snowy-rainy`
+   (pt 7 rain and snow, or pt 3 freezing rain, which HA has no condition for),
+   else `pouring` (≥ 4 mm/h) or `rainy`. pt 1 is rain at any temperature.
+   Snow outranks thunder; thunder outranks the mixed kinds, since a storm is
+   the hazard people act on.
    **Thunder here passes the normal gate *or* CAPE alone when the observed
    rate is ≥ `POURING_MM_PER_H`.** The precipitation is *observed* (INCA / the
    nowcast are anchored to measurements) while CAPE and CIN are AROME's
