@@ -169,9 +169,20 @@ def is_precipitating(
     return None if precipitation_type is None else False
 
 
-def derive_precipitation_type(precipitation_type: int | None) -> str | None:
-    """GeoSphere's name for a nowcast `pt` code, or `None` outside its table."""
+def derive_precipitation_type(
+    precipitation_type: int | None, precipitation_rate_mm_h: float | None
+) -> str | None:
+    """GeoSphere's name for a nowcast `pt` code, or `None` if it names no kind.
+
+    `None` outside GeoSphere's table, and for 255 beside a rate that says it
+    precipitates. Pass the rate `derive_current_condition` gets, so a sensor
+    reading "no precipitation" can never sit beside a rainy condition.
+    """
     if precipitation_type is None:
+        return None
+    if precipitation_type == PT_NO_PRECIPITATION and is_precipitating(
+        precipitation_type, precipitation_rate_mm_h
+    ):
         return None
     return PRECIPITATION_TYPES.get(precipitation_type)
 

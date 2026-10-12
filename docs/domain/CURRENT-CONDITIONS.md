@@ -61,8 +61,9 @@ value. The order encodes which source is trusted most for each field:
   255 no precipitation — [confirmed by GeoSphere](https://github.com/Geosphere-Austria/dataset-api-docs/issues/71#issuecomment-6125846140),
   not in the API's `/metadata`) into the `precipitation_kind` enum sensor. A
   code outside the table is `None` there and logs one warning per code. So is 255
-  while the nowcast rate says it is precipitating: it names no kind, and "none"
-  would contradict `is_precipitating`. The raw
+  while the rate the condition uses (the nowcast's, or a current INCA `RR`)
+  says it is precipitating: it names no kind, and "none" would contradict the
+  condition and `is_precipitating`. The raw
   code stays available as a disabled diagnostic sensor.
 - **`is_precipitating`** (the `precipitating` binary sensor): `pt` ≠ 255 **or**
   precipitation rate ≥ `PRECIP_MIN_MM`, via `condition.is_precipitating` —

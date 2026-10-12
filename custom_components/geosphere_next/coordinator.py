@@ -64,6 +64,7 @@ from .const import (
     POP_P50_WET_PCT,
     POP_P90_WET_PCT,
     PRECIP_MIN_MM,
+    PRECIPITATION_TYPES,
     PT_NO_PRECIPITATION,
     RATE_LOOKBACK,
 )
@@ -584,10 +585,9 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
 
         pt_raw = now_value("pt")
         precipitation_type = int(pt_raw) if pt_raw is not None else None
-        precipitation_kind = derive_precipitation_type(precipitation_type)
         if (
             precipitation_type is not None
-            and precipitation_kind is None
+            and precipitation_type not in PRECIPITATION_TYPES
             and precipitation_type not in self._unknown_pt_codes
         ):
             self._unknown_pt_codes.add(precipitation_type)
@@ -615,11 +615,6 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         nowcast_rate_mm_h = (
             nowcast_rr * NOWCAST_BUCKETS_PER_HOUR if nowcast_rr is not None else None
         )
-        precipitating = is_precipitating(precipitation_type, nowcast_rate_mm_h)
-        # 255 beside a measured rate names no kind: reporting "none" there
-        # would contradict `precipitating` on the same device.
-        if precipitating and precipitation_type == PT_NO_PRECIPITATION:
-            precipitation_kind = None
         # The condition has to name *something*, so unlike `is_precipitating`
         # it does fall back to `RR` -- but not to a slice that has stopped
         # updating. `inca_latest` returns the newest non-None value at any age
@@ -737,8 +732,8 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
             wind_gust_speed=gust,
             precipitation_1h=rr_1h,
             precipitation_type=precipitation_type,
-            precipitation_kind=precipitation_kind,
-            is_precipitating=precipitating,
+            precipitation_kind=derive_precipitation_type(precipitation_type, rate_mm_h),
+            is_precipitating=is_precipitating(precipitation_type, nowcast_rate_mm_h),
             cloud_coverage=cloud,
             global_radiation=inca_latest("GL")[0],
             snow_limit=forecast_data.snow_limit if forecast_data else None,

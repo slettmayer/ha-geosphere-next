@@ -20,8 +20,9 @@
       "cape": { "default": "mdi:weather-lightning" },
       "cin": { "default": "mdi:arrow-collapse-down" },
       "precipitation_kind": {
-        "default": "mdi:weather-rainy",
+        "default": "mdi:cloud-question",
         "state": {
+          "rain": "mdi:weather-rainy",
           "freezing_rain": "mdi:snowflake-melt",
           "snow": "mdi:weather-snowy",
           "rain_and_snow": "mdi:weather-snowy-rainy",

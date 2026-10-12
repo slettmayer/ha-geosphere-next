@@ -126,20 +126,28 @@ def test_current_condition_falls_back_to_temperature_without_a_known_kind(
 
 
 @pytest.mark.parametrize(
-    ("code", "expected"),
+    ("code", "rate", "expected"),
     [
-        (1, "rain"),
-        (3, "freezing_rain"),
-        (5, "snow"),
-        (7, "rain_and_snow"),
-        (255, "no_precipitation"),
-        (2, None),
-        (None, None),
+        (1, None, "rain"),
+        (3, None, "freezing_rain"),
+        (5, None, "snow"),
+        (7, None, "rain_and_snow"),
+        (255, None, "no_precipitation"),
+        (255, 0.0, "no_precipitation"),
+        # 255 beside a rate that says it precipitates names no kind — and the
+        # rate here is the condition's own, INCA fallback included, so "none"
+        # would contradict the condition derived from it.
+        (255, 0.5, None),
+        (2, None, None),
+        (None, 0.5, None),
+        (None, None, None),
     ],
 )
-def test_derive_precipitation_type(code: int | None, expected: str | None) -> None:
+def test_derive_precipitation_type(
+    code: int | None, rate: float | None, expected: str | None
+) -> None:
     """GeoSphere's table, verbatim; anything outside it is unknown."""
-    assert derive_precipitation_type(code) == expected
+    assert derive_precipitation_type(code, rate) == expected
 
 
 def test_current_condition_thunder_ignores_the_forecast_cap() -> None:
