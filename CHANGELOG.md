@@ -2,7 +2,7 @@
 
 ## 0.14.1
 
-- Fix: a thunderstorm coded snow (`pt` 5) above 1 °C shows `lightning-rainy` again. 0.14.0 put snow ahead of thunder at any temperature, so a convective graupel shower at +4 °C lost the thunderstorm it showed in 0.13. Snow (`pt` 5, or a code naming no kind) now outranks thunder only at or below 1 °C, as in 0.13, and above that, or with no temperature from any source, a storm wins over every kind. A cold storm coded rain and snow (`pt` 7) or freezing rain (`pt` 3) keeps showing `lightning-rainy`, as in 0.14.0 (0.13 called any precipitation at or below 1 °C snow; the code says these are not). Found in review of the port to geosphere-mcp-server
+- Fix: a thunderstorm whose nowcast code says snow (`pt` 5) above 1 °C shows `lightning-rainy` again. 0.14.0 put snow ahead of thunder at any temperature, so a convective graupel shower at +4 °C lost the thunderstorm it showed in 0.13. Snow (`pt` 5, or a code naming no kind) now outranks thunder only at or below 1 °C, as in 0.13, and above that, or with no temperature from any source, a storm wins over every kind. A cold storm whose code says rain and snow (`pt` 7) or freezing rain (`pt` 3) keeps showing `lightning-rainy`, as in 0.14.0 (0.13 called any precipitation at or below 1 °C snow; the code says these are not). Found in review of the port to geosphere-mcp-server
 - Chore: `derive_current_condition` branches on the decoded precipitation kind instead of restating which codes name one, so the code table is the single definition
 
 ## 0.14.0
