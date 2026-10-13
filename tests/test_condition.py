@@ -109,18 +109,19 @@ def test_current_condition_pt_decides_the_precipitation_kind(
 @pytest.mark.parametrize(
     ("precipitation_type", "cape", "expected"),
     [
-        # A thunderstorm is the hazard people act on, so it outranks the mixed
-        # kinds: a spring shower coded rain-and-snow can still be a storm.
+        # Above SNOW_MAX_T2M_C a thunderstorm, the hazard people act on,
+        # outranks every kind: a spring shower coded rain-and-snow, or a
+        # convective graupel shower coded snow, can still be a storm.
         (7, 1500.0, "lightning-rainy"),
         (3, 1500.0, "lightning-rainy"),
-        # Snow still outranks thunder, as the temperature rule always did.
-        (5, 1500.0, "snowy"),
-        # Without thunder a downpour of mixed kinds stays mixed, not `pouring`.
+        (5, 1500.0, "lightning-rainy"),
+        # Without thunder a downpour keeps its kind, not `pouring`.
         (7, 0.0, "snowy-rainy"),
         (3, 0.0, "snowy-rainy"),
+        (5, 0.0, "snowy"),
     ],
 )
-def test_current_condition_thunder_outranks_mixed_precipitation(
+def test_current_condition_thunder_outranks_every_kind_above_snow_max(
     precipitation_type: int, cape: float, expected: str
 ) -> None:
     """Observed downpour (8 mm/h) at 4 °C: the CAPE-alone override applies."""
@@ -133,6 +134,100 @@ def test_current_condition_thunder_outranks_mixed_precipitation(
             wind_speed=3.0,
             cloud_coverage=100.0,
             cape=cape,
+            cin=-80.0,
+            gust_speed=5.0,
+            night=False,
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("precipitation_type", "expected"),
+    [
+        # At or below SNOW_MAX_T2M_C snow outranks thunder, as the temperature
+        # rule always made it: thundersnow is rare and still snow.
+        (5, "snowy"),
+        (None, "snowy"),
+        # Codes that name no kind fall back to temperature, which says snow.
+        (2, "snowy"),
+        (255, "snowy"),
+        # The mixed kinds are not snow, so thunder wins over them even here,
+        # and so it does over rain.
+        (7, "lightning-rainy"),
+        (3, "lightning-rainy"),
+        (1, "lightning-rainy"),
+    ],
+)
+def test_current_condition_cold_snow_outranks_thunder(
+    precipitation_type: int | None, expected: str
+) -> None:
+    assert (
+        derive_current_condition(
+            precipitation_type=precipitation_type,
+            precipitation_rate_mm_h=8.0,
+            temperature=-2.0,
+            humidity=90.0,
+            wind_speed=3.0,
+            cloud_coverage=100.0,
+            cape=1500.0,
+            cin=-80.0,
+            gust_speed=5.0,
+            night=False,
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("temperature", "expected"),
+    [(-2.0, "snowy"), (4.0, "lightning-rainy")],
+)
+def test_current_condition_snow_thunder_split_through_the_normal_gate(
+    temperature: float, expected: str
+) -> None:
+    """Light snow, uncapped CAPE: thunder from `is_thunder`, not the override."""
+    assert (
+        derive_current_condition(
+            precipitation_type=5,
+            precipitation_rate_mm_h=1.0,
+            temperature=temperature,
+            humidity=90.0,
+            wind_speed=3.0,
+            cloud_coverage=100.0,
+            cape=1500.0,
+            cin=0.0,
+            gust_speed=5.0,
+            night=False,
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("precipitation_type", "temperature", "expected"),
+    [
+        # SNOW_MAX_T2M_C itself is cold: the comparison is inclusive.
+        (5, 1.0, "snowy"),
+        (None, 1.0, "snowy"),
+        # No temperature from any source is not cold, as under the 0.13
+        # temperature rule, so thunder wins even over a snow code.
+        (5, None, "lightning-rainy"),
+        (None, None, "lightning-rainy"),
+    ],
+)
+def test_current_condition_snow_thunder_split_edges(
+    precipitation_type: int | None, temperature: float | None, expected: str
+) -> None:
+    assert (
+        derive_current_condition(
+            precipitation_type=precipitation_type,
+            precipitation_rate_mm_h=8.0,
+            temperature=temperature,
+            humidity=90.0,
+            wind_speed=3.0,
+            cloud_coverage=100.0,
+            cape=1500.0,
             cin=-80.0,
             gust_speed=5.0,
             night=False,

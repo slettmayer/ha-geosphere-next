@@ -68,12 +68,16 @@ beside an observed rate, or a code outside GeoSphere's table:
 
 1. precipitating (pt ≠ 255, or rate ≥ 0.1 mm/h — where an INCA-sourced rate
    counts only while its analysis hour still touches the present, see
-   [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md)) → `snowy` (pt 5, or no
-   kind and T ≤ 1 °C), else `lightning-rainy` (thunder), else `snowy-rainy`
-   (pt 7 rain and snow, or pt 3 freezing rain, which HA has no condition for),
-   else `pouring` (≥ 4 mm/h) or `rainy`. pt 1 is rain at any temperature.
-   Snow outranks thunder; thunder outranks the mixed kinds, since a storm is
-   the hazard people act on.
+   [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md)) → `snowy` if T ≤ 1 °C
+   and the kind is pt 5 or none, else `lightning-rainy` (thunder), else
+   `snowy` (pt 5), else `snowy-rainy` (pt 7 rain and snow, or pt 3 freezing
+   rain, which HA has no condition for), else `pouring` (≥ 4 mm/h) or
+   `rainy`. pt 1 is rain at any temperature, and no kind is rain above 1 °C
+   or with no temperature.
+   So snow outranks thunder only at or below 1 °C; above it, or when no
+   source has a temperature, a storm wins over every kind, since a graupel
+   or rain-and-snow shower can still be a thunderstorm. Cold pt 7 and pt 3
+   lose to thunder too: they are not snow.
    **Thunder here passes the normal gate *or* CAPE alone when the observed
    rate is ≥ `POURING_MM_PER_H`.** The precipitation is *observed* (INCA / the
    nowcast are anchored to measurements) while CAPE and CIN are AROME's

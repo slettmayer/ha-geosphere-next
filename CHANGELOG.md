@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.1
+
+- Fix: a thunderstorm whose nowcast code says snow (`pt` 5) above 1 °C shows `lightning-rainy` again. 0.14.0 put snow ahead of thunder at any temperature, so a convective graupel shower at +4 °C lost the thunderstorm it showed in 0.13. Snow (`pt` 5, or a code naming no kind) now outranks thunder only at or below 1 °C, as in 0.13, and above that, or with no temperature from any source, a storm wins over every kind. A cold storm whose code says rain and snow (`pt` 7) or freezing rain (`pt` 3) keeps showing `lightning-rainy`, as in 0.14.0 (0.13 called any precipitation at or below 1 °C snow; the code says these are not). Found in review of the port to geosphere-mcp-server
+- Chore: `derive_current_condition` branches on the decoded precipitation kind instead of restating which codes name one, so the code table is the single definition
+
 ## 0.14.0
 
 - Add: a `precipitation_kind` sensor ("Precipitation type", device class `enum`) reporting what is falling now: `rain`, `freezing_rain`, `snow`, `rain_and_snow` or `no_precipitation`. It decodes the nowcast `pt` code through the table GeoSphere confirmed with the data producer in [dataset-api-docs#71](https://github.com/Geosphere-Austria/dataset-api-docs/issues/71#issuecomment-6125846140). The API's `/metadata` still has no code list for `pt`. A code outside the table reports `unknown` and logs one warning per code. So does 255 when the measured rate says it is precipitating, so the sensor never says `no_precipitation` beside a rainy condition or an on `precipitating`. The raw `precipitation_type` diagnostic sensor stays, with its entity ID unchanged
