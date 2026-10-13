@@ -206,8 +206,10 @@ def derive_current_condition(
     temperature, which cannot tell wet snow above freezing from rain. Only
     when the code names no kind — absent, 255 beside an observed rate, or a
     code outside GeoSphere's table — does temperature split rain from snow.
-    At or below SNOW_MAX_T2M_C snow outranks thunder; above it, thunder
-    outranks every kind.
+    At or below SNOW_MAX_T2M_C snow (pt 5, or no kind) outranks thunder;
+    above it, or with no temperature at all, thunder outranks every kind.
+    Thunder also outranks the mixed kinds (pt 7, pt 3) when cold, where the
+    pre-code temperature rule called any cold precipitation snow.
 
     Note which evidence is which. Precipitation here is *observed* — INCA and
     the nowcast are anchored to measurements — while CAPE and CIN come from
@@ -229,8 +231,9 @@ def derive_current_condition(
         # since 255 only reaches this branch beside a wet rate.
         kind = derive_precipitation_type(precipitation_type, rate)
         cold = temperature is not None and temperature <= SNOW_MAX_T2M_C
-        # Snow outranks thunder only where the temperature rule always put it,
-        # at or below SNOW_MAX_T2M_C: thundersnow is rare and still snow.
+        # Snow outranks thunder only at or below SNOW_MAX_T2M_C, as it did
+        # under the temperature rule: thundersnow is rare and still snow.
+        # Unknown temperature is not cold, again as under that rule.
         if cold and kind in (None, PRECIPITATION_TYPES[PT_SNOW]):
             return "snowy"
         thunder = is_thunder(cape, cin) or (
