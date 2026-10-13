@@ -27,7 +27,6 @@ from .const import (
     PRECIPITATION_TYPES,
     PT_FREEZING_RAIN,
     PT_NO_PRECIPITATION,
-    PT_RAIN,
     PT_RAIN_AND_SNOW,
     PT_SNOW,
     SNOW_MAX_T2M_C,
@@ -207,7 +206,8 @@ def derive_current_condition(
     temperature, which cannot tell wet snow above freezing from rain. Only
     when the code names no kind — absent, 255 beside an observed rate, or a
     code outside GeoSphere's table — does temperature split rain from snow.
-    Snow outranks thunder; thunder outranks the mixed kinds.
+    At or below SNOW_MAX_T2M_C snow outranks thunder; above it, thunder
+    outranks every kind.
 
     Note which evidence is which. Precipitation here is *observed* — INCA and
     the nowcast are anchored to measurements — while CAPE and CIN come from
@@ -225,25 +225,27 @@ def derive_current_condition(
     """
     rate = precipitation_rate_mm_h or 0.0
     if is_precipitating(precipitation_type, rate):
-        mixed = precipitation_type in (PT_RAIN_AND_SNOW, PT_FREEZING_RAIN)
-        if precipitation_type == PT_SNOW:
-            return "snowy"
-        snow_likely = (
-            precipitation_type != PT_RAIN
-            and not mixed
-            and temperature is not None
-            and temperature <= SNOW_MAX_T2M_C
-        )
-        if snow_likely:
+        # `None` when the code names no kind; never "no_precipitation" here,
+        # since 255 only reaches this branch beside a wet rate.
+        kind = derive_precipitation_type(precipitation_type, rate)
+        cold = temperature is not None and temperature <= SNOW_MAX_T2M_C
+        # Snow outranks thunder only where the temperature rule always put it,
+        # at or below SNOW_MAX_T2M_C: thundersnow is rare and still snow.
+        if cold and kind in (None, PRECIPITATION_TYPES[PT_SNOW]):
             return "snowy"
         thunder = is_thunder(cape, cin) or (
             rate >= POURING_MM_PER_H and cape is not None and cape >= THUNDER_CAPE_JKG
         )
-        # Thunder outranks the mixed kinds: it is the hazard people act on,
-        # and a spring shower coded rain-and-snow can still be a storm.
+        # Above it, thunder outranks every kind: it is the hazard people act
+        # on, and a graupel or rain-and-snow shower can still be a storm.
         if thunder:
             return "lightning-rainy"
-        if mixed:
+        if kind == PRECIPITATION_TYPES[PT_SNOW]:
+            return "snowy"
+        if kind in (
+            PRECIPITATION_TYPES[PT_RAIN_AND_SNOW],
+            PRECIPITATION_TYPES[PT_FREEZING_RAIN],
+        ):
             return "snowy-rainy"
         if rate >= POURING_MM_PER_H:
             return "pouring"
