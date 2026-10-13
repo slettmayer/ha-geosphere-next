@@ -72,7 +72,8 @@ beside an observed rate, or a code outside GeoSphere's table:
    and the kind is pt 5 or none, else `lightning-rainy` (thunder), else
    `snowy` (pt 5), else `snowy-rainy` (pt 7 rain and snow, or pt 3 freezing
    rain, which HA has no condition for), else `pouring` (≥ 4 mm/h) or
-   `rainy`. pt 1 is rain at any temperature, and no kind above 1 °C is rain.
+   `rainy`. pt 1 is rain at any temperature, and no kind is rain above 1 °C
+   or with no temperature.
    So snow outranks thunder only at or below 1 °C; above it, or when no
    source has a temperature, a storm wins over every kind, since a graupel
    or rain-and-snow shower can still be a thunderstorm. Cold pt 7 and pt 3
