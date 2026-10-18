@@ -59,7 +59,9 @@ PR is where a breaking release now surfaces.
 - **HACS action** — validates the repo as a HACS integration (CI only).
 
 ### Packaging and distribution
-- Distributed via **HACS** as a custom integration; no build step. The
+- Distributed via the **HACS** default store as a custom integration (listed
+  since 2026-10-18, [hacs/default#9247](https://github.com/hacs/default/pull/9247));
+  no build step. The
   integration lives in `custom_components/geosphere_next/` with `manifest.json`
   as the entry point. `hacs.json` declares the display name and minimum HA
   version. `integration_type: service`, `iot_class: cloud_polling`.

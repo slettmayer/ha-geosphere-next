@@ -8,7 +8,7 @@
 
 ## Quick Reference
 - **Build**: none — pure Python custom component distributed via HACS
-- **Run**: load into Home Assistant (HACS custom repository, or copy `custom_components/geosphere_next/`)
+- **Run**: load into Home Assistant (HACS default store, or copy `custom_components/geosphere_next/`)
 - **Test**: `pip install -r requirements_test.txt && python -m pytest tests/ -q`
 - **Lint**: `ruff check . --fix && ruff format .`
 
