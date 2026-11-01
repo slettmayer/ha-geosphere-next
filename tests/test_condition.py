@@ -289,6 +289,30 @@ def test_current_condition_dry_without_a_known_symbol_is_unknown(
     assert _current(1, 12.0, 0.5, symbol=symbol) == "rainy"
 
 
+@pytest.mark.parametrize(
+    ("symbol", "night", "expected"),
+    [
+        (8, False, "rainy"),
+        (10, False, "pouring"),
+        (26, False, "lightning-rainy"),
+        (14, True, "snowy"),
+        (2, True, "clear-night"),
+        (6, False, "fog"),
+        (None, False, None),
+    ],
+)
+def test_current_condition_without_any_observation_is_the_symbol(
+    symbol: int | None, night: bool, expected: str | None
+) -> None:
+    """Nothing observed is not "dry": the symbol is the only evidence left.
+
+    Outside the nowcast grid, or with every observing source down or stale,
+    neither a `pt` code nor a rate reaches the derivation; a precipitation
+    symbol then keeps its own condition instead of being demoted to `cloudy`.
+    """
+    assert _current(None, 12.0, None, symbol=symbol, night=night) == expected
+
+
 def test_wind_from_components() -> None:
     speed, bearing = wind_from_components(0.0, -5.0)
     assert speed == 5.0

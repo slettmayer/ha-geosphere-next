@@ -131,9 +131,8 @@ def is_precipitating(
     Sole definition of "precipitating" for the integration: both
     `derive_current_condition` and `GeoSphereCurrentCoordinator._merge` (which
     stores the result as `CurrentConditions.is_precipitating`) call this
-    rather than restating the comparison. A caller that must decide either way
-    (the condition derivation) passes a rate defaulted to 0.0 and so never
-    sees `None`.
+    rather than restating the comparison. The condition derivation reads
+    `None` as "nothing observed" and leaves the verdict to the forecast.
     """
     if precipitation_type is not None and precipitation_type != PT_NO_PRECIPITATION:
         return True
@@ -194,9 +193,15 @@ def derive_current_condition(
     Dry by observation, the symbol's own mapping applies -- except that a
     precipitation or thunder code becomes `cloudy`: the model expects
     precipitation that is not falling, under what is then an overcast sky.
+    With no observation at all (outside the nowcast grid, or every source
+    down or stale), the symbol is the only evidence and its mapping applies
+    unchanged.
     """
+    observed = is_precipitating(precipitation_type, precipitation_rate_mm_h)
+    if observed is None:
+        return condition_from_symbol(symbol, night)
     rate = precipitation_rate_mm_h or 0.0
-    if is_precipitating(precipitation_type, rate):
+    if observed:
         # `None` when the code names no kind; never "no_precipitation" here,
         # since 255 only reaches this branch beside a wet rate.
         kind = derive_precipitation_type(precipitation_type, rate)

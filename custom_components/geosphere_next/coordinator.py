@@ -599,8 +599,9 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         # and `_async_get_inca` serves a cached slice indefinitely while
         # refreshes fail, so an ungated read derived `rainy` under a clear sky
         # from rain that had stopped hours ago, and held there. Past
-        # INCA_RR_MAX_AGE_SECONDS the derivation falls through to the dry
-        # branch and the weather symbol. The bound is deliberately well
+        # INCA_RR_MAX_AGE_SECONDS it no longer counts as an observation, and
+        # with no nowcast either the condition is the weather symbol's alone.
+        # The bound is deliberately well
         # past INCA's own ~90 min worst-case lag so ordinary publishing never
         # trips it -- see the constant.
         #
@@ -624,10 +625,12 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         rr_1h_is_current = (
             rr_1h_age_s is not None and 0 <= rr_1h_age_s <= INCA_RR_MAX_AGE_SECONDS
         )
+        # `None` when nothing observes precipitation at all, which the
+        # condition derivation tells apart from an observed "dry".
         rate_mm_h = (
             nowcast_rate_mm_h
             if nowcast_rate_mm_h is not None
-            else ((rr_1h or 0.0) if rr_1h_is_current else 0.0)
+            else (rr_1h if rr_1h_is_current else None)
         )
         # A single bucket can round to 0.0 in the gap between cells of an
         # active storm, reporting 0 mm/h mid-downpour and starving the
@@ -653,7 +656,9 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
                 if now - RATE_LOOKBACK <= ts <= now and value is not None
             ]
             if recent:
-                rate_mm_h = max(rate_mm_h, max(recent) * NOWCAST_BUCKETS_PER_HOUR)
+                rate_mm_h = max(
+                    rate_mm_h or 0.0, max(recent) * NOWCAST_BUCKETS_PER_HOUR
+                )
         night = is_night(self.latitude, self.longitude, now)
 
         # When the conditions below actually describe: the stamp of whichever

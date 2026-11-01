@@ -8,12 +8,15 @@ import pytest
 from freezegun import freeze_time
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE
 from homeassistant.core import HomeAssistant
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
 )
 
 from custom_components.geosphere_next import api
+from custom_components.geosphere_next.const import CONF_HAS_NOWCAST, DOMAIN
 from custom_components.geosphere_next.models import GeoSphereResponse
 
 from .conftest import (
@@ -902,6 +905,33 @@ async def test_current_condition_reads_the_symbol_of_the_hour(
 
     assert coordinator.data.is_precipitating is True
     assert coordinator.data.condition == "lightning-rainy"
+
+
+async def test_current_condition_outside_the_nowcast_grid_is_the_symbol(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """With no nowcast and no INCA, nothing observes precipitation.
+
+    The hour's rain symbol therefore stands as `rainy` rather than being
+    read as a dry sky under a wrong forecast.
+    """
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=stormy_arome(indexes=(4,), symbol=9))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="GeoSphere Next",
+        unique_id="47.0000_9.0000",
+        data={CONF_LATITUDE: 47.0, CONF_LONGITUDE: 9.0, CONF_HAS_NOWCAST: False},
+    )
+    await _setup(hass, entry)
+
+    data = entry.runtime_data.current.data
+    assert data.is_precipitating is None
+    assert data.weather_symbol == 9
+    assert data.condition == "rainy"
 
 
 async def test_current_arome_fields_follow_the_clock(
