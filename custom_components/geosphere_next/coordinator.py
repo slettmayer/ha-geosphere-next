@@ -269,9 +269,8 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         now = dt_util.utcnow()
         hourly: list[HourlyForecast] = []
         # Read off the row that becomes `hourly[0]`, below. Both are read at
-        # that row's own stamp, so they describe the same hour
-        # as `current` by construction rather than by a second index kept in
-        # step with it.
+        # that row's own stamp, so they describe the same hour as `current` by
+        # construction rather than by a second index kept in step with it.
         symbol: float | None = None
         snow_limit: float | None = None
 

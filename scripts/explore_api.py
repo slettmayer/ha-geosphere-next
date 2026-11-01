@@ -108,6 +108,10 @@ def stamp(when: datetime) -> str:
 def classify(body: dict) -> None:
     for name, param in params_of(body).items():
         kind = "interval-ending" if param["data"][0] is None else "instantaneous"
+        if name == "sy":
+            # Null at t0 like the interval fields, but its cloud classes follow
+            # `tcc` at its own stamp (F-3), so it is read there.
+            kind += " (null at t0; read at its own stamp, see F-3)"
         print(f"  {name:8} {param['unit']:15} index0={param['data'][0]!s:8} {kind}")
 
 

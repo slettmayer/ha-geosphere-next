@@ -8,7 +8,7 @@
 - Change: thunder is decided on CAPE alone (≥ 1000 J/kg). The new dataset publishes no convective inhibition, so a capped airmass with high CAPE can now show `lightning` / `lightning-rainy` where it previously stayed `cloudy` / `rainy`, and the current condition no longer needs a downpour to override a modelled lid
 - Remove: the `cin` sensor ("Convective inhibition", entity id `sensor.<name>_convective_inhibition`, disabled by default). The dataset no longer provides it; delete the leftover entity from Settings → Entities if you had enabled it
 - Remove: the unused per-hour min/max temperature from the internal forecast model (the weather entity never published it)
-- Change: the setup and options texts no longer name AROME; the forecast domain is latitude 43.0–51.5°, longitude 5.0–22.6°
+- Change: the setup and options texts no longer name AROME; the forecast domain is latitude 43.0–51.5°, longitude 5.03–22.57°
 - Chore: test fixtures re-recorded from the v2 datasets; `scripts/explore_api.py` now classifies every forecast parameter as instantaneous or interval-ending from a request at the run's own t0
 
 ## 0.14.1

@@ -56,6 +56,7 @@ async def test_parse_arome_response(
     assert response.value_at("2t", 0) is not None
     assert response.parameters["tcc"].unit == "%"
     # Interval-ending parameters have no value at the run's own t0.
+    assert "tp" in response.parameters
     assert response.value_at("tp", 0) is None
     # Unknown parameter degrades to a None series, not a KeyError.
     assert response.value_at("nonexistent", 0) is None
