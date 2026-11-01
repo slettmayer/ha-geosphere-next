@@ -89,13 +89,18 @@ dry, or nothing observed (`None`):
    `rainy`. pt 1 is rain at any temperature, and
    no kind is rain above 1 °C or with no temperature. The symbol's own kind
    (rain, sleet, snow) is never used here.
-2. **Observed dry**: the symbol's mapping, except that a precipitation or
-   thunder code (8–32) reads `cloudy` — the model expects precipitation that
-   is not falling, under what is then an overcast sky. Fog comes only from
-   codes 6–7.
+2. **Observed dry**, which needs a *fresh* observation: the nowcast (`pt` 255
+   or a dry rate), or — with no nowcast — an INCA `RR` below 0.1 mm that
+   covers the hour that just ended (`INCA_RR_DRY_MAX_AGE_SECONDS`, 1 h). The
+   symbol's mapping applies, except that a precipitation or thunder code
+   (8–32) reads `cloudy` — the model expects precipitation that is not
+   falling, under what is then an overcast sky. Fog comes only from codes
+   6–7.
 3. **Nothing observed** (outside the nowcast grid, or the nowcast down and
-   INCA's `RR` stale): the symbol is the only evidence and its mapping applies
-   unchanged, rain and thunder included.
+   INCA's `RR` either stale or a dry hour that ended more than an hour ago):
+   the symbol is the only evidence and its mapping applies unchanged, rain and
+   thunder included. Overriding a rain symbol with a "dry" that may predate
+   the rain would hide exactly what the symbol warns of.
 
 **Snow outranks a thunder symbol when cold.** At or below 1 °C observed snow
 (pt 5, or no kind) shows `snowy` even when the hour's symbol is a thunderstorm.
@@ -108,8 +113,8 @@ rows have no observation to weigh, so a 31/32 hour there reads
 `lightning-rainy`.
 
 The current precipitation rate comes from the nowcast `rr` (15-min bucket ×
-`NOWCAST_BUCKETS_PER_HOUR` to mm/h) when available, else a current INCA 1 h
-`RR`, else `None`.
+`NOWCAST_BUCKETS_PER_HOUR` to mm/h) when available, else an INCA 1 h `RR`
+that is wet and under 2 h old or dry and under 1 h old, else `None`.
 
 ### Helper math
 

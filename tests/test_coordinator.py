@@ -1233,6 +1233,41 @@ async def test_current_inca_rr_still_derives_rain(
     assert data.is_precipitating is None
 
 
+@pytest.mark.parametrize(
+    ("clock", "expected"),
+    [
+        # 40 min after the 15:00Z analysis: it covers the hour that just
+        # ended, so its dry `RR` is an observation and the rain symbol of the
+        # 15:00Z hour reads `cloudy`.
+        ("2026-07-15T15:40:00+00:00", "cloudy"),
+        # 80 min after it, in the 16:00Z hour: still inside the wet bound,
+        # but a dry hour that ended 80 min ago says nothing about rain that
+        # may have started since, so the 16:00Z rain symbol stands.
+        ("2026-07-15T16:20:00+00:00", "rainy"),
+    ],
+)
+async def test_a_dry_inca_rr_overrides_the_symbol_only_while_fresh(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+    clock: str,
+    expected: str,
+) -> None:
+    """With the nowcast down, only a fresh dry `RR` counts as "observed dry"."""
+    aioclient_mock.get(AROME_URL, json=stormy_arome(indexes=(3, 4), symbol=8))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, exc=TimeoutError)
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    freezer.move_to(clock)
+    await _setup(hass, mock_config_entry)
+
+    data = mock_config_entry.runtime_data.current.data
+    assert data.weather_symbol == 8
+    assert data.precipitation_1h == 0.0
+    assert data.condition == expected
+
+
 async def test_precipitation_1h_is_unknown_without_inca(
     hass: HomeAssistant,
     mock_config_entry,
