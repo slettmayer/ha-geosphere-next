@@ -32,34 +32,42 @@ as `grid_latitude` / `grid_longitude`, which differs from the requested point.
   (temperature, °C), `2r` (humidity, %), `10u` / `10v` (wind components),
   `10fg` (peak 10 m gust, m/s), `tcc` (cloud cover, **%**, 0–100), `tp` / `sf`
   (per-hour precipitation / snowfall, kg m⁻²), `snowlmt` (snow limit, m),
-  `cape` (J/kg), `sy` (proprietary weather-symbol code).
+  `cape` (J/kg), `sy` (GeoSphere's weather-symbol code, which the HA
+  condition is mapped from — see [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md)).
 
   Each parameter is either instantaneous at its stamp or covers the interval
   *ending* at it, and which is decided by measurement, not by name: requested
   from the run's own t0, an interval parameter is `null` at index 0
   (measured 2026-11-01). `10fg`, `tp` and `sf` are interval-ending; `2t`, `2r`,
   `10u`/`10v`, `tcc`, `cape` and `snowlmt` are instantaneous. `sy` is `null`
-  at t0 as well, but its cloud classes (codes 1–5) bin exactly on `tcc` at
-  its own stamp (1: 0–10 %, 2: 11–30 %, 3: 32–60 %, 4: 61–90 %, 5: 90–100 %),
-  so it is read at the stamp; its precipitation codes follow `tp` at the same
-  stamp. The dataset also publishes `msl`, `pt` (a precipitation-type code
+  at t0 as well: its precipitation codes follow `tp` at the same stamp (the
+  interval ending there) and its cloud classes bin `tcc` at that stamp, so it
+  is read one stamp on, like `tp` — see
+  [The `sy` code table on nwp-v2](#the-sy-code-table-on-nwp-v2). The dataset
+  also publishes `msl`, `pt` (a precipitation-type code
   distinct from the nowcast's), `rain`, `ssrd` and `sund`, which are not
   requested. See [FORECAST.md](FORECAST.md) for how each stamping is read.
 
   There is no convective inhibition, no 2 m min/max temperature and no
-  run-accumulated series in this dataset. Thunder is therefore decided on CAPE
-  alone — see [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md).
+  run-accumulated series in this dataset. Thunder comes from the `sy` code
+  (and, for the outlook, from the ensemble) — see
+  [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md) and
+  [FORECAST.md](FORECAST.md#thunderstorm-outlook).
 
   The dataset declares CAPE's unit as `m2 s-2`, which is dimensionally
   identical to J/kg, so the `J/kg` label this integration uses is numerically
   correct.
 - **C-LAEF ensemble** — `("forecast", "ensemble-v2-1h-1km")`. Probabilistic
-  companion on the same 1 km grid, reruns every 3 h, 61 hourly stamps. Of its
-  percentile parameters only the precipitation ones are requested
-  (`ENSEMBLE_PARAMETERS`: `tp_p10`, `tp_p50`, `tp_p90`, kg m⁻²) — no member
-  counts or true wet-fraction. Like `tp` they are per-hour amounts for the
-  interval ending at their stamp (`null` at t0). Consumed only to derive the
-  stepped precipitation probability.
+  companion on the same 1 km grid, reruns every 3 h, 61 hourly stamps. It
+  publishes p10/p50/p90 percentiles of most deterministic parameters — no
+  member counts or true wet-fraction. Requested (`ENSEMBLE_PARAMETERS`):
+  `tp_p10`, `tp_p50`, `tp_p90` (kg m⁻²), per-hour amounts for the interval
+  ending at their stamp like `tp` (`null` at t0); and `cape_p90` (J/kg,
+  declared `m2 s-2`), which has a value at t0 and is instantaneous like
+  `cape` (measured 2026-11-01 on the 03:00Z run). The tp percentiles feed the
+  stepped precipitation probability — an estimate this integration derives,
+  not a probability GeoSphere publishes — and `tp_p90` with `cape_p90` the
+  ensemble branch of the thunderstorm outlook.
 - **INCA nowcast** — `("forecast", "nowcast-v1-15min-1km")`. 1 km, 15-min cadence,
   Austria-only grid. Parameters (`NOWCAST_PARAMETERS`): `t2m`, `td` (dew point),
   `rh2m`, `rr` (15-min precipitation), `pt` (precipitation-type code), `dd` (wind
@@ -101,6 +109,46 @@ as `grid_latitude` / `grid_longitude`, which differs from the requested point.
   components). The preferred source for current thermodynamic fields, wind, MSL
   pressure, and 1 h precipitation. Uppercase parameter names distinguish it from
   the nowcast's lowercase names.
+
+### The `sy` code table on nwp-v2
+
+GeoSphere published the `sy` table for `nwp-v1` in
+[dataset-api-docs#30](https://github.com/Geosphere-Austria/dataset-api-docs/issues/30#issuecomment-2042539848)
+(see [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md) for the table). For
+`nwp-v2` the integration assumes the same table. The evidence, measured
+2026-11-01 on the 06:00Z run through the grid endpoint
+(`/grid/forecast/nwp-v2-1h-1km`, NetCDF, the full 945 × 1300 domain):
+
+- **Coverage.** `sy` at all 60 stamps of the run (73.7 M values): cloud 1–5
+  64.9 M, rain 8–10/17–19 6.97 M, sleet 11–13/20–22 1.24 M, snow
+  14–16/23–25 0.55 M, thunder 26–32 5,560. Codes 6, 7, 25, 30 and 32 never
+  occurred; neither did 6–7 in 8 night stamps of an older run.
+- **Cloud classes** (6 stamps, 7.37 M points, each compared at its own stamp
+  and the one before): codes 1–5 bin `tcc` at their own stamp exactly — 1:
+  0–10 %, 2: 10–30 %, 3: 30–60 %, 4: 60–90 %, 5: 90–100 % — while `tcc` at the
+  previous stamp spans 0–100 % for every code.
+- **Precipitation classes** (893,586 coded points): every one has `tp` ≥ 0.1 mm
+  at its own stamp; at the previous stamp only 38–100 % do, depending on the
+  code. Cloud-coded points with `tp` ≥ 0.1 mm at their stamp: 0.04 %, all at
+  the 0.1 mm boundary. Rain intensity bins `tp` exactly: 8/17 0.1–1 mm,
+  9/18 1–5 mm, 10/19 ≥ 5 mm; the sleet and snow intensities overlap more
+  loosely (e.g. code 12 spans 0.1–7.6 mm). So the
+  precipitation classes describe the interval *ending* at their stamp, which
+  is why a forecast row reads `sy` one stamp on (see
+  [FORECAST.md](FORECAST.md#hourly-processing)).
+- **Kind.** Rain codes: `sf` = 0, median `2t` 6.8–8.7 °C. Snow codes: `sf`/`tp`
+  median 0.78–0.95, median `2t` −1.2 °C. Sleet codes: median `2t` 2.3–5.3 °C,
+  `sf` > 0 at ~40 %.
+- **Thunder.** All 26–32 points are wet (`tp` ≥ 0.1 mm) and lie over northern
+  Italy, the Adriatic and the southern Alps; their CAPE has a median of
+  159 J/kg, a 90th percentile of 241 and a maximum of 475. No point in the
+  sample reached 1000 J/kg, so GeoSphere's thunder diagnosis is not a CAPE
+  threshold. Code 31 (thunder with snow) sits at a median −1.3 °C with
+  snowfall. Code 29 (thunder with sleet) is warmer than the sleet codes
+  (median 8.1 °C, `sf` > 0 at 10 %), the one class that matches its label
+  only loosely.
+- **Fog.** Of 228,338 fog-like points (`2r` ≥ 98 %, 10 m wind < 2 m/s), 60 %
+  carried code 5 and 25 % code 8; none carried 6 or 7.
 
 ### Domain coverage
 
@@ -147,12 +195,15 @@ run hours — see [FORECAST.md](FORECAST.md#run-gating).
 - Datasets are `(mode, resource_id)` tuples so `get_timeseries(*DATASET_X, ...)`
   stays uniform across all six.
 - Only three ensemble percentiles are published, which forces the stepped
-  precipitation-probability model — see [FORECAST.md](FORECAST.md).
+  precipitation-probability estimate — see [FORECAST.md](FORECAST.md).
 
 ## Known Risks
-- The `sy` weather-symbol code table is undocumented and proprietary; the
-  integration never relies on its exact semantics. The nowcast `pt` table is
-  not in `/metadata` either, but GeoSphere confirmed it on request — see
+- The `sy` table is published for `nwp-v1` only; the integration assumes
+  `nwp-v2` uses the same one. Measured evidence supports it for every class
+  observed (see [The `sy` code table on nwp-v2](#the-sy-code-table-on-nwp-v2)),
+  but fog (6–7) and codes 25, 30 and 32 were never observed. If `nwp-v2` emits
+  no fog codes, `fog` never appears. Neither table is in `/metadata`; the
+  nowcast `pt` table GeoSphere confirmed on request — see
   [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md).
 - Dataset resource IDs are versioned (`-v1-`, `-v2-`); a GeoSphere version bump
   would require updating `const.py`.

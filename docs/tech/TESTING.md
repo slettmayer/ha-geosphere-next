@@ -50,10 +50,15 @@ Document the test framework, fixtures, patterns, and commands for the test suite
 - `auto_enable_custom_integrations` — autouse fixture enabling custom-integration
   loading.
 - `load_fixture(name)` — reads `tests/fixtures/*.json`.
-- `stormy_arome(...)` — a *synthetic* copy of `arome.json` with CAPE (and
-  optionally `tcc` and the hour's `tp`) patched into chosen hours. The
-  recording peaks at 29 J/kg CAPE, so the thunder `on` paths would otherwise be
-  untestable; patching the recorded payload keeps every other field real.
+- `stormy_arome(...)` — a *synthetic* copy of `arome.json` with a weather
+  symbol (a thunderstorm code by default), the hour's `tp` and its CAPE patched
+  into chosen hours. `sy` and `tp` go one stamp on, since both cover the
+  interval ending at their stamp. The recording has no thunderstorm symbol, so
+  the thunder `on` paths would otherwise be untestable; patching the recorded
+  payload keeps every other field real.
+- `stormy_ensemble(...)` — the same for `ensemble.json`: `cape_p90` at the
+  hour's own stamp, `tp_p90` one stamp on. The recording peaks at 48 J/kg
+  `cape_p90`.
 - Recorded fixtures include the happy path (`arome.json`, `ensemble.json`,
   `nowcast.json`, `inca.json`, `chem.json`, `chem_aqi.json`), metadata files, and
   edge cases (`arome_out_of_domain.json`, `nowcast_out_of_domain.json`,
@@ -65,15 +70,20 @@ Document the test framework, fixtures, patterns, and commands for the test suite
   shifts every stamp by one offset so that the run's `reference_time` lands on
   2026-07-15T12:00Z, the suite's frozen timeline that `nowcast.json`,
   `inca.json` and the chem fixtures were recorded on; values are untouched.
+  `ensemble.json`'s `cape_p90` was added later from the same C-LAEF run
+  (2026-11-01T03:00Z at 46.63,14.15; its `tp_p*` series matched the fixture
+  value for value), so no other value moved. The script now requests it.
   Their weather is a wet November day (CAPE ≤ 29 J/kg, cloud 75–100 %), so the
   frozen 16:00Z row is index 4.
 
 ### What is covered
 Config-flow validation and out-of-domain handling, API error mapping, coordinator
-merging/stamping/fallback, run gating (which fetches are skipped inside a
-model's rerun cadence, and that the gate reopens every cycle once it elapses),
-sensor value extraction, weather forecast assembly, air-quality processing, and
-condition derivation.
+merging/stamping/fallback, the full `sy` → condition table (unknown codes and
+night included), the current-condition precedence between observations and
+the symbol, the thunderstorm outlook's symbol and ensemble signals, run
+gating (which fetches are skipped inside a model's rerun cadence, and that the
+gate reopens every cycle once it elapses), sensor value extraction, weather
+forecast assembly, and air-quality processing.
 
 Run-gating tests move the frozen clock relative to a fixture's `reference_time`
 (12:00Z for `arome.json` and `ensemble.json`) rather than relative to the fetch,

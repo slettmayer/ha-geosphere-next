@@ -33,8 +33,8 @@ The AROME hour is selected per merge with `outlook.hour_at(hourly, now)`, which
 matches the top-of-hour floor of `now` — not the `ForecastData.current` snapshot
 taken when the forecast was fetched. The forecast coordinator can run up to
 180 min apart while this one runs every 15 min, so reading that snapshot would
-leave the AROME-only fields (cloud cover, CAPE) — and with them the derived
-condition — hours stale. When the series does not cover `now` at all (a forecast
+leave the AROME-only fields (cloud cover, CAPE, the weather symbol) — and with
+the symbol the derived condition — hours stale. When the series does not cover `now` at all (a forecast
 that has aged out entirely), the merge degrades to `ForecastData.current`.
 
 ### Per-field preference chain
@@ -48,12 +48,19 @@ value. The order encodes which source is trusted most for each field:
 - **Wind gust**: nowcast → AROME current hour.
 - **MSL pressure**: INCA `P0` (Pa) only, converted to hPa.
 - **Global radiation**: INCA `GL` only.
-- **Cloud coverage, CAPE**: the AROME current hour only — the
-  nowcast/INCA products do not carry them.
-- **Snow limit, weather symbol**: `ForecastData.snow_limit` /
-  `.weather_symbol`, which the forecast coordinator computes once per fetch
-  from its first future hour. Unlike the fields above these are not re-picked
-  per hour, so they age with the forecast interval.
+- **Cloud coverage, CAPE, weather symbol**: the AROME current hour only — the
+  nowcast/INCA products do not carry them. The symbol is that row's
+  `weather_symbol`, i.e. the `sy` code stamped at the end of the hour (see
+  [FORECAST.md](FORECAST.md#hourly-processing)); the `weather_symbol`
+  diagnostic sensor reports the same code the condition is mapped from.
+- **Snow limit**: `ForecastData.snow_limit`, which the forecast coordinator
+  computes once per fetch from its first future hour. Unlike the fields above
+  it is not re-picked per hour, so it ages with the forecast interval.
+- **Condition**: `derive_current_condition` — observations decide whether and
+  what is falling, the hour's symbol the rest; see
+  [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md). It distinguishes an
+  observed "dry" (a precipitation or thunder symbol then reads `cloudy`) from
+  nothing observed at all (the symbol's own mapping applies).
 - **1 h precipitation**: INCA `RR` only. `None` when INCA has none — the
   nowcast cannot stand in, see [Design Decisions](#design-decisions).
 - **Precipitation type**: nowcast `pt`, decoded through GeoSphere's code table
@@ -97,12 +104,14 @@ value. The order encodes which source is trusted most for each field:
   `INCA_RR_MAX_AGE_SECONDS` (2 h). `inca_latest` returns the newest value at
   any age and the cached slice is served on indefinitely while refreshes
   fail, so an ungated read derived `rainy` under a clear sky from rain that
-  had stopped hours earlier, and held there. The bound marks a slice that has
+  had stopped hours earlier, and held there. With neither source, the rate is
+  `None` — nothing observed — rather than 0.0. The bound marks a slice that has
   **stopped updating**, not ordinary lag — INCA's freshest `RR` is routinely
   up to ~90 min old (same publish cycle that makes `observed_at` trail by
   ~90 min), and a tighter bound would reject the best data the source has for
   part of every cycle, flapping the condition hourly through steady rain.
-  Past the bound the derivation falls through to cloud cover. The condition
+  Past the bound the rate no longer counts as an observation, and with no
+  nowcast either the condition is the weather symbol's alone. The condition
   must still name something, which is why it keeps the fallback at all —
   `is_precipitating` drops `RR` outright. Note `observation_time` does **not**
   date the accumulation: it anchors to whichever source supplied the
@@ -187,7 +196,7 @@ available at all, `_async_update_data` raises `UpdateFailed`.
 ## Dependencies
 - `GeoSphereForecastCoordinator` — injected into the current coordinator's
   constructor to supply AROME fallback values (`hourly`, `current`, `snow_limit`,
-  `weather_symbol`).
+  `weather_symbol` on each row).
 - INCA analysis and nowcast datasets — see [DATASETS.md](DATASETS.md).
 
 ## Design Decisions
