@@ -28,6 +28,7 @@ from .conftest import (
     mock_response,
     response_sequence,
     stormy_arome,
+    stormy_ensemble,
     wet_nowcast,
 )
 
@@ -36,10 +37,12 @@ ENTITY_ID = "binary_sensor.geosphere_next_thunderstorm_expected_next_hour"
 PRECIPITATING_ENTITY_ID = "binary_sensor.geosphere_next_precipitating"
 
 
-def _mock_api_with(aioclient_mock: AiohttpClientMocker, arome: dict) -> None:
-    """Serve a patched AROME payload alongside the recorded companions."""
+def _mock_api_with(
+    aioclient_mock: AiohttpClientMocker, arome: dict, ensemble: dict | None = None
+) -> None:
+    """Serve patched forecast payloads alongside the recorded companions."""
     aioclient_mock.get(AROME_URL, json=arome)
-    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=ensemble or load_fixture("ensemble.json"))
     aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
     aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
 
@@ -56,6 +59,7 @@ async def test_thunderstorm_expected_is_off_for_a_calm_forecast(
     state = hass.states.get(ENTITY_ID)
     assert state is not None
     assert state.state == "off"
+    assert state.attributes["source"] is None
 
 
 async def test_thunderstorm_expected_is_on_for_a_stormy_forecast(
@@ -74,7 +78,82 @@ async def test_thunderstorm_expected_is_on_for_a_stormy_forecast(
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
 
-    assert hass.states.get(ENTITY_ID).state == "on"
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == "on"
+    assert state.attributes["source"] == "symbol"
+
+
+async def test_thunderstorm_expected_is_on_from_the_ensemble_alone(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """No thunderstorm symbol, but the ensemble's 90th percentiles allow one.
+
+    `stormy_ensemble` sets cape_p90 at 17:00Z and tp_p90 for the hour it
+    starts -- inside the 16:00Z window -- while the deterministic run stays
+    calm, so the symbol-based `next_thunderstorm` stays unknown.
+    """
+    freezer.move_to(FROZEN_NOW)
+    _mock_api_with(
+        aioclient_mock, load_fixture("arome.json"), stormy_ensemble(indexes=(5,))
+    )
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == "on"
+    assert state.attributes["source"] == "ensemble"
+    assert hass.states.get("sensor.geosphere_next_next_thunderstorm").state == (
+        "unknown"
+    )
+
+
+async def test_thunderstorm_expected_names_both_signals(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    freezer.move_to(FROZEN_NOW)
+    _mock_api_with(
+        aioclient_mock, stormy_arome(indexes=(4,)), stormy_ensemble(indexes=(4,))
+    )
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == "on"
+    assert state.attributes["source"] == "symbol_and_ensemble"
+
+
+async def test_thunderstorm_expected_is_unknown_without_data_to_judge(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """No symbol in the window and no ensemble: unknown, not a confident off."""
+    arome = load_fixture("arome.json")
+    sy = arome["features"][0]["properties"]["parameters"]["sy"]["data"]
+    # The 16:00Z and 17:00Z rows read the 17:00Z and 18:00Z codes.
+    sy[5] = None
+    sy[6] = None
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=arome)
+    aioclient_mock.get(ENSEMBLE_URL, status=400)
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == "unknown"
+    assert state.attributes["source"] is None
 
 
 async def test_thunderstorm_expected_re_evaluates_on_the_hour(

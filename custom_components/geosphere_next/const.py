@@ -46,13 +46,17 @@ AROME_PARAMETERS = (
     "cape",
     "sy",
 )
-# C-LAEF ensemble precipitation percentiles (per-hour amounts, kg m-2; the
-# API exposes only p10/p50/p90 — no member counts or true probabilities).
-# Like the deterministic interval parameters these cover the period *ending*
-# at their stamp ("in the last forecast interval"), so a percentile is keyed
-# to the preceding stamp to describe the hour a forecast row is stamped for.
-# The cadence is read from the series rather than assumed -- see `_process`.
-ENSEMBLE_PARAMETERS = ("tp_p10", "tp_p50", "tp_p90")
+# C-LAEF ensemble percentiles. The API exposes only p10/p50/p90 -- no member
+# counts or true probabilities.
+#   * tp_p10/p50/p90: per-hour precipitation amounts (kg m-2). Like the
+#     deterministic interval parameters these cover the period *ending* at
+#     their stamp ("in the last forecast interval"), so a percentile is keyed
+#     to the preceding stamp to describe the hour a forecast row is stamped
+#     for. The cadence is read from the series rather than assumed -- see
+#     `_process`.
+#   * cape_p90 (J/kg): instantaneous, like the deterministic `cape` -- it has
+#     a value at the run's t0 -- so it is read at its own stamp.
+ENSEMBLE_PARAMETERS = ("tp_p10", "tp_p50", "tp_p90", "cape_p90")
 NOWCAST_PARAMETERS = ("t2m", "td", "rh2m", "rr", "pt", "dd", "ff", "fx")
 INCA_PARAMETERS = ("T2M", "TD2M", "RH2M", "RR", "P0", "GL", "UU", "VV")
 # WRF-Chem surface concentrations (µg/m³) and the daily European AQI (1-6).
@@ -182,6 +186,13 @@ POURING_MM_PER_H = 4.0
 # Rain/snow split when the nowcast `pt` code names no kind (absent, 255
 # beside an observed rate, or outside PRECIPITATION_TYPES).
 SNOW_MAX_T2M_C = 1.0
+# Ensemble thunderstorm signal (see outlook.py): an hour whose C-LAEF 90th
+# percentiles reach this CAPE and PRECIP_MIN_MM of precipitation.
+THUNDER_CAPE_JKG = 1000.0
+# Values of the thunderstorm outlook's `source` attribute: which signal fired.
+THUNDER_SOURCE_SYMBOL = "symbol"
+THUNDER_SOURCE_ENSEMBLE = "ensemble"
+THUNDER_SOURCE_BOTH = "symbol_and_ensemble"
 
 # GeoSphere's `sy` weather-symbol code table, published in German in
 # https://github.com/Geosphere-Austria/dataset-api-docs/issues/30#issuecomment-2042539848

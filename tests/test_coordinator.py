@@ -124,6 +124,31 @@ async def test_forecast_processing(
     ]
 
 
+async def test_ensemble_storm_percentiles_describe_the_row_they_sit_on(
+    hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
+) -> None:
+    """`cape_p90` is read at its own stamp, `tp_p90` one stamp on.
+
+    Requested from the run's t0, `cape_p90` has a value at index 0 and is
+    instantaneous, like `cape`; `tp_p90` is null there and covers the
+    interval ending at its stamp, like `tp`. The 16:00Z row therefore carries
+    the 16:00Z `cape_p90` (11.2) and the 17:00Z `tp_p90` (0.001).
+    """
+    freezer.move_to(FROZEN_NOW)
+    await _setup(hass, mock_config_entry)
+    first = mock_config_entry.runtime_data.forecast.data.hourly[0]
+
+    assert first.ensemble_cape_p90 == pytest.approx(11.2)
+    assert first.ensemble_precipitation_p90 == pytest.approx(0.001)
+    ensemble_urls = [
+        str(call[1])
+        for call in mock_api.mock_calls
+        if "ensemble-v2-1h-1km" in str(call[1])
+    ]
+    assert ensemble_urls
+    assert all("cape_p90" in url for url in ensemble_urls)
+
+
 async def test_forecast_interval_fields_describe_the_hour_they_start(
     hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
 ) -> None:

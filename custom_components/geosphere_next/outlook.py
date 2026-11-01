@@ -2,8 +2,13 @@
 
 Scans the processed AROME hourly series for the facts a storm-warning
 automation needs: peak gusts within a horizon, and when thunder is next
-expected. Deliberately threshold-free — what counts as "too windy" is the
-consumer's policy, not this integration's.
+expected. Gusts are deliberately threshold-free — what counts as "too windy"
+is the consumer's policy, not this integration's.
+
+Thunder has two signals. GeoSphere's weather symbol (codes 26-32) is the
+deterministic run's own verdict. The C-LAEF ensemble adds a second one, so a
+storm that only some members develop still raises the short-range outlook:
+false alarms there cost a closed blind, a miss costs the blind.
 
 Gust values are returned in m/s, matching `HourlyForecast`; entities convert
 to km/h at their own boundary.
@@ -14,6 +19,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from .condition import is_thunder_symbol
+from .const import (
+    PRECIP_MIN_MM,
+    THUNDER_CAPE_JKG,
+    THUNDER_SOURCE_BOTH,
+    THUNDER_SOURCE_ENSEMBLE,
+    THUNDER_SOURCE_SYMBOL,
+)
 from .models import HourlyForecast
 
 
@@ -60,13 +72,35 @@ def _is_lightning(hour: HourlyForecast) -> bool:
     return is_thunder_symbol(hour.weather_symbol)
 
 
+def _is_ensemble_storm(hour: HourlyForecast) -> bool:
+    """True when the ensemble's 90th percentiles allow a thunderstorm.
+
+    Both have to: CAPE reaching THUNDER_CAPE_JKG at the hour's start, and at
+    least PRECIP_MIN_MM falling within it. CAPE alone is a routine dry summer
+    afternoon. The 90th percentile means at least a tenth of the members
+    reach each value, though not necessarily the same members.
+    """
+    cape = hour.ensemble_cape_p90
+    precipitation = hour.ensemble_precipitation_p90
+    return (
+        cape is not None
+        and cape >= THUNDER_CAPE_JKG
+        and precipitation is not None
+        and precipitation >= PRECIP_MIN_MM
+    )
+
+
 def _is_decidable(hour: HourlyForecast) -> bool:
     """True when the hour carries enough data to judge thunder either way.
 
-    An hour without a weather symbol says nothing about thunder — "no storm"
-    would be a guess, not an answer.
+    Either signal suffices: a weather symbol, or both ensemble percentiles.
+    An hour with neither says nothing about thunder — "no storm" would be a
+    guess, not an answer.
     """
-    return hour.weather_symbol is not None
+    return hour.weather_symbol is not None or (
+        hour.ensemble_cape_p90 is not None
+        and hour.ensemble_precipitation_p90 is not None
+    )
 
 
 def max_gust(
@@ -122,16 +156,28 @@ def next_thunderstorm(
 
 def thunderstorm_outlook(
     hourly: list[HourlyForecast], hours: int, now: datetime
-) -> bool | None:
-    """Tri-state thunderstorm outlook for the horizon.
+) -> tuple[bool | None, str | None]:
+    """Tri-state thunderstorm outlook for the horizon, and which signal fired.
 
-    `True` / `False` when the window holds hours that can be judged, and
-    `None` when it holds none at all or none that are decidable — so an entity
-    can report "unknown" instead of a confident "off" on a data gap.
+    On when any hour in the window carries a thunderstorm symbol or the
+    ensemble storm signal; the source is THUNDER_SOURCE_SYMBOL,
+    THUNDER_SOURCE_ENSEMBLE or THUNDER_SOURCE_BOTH, each judged across the
+    whole window rather than per hour.
+
+    `False` when the window holds hours that can be judged and none fires,
+    and `None` when it holds none at all or none that are decidable — so an
+    entity can report "unknown" instead of a confident "off" on a data gap.
+    The source is `None` unless the outlook is on.
     """
     window = _window(hourly, hours, now)
-    if any(_is_lightning(hour) for hour in window):
-        return True
+    symbol = any(_is_lightning(hour) for hour in window)
+    ensemble = any(_is_ensemble_storm(hour) for hour in window)
+    if symbol and ensemble:
+        return True, THUNDER_SOURCE_BOTH
+    if symbol:
+        return True, THUNDER_SOURCE_SYMBOL
+    if ensemble:
+        return True, THUNDER_SOURCE_ENSEMBLE
     if not any(_is_decidable(hour) for hour in window):
-        return None
-    return False
+        return None, None
+    return False, None

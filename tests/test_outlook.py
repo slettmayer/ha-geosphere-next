@@ -23,6 +23,8 @@ def _hour(
     cape: float | None = None,
     precipitation: float | None = None,
     symbol: int | None = None,
+    cape_p90: float | None = None,
+    precipitation_p90: float | None = None,
 ) -> HourlyForecast:
     """One forecast hour at the top of the hour, `offset_hours` from 16:00Z."""
     return HourlyForecast(
@@ -38,6 +40,8 @@ def _hour(
         cloud_coverage=None,
         cape=cape,
         weather_symbol=symbol,
+        ensemble_cape_p90=cape_p90,
+        ensemble_precipitation_p90=precipitation_p90,
     )
 
 
@@ -114,7 +118,7 @@ def test_every_thunder_code_counts_including_thundersnow() -> None:
     """26-32 all count, the sleet and snow thunderstorms (29-32) included."""
     for symbol in range(26, 33):
         hourly = [_hour(0, symbol=symbol)]
-        assert thunderstorm_outlook(hourly, 1, NOW) is True, symbol
+        assert thunderstorm_outlook(hourly, 1, NOW) == (True, "symbol"), symbol
         assert next_thunderstorm(hourly, NOW)[0] is not None, symbol
 
 
@@ -124,25 +128,82 @@ def test_heavy_rain_and_snow_symbols_are_not_storms() -> None:
         _hour(0, symbol=10, cape=2500.0, precipitation=8.0),
         _hour(1, symbol=25, cape=2500.0, precipitation=3.0),
     ]
-    assert thunderstorm_outlook(hourly, 1, NOW) is False
+    assert thunderstorm_outlook(hourly, 1, NOW) == (False, None)
     assert next_thunderstorm(hourly, NOW) == (None, None)
+
+
+def test_the_ensemble_alone_raises_the_outlook() -> None:
+    """Some members develop a storm the deterministic run does not."""
+    hourly = [
+        _hour(0, symbol=5),
+        _hour(1, symbol=8, cape_p90=1200.0, precipitation_p90=0.4),
+    ]
+    assert thunderstorm_outlook(hourly, 1, NOW) == (True, "ensemble")
+    # `next_thunderstorm` is the symbol's verdict only.
+    assert next_thunderstorm(hourly, NOW) == (None, None)
+
+
+def test_the_ensemble_needs_both_cape_and_precipitation() -> None:
+    """CAPE alone is a routine dry summer afternoon, not a storm."""
+    hourly = [
+        _hour(0, symbol=1, cape_p90=3000.0, precipitation_p90=0.0),
+        _hour(1, symbol=3, cape_p90=999.9, precipitation_p90=5.0),
+        _hour(2, symbol=3, cape_p90=3000.0, precipitation_p90=None),
+    ]
+    assert thunderstorm_outlook(hourly, 2, NOW) == (False, None)
+
+
+def test_the_ensemble_thresholds_are_inclusive() -> None:
+    hourly = [_hour(0, symbol=5, cape_p90=1000.0, precipitation_p90=0.1)]
+    assert thunderstorm_outlook(hourly, 1, NOW) == (True, "ensemble")
+
+
+def test_symbol_and_ensemble_together() -> None:
+    """Both signals in the window, in the same or in different hours."""
+    same_hour = [_hour(0, symbol=26, cape_p90=1500.0, precipitation_p90=1.0)]
+    assert thunderstorm_outlook(same_hour, 1, NOW) == (True, "symbol_and_ensemble")
+    different_hours = [
+        _hour(0, symbol=27),
+        _hour(1, symbol=5, cape_p90=1500.0, precipitation_p90=1.0),
+    ]
+    assert thunderstorm_outlook(different_hours, 1, NOW) == (
+        True,
+        "symbol_and_ensemble",
+    )
+
+
+def test_an_ensemble_signal_beyond_the_window_does_not_count() -> None:
+    hourly = [
+        _hour(0, symbol=26),
+        _hour(5, symbol=5, cape_p90=1500.0, precipitation_p90=1.0),
+    ]
+    assert thunderstorm_outlook(hourly, 1, NOW) == (True, "symbol")
+    assert thunderstorm_outlook(hourly, 12, NOW) == (True, "symbol_and_ensemble")
 
 
 def test_thunderstorm_outlook_is_unknown_without_usable_hours() -> None:
     """An empty or undecidable window must not read as a confident "no storm"."""
-    assert thunderstorm_outlook([], 1, NOW) is None
-    # Hours exist but carry no symbol; CAPE alone does not decide.
-    assert thunderstorm_outlook([_hour(0, cape=10.0), _hour(1)], 1, NOW) is None
+    assert thunderstorm_outlook([], 1, NOW) == (None, None)
+    # Hours exist but carry no symbol and no complete ensemble pair; the
+    # deterministic CAPE alone does not decide.
+    hourly = [_hour(0, cape=10.0, cape_p90=5.0), _hour(1, precipitation_p90=0.0)]
+    assert thunderstorm_outlook(hourly, 1, NOW) == (None, None)
     # Only hours outside the window -> nothing to judge.
-    assert thunderstorm_outlook([_hour(6, symbol=1)], 1, NOW) is None
+    assert thunderstorm_outlook([_hour(6, symbol=1)], 1, NOW) == (None, None)
 
 
 def test_thunderstorm_outlook_distinguishes_no_storm_from_no_data() -> None:
     hourly = [_hour(0, symbol=5), _hour(5, symbol=26)]
-    assert thunderstorm_outlook(hourly, 1, NOW) is False
-    assert thunderstorm_outlook(hourly, 12, NOW) is True
-    # One decidable hour is enough to answer for the window.
-    assert thunderstorm_outlook([_hour(0), _hour(1, symbol=3)], 1, NOW) is False
+    assert thunderstorm_outlook(hourly, 1, NOW) == (False, None)
+    assert thunderstorm_outlook(hourly, 12, NOW) == (True, "symbol")
+    # One decidable hour is enough to answer for the window, from either
+    # signal: a symbol, or a complete pair of ensemble percentiles.
+    assert thunderstorm_outlook([_hour(0), _hour(1, symbol=3)], 1, NOW) == (
+        False,
+        None,
+    )
+    ensemble_only = [_hour(0, cape_p90=20.0, precipitation_p90=0.0)]
+    assert thunderstorm_outlook(ensemble_only, 1, NOW) == (False, None)
 
 
 def test_hour_at_selects_the_in_progress_hour() -> None:

@@ -276,7 +276,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         # Ensemble hours align with AROME's whole-hour stamps (both 1 h grids,
         # matched by exact timestamp); missing hours yield no probability.
         #
-        # The percentiles are interval values, like the AROME fields below:
+        # The tp percentiles are interval values, like the AROME fields below:
         # "total amount of ... precipitation in the last forecast interval". The
         # probability stamped `ts` therefore belongs to the period *ending* at
         # `ts`, so it is keyed by that period's start — which is simply the
@@ -289,14 +289,24 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         # nothing logged. The predecessor is right at any cadence. Index 0 is
         # the run start, whose "last period" precedes the run, so it has no
         # row to land on.
+        #
+        # `cape_p90` is instantaneous, like `cape`, so it stays on its stamp.
         pop_by_ts: dict[datetime, int | None] = {}
+        tp_p90_by_ts: dict[datetime, float | None] = {}
+        cape_p90_by_ts: dict[datetime, float | None] = {}
         if ensemble is not None:
             for i in range(1, len(ensemble.timestamps)):
-                pop_by_ts[ensemble.timestamps[i - 1]] = _precipitation_probability(
+                start = ensemble.timestamps[i - 1]
+                pop_by_ts[start] = _precipitation_probability(
                     ensemble.value_at("tp_p10", i),
                     ensemble.value_at("tp_p50", i),
                     ensemble.value_at("tp_p90", i),
                 )
+                tp_p90_by_ts[start] = ensemble.value_at("tp_p90", i)
+            cape_p90_by_ts = {
+                ts: ensemble.value_at("cape_p90", i)
+                for i, ts in enumerate(ensemble.timestamps)
+            }
 
         # Keep the in-progress hour so the forecast starts at the current hour
         # (matching OWM / Open-Meteo), comparing against the top of the hour
@@ -352,6 +362,8 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                     cape=cape,
                     dew_point=dew_point_from_t_rh(temperature, humidity),
                     precipitation_probability=pop_by_ts.get(ts),
+                    ensemble_cape_p90=cape_p90_by_ts.get(ts),
+                    ensemble_precipitation_p90=tp_p90_by_ts.get(ts),
                     weather_symbol=symbol,
                     condition=condition_from_symbol(
                         symbol, is_night(self.latitude, self.longitude, ts)

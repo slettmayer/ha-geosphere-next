@@ -62,6 +62,10 @@ class HourlyForecast:
     # Stepped estimate derived from the C-LAEF ensemble tp percentiles
     # (0/30/70/95); GeoSphere publishes no probability.
     precipitation_probability: int | None = None
+    # C-LAEF 90th percentiles behind the ensemble thunderstorm signal: CAPE
+    # at the row's stamp (J/kg), precipitation over the row's hour (mm).
+    ensemble_cape_p90: float | None = None
+    ensemble_precipitation_p90: float | None = None
 
 
 @dataclass(slots=True)

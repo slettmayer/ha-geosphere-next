@@ -108,6 +108,27 @@ def stormy_arome(
     return payload
 
 
+def stormy_ensemble(
+    *,
+    indexes: tuple[int, ...] = (4,),
+    cape_p90: float = 1500.0,
+    precipitation_p90: float = 0.5,
+) -> dict:
+    """The recorded ensemble fixture with a synthetic convective signal.
+
+    SYNTHETIC, derived from `ensemble.json` — its `cape_p90` peaks at 48 J/kg.
+    `indexes` name the hour each signal starts, as in `stormy_arome`:
+    `cape_p90` is instantaneous and goes to `index`, `tp_p90` covers the
+    interval ending at its stamp and goes to `index + 1`.
+    """
+    payload = load_fixture("ensemble.json")
+    parameters = payload["features"][0]["properties"]["parameters"]
+    for index in indexes:
+        parameters["cape_p90"]["data"][index] = cape_p90
+        parameters["tp_p90"]["data"][index + 1] = precipitation_p90
+    return payload
+
+
 def wet_nowcast(
     *,
     precipitation_type: float = 1.0,

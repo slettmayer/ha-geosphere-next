@@ -15,7 +15,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
@@ -33,21 +33,28 @@ from .outlook import thunderstorm_outlook
 
 @dataclass(frozen=True, kw_only=True)
 class GeoSphereBinarySensorEntityDescription(BinarySensorEntityDescription):
-    """Binary sensor description with a value extractor."""
+    """Forecast-outlook binary sensor description; both extractors take `now`."""
 
     value_fn: Callable[[ForecastData, datetime], bool | None]
+    attributes_fn: Callable[[ForecastData, datetime], dict[str, object]] | None = None
 
 
 # The 1-hour horizon rounds up to whole hourly steps (see `outlook._window`
 # and the README): it covers the in-progress hour plus the next one, so this
-# can turn on for a storm ~2 h out.
+# can turn on for a storm ~2 h out. `source` names the signal that turned it
+# on: the weather symbol, the ensemble, or both.
 BINARY_SENSORS: tuple[GeoSphereBinarySensorEntityDescription, ...] = (
     GeoSphereBinarySensorEntityDescription(
         key="thunderstorm_expected_1h",
         translation_key="thunderstorm_expected_1h",
         value_fn=lambda data, now: thunderstorm_outlook(
             data.hourly, OUTLOOK_SHORT_HORIZON_HOURS, now
-        ),
+        )[0],
+        attributes_fn=lambda data, now: {
+            "source": thunderstorm_outlook(
+                data.hourly, OUTLOOK_SHORT_HORIZON_HOURS, now
+            )[1]
+        },
     ),
 )
 
@@ -93,8 +100,10 @@ class GeoSphereBinarySensor(
 ):
     """A forecast-outlook binary sensor backed by the forecast coordinator.
 
-    The window is re-evaluated on every hour boundary as well as on
-    coordinator updates — see `HourBoundaryRefreshMixin`.
+    State and attributes are computed together, from one sample of the clock,
+    whenever the coordinator updates or an hour boundary passes — see
+    `GeoSphereOutlookSensor._refresh_outlook`, which this mirrors, and
+    `HourBoundaryRefreshMixin`.
     """
 
     entity_description: GeoSphereBinarySensorEntityDescription
@@ -111,17 +120,38 @@ class GeoSphereBinarySensor(
         self.entity_description = description
         self._attr_unique_id = f"{entry.entry_id}-{description.key}"
         self._attr_device_info = device_info(entry)
+        # Populate before the platform performs its first state write.
+        self._refresh_outlook()
 
-    @property
-    def is_on(self) -> bool | None:
-        """Tri-state: None (unknown) when there is no usable forecast window.
+    @callback
+    def _refresh_outlook(self) -> None:
+        """Recompute state and attributes from a single sample of the clock.
 
-        A data gap must not read as a confident "off" — a downstream
+        Tri-state: None (unknown) when there is no usable forecast window. A
+        data gap must not read as a confident "off" — a downstream
         `is_state(..., 'off')` template would treat it as "no storm".
         """
-        if self.coordinator.data is None:
-            return None
-        return self.entity_description.value_fn(self.coordinator.data, dt_util.utcnow())
+        data = self.coordinator.data
+        if data is None:
+            self._attr_is_on = None
+            self._attr_extra_state_attributes = {}
+            return
+        now = dt_util.utcnow()
+        self._attr_is_on = self.entity_description.value_fn(data, now)
+        attributes_fn = self.entity_description.attributes_fn
+        self._attr_extra_state_attributes = (
+            {} if attributes_fn is None else attributes_fn(data, now)
+        )
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self._refresh_outlook()
+        super()._handle_coordinator_update()
+
+    @callback
+    def _handle_hour_boundary(self, now: datetime) -> None:
+        self._refresh_outlook()
+        super()._handle_hour_boundary(now)
 
 
 class GeoSphereCurrentBinarySensor(
