@@ -194,6 +194,18 @@ the `model_run` sensor reports AROME's stamp, not C-LAEF's. Past the bound the
 cache is dropped and the probability disappears, which is visible rather than
 quietly wrong.
 
+The **thunderstorm outlook** gets a much tighter bound, because storm blinds
+act on it: the held run feeds the ensemble storm signal only for
+`ENSEMBLE_STORM_MAX_FALLBACK` (3 h, one cadence) after the last *successful
+fetch*; after that the probability may keep the run but the outlook rests on
+the symbol alone, and the warning says which. The bound is measured from the
+fetch rather than from `reference_time` on purpose. Every successful fetch
+returns the newest run there is, so the held run cannot have been superseded
+until the next one is published — at most one cadence later. A bound on run
+age would instead have to absorb the unpublished publication lag (more than
+5.5 h on 2026-11-01: the 09:00Z run was still the newest at 17:30Z), leaving
+it barely tighter than the probability's 12 h.
+
 An AROME response is committed to the cache only after `_process` accepts it.
 A run that parses but yields no usable hours would otherwise be pinned by the
 gate for a whole cadence, re-raising the same `UpdateFailed` every tick.

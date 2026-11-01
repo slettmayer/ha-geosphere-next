@@ -28,6 +28,7 @@ from .conftest import (
     NOWCAST_URL,
     load_fixture,
     stormy_arome,
+    stormy_ensemble,
     wet_nowcast,
 )
 
@@ -439,6 +440,64 @@ async def test_ensemble_fallback_is_bounded(
     assert coordinator.last_update_success
     assert all(
         hour.precipitation_probability is None for hour in coordinator.data.hourly
+    )
+
+
+async def test_ensemble_storm_signal_has_a_tighter_fallback_than_probability(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failing endpoint keeps the held run's storm signal for one cadence.
+
+    The probability may serve the held run for ENSEMBLE_MAX_FALLBACK_AGE of
+    run age, but the storm signal drives storm blinds: one cadence after the
+    last successful fetch a newer run has been published and missed, so the
+    outlook drops the ensemble and rests on the symbol alone.
+    """
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=stormy_ensemble(indexes=(20,)))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await _setup(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data.forecast
+    storm_hour = datetime(2026, 7, 16, 8, tzinfo=UTC)
+
+    def storm_row():
+        return next(h for h in coordinator.data.hourly if h.datetime == storm_hour)
+
+    assert storm_row().ensemble_cape_p90 == 1500.0
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, status=500)
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+
+    # 2 h after the last success: still inside one cadence.
+    freezer.move_to("2026-07-15T18:00:00+00:00")
+    await coordinator.async_refresh()
+    assert storm_row().ensemble_cape_p90 == 1500.0
+    assert storm_row().ensemble_precipitation_p90 == 0.5
+    assert any(
+        "for the precipitation probability and the thunderstorm outlook"
+        in record.getMessage()
+        for record in caplog.records
+    )
+
+    # 3 h 30 min after it: the storm signal is gone, the probability is not.
+    freezer.move_to("2026-07-15T19:30:00+00:00")
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success
+    assert storm_row().ensemble_cape_p90 is None
+    assert storm_row().ensemble_precipitation_p90 is None
+    assert storm_row().precipitation_probability is not None
+    assert any(
+        "the thunderstorm outlook drops its ensemble signal" in record.getMessage()
+        for record in caplog.records
     )
 
 

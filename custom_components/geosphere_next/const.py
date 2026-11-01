@@ -169,6 +169,19 @@ ENSEMBLE_RUN_INTERVAL = timedelta(hours=3)
 # is the lag plus two cadences, with margin.
 ENSEMBLE_MAX_FALLBACK_AGE = timedelta(hours=12)
 
+# How long after the last successful ensemble fetch a held run may still feed
+# the thunderstorm outlook while the endpoint keeps failing. Far tighter than
+# the probability's bound, because storm blinds act on it. Measured from the
+# fetch rather than from `reference_time`: every successful fetch returns the
+# newest run there is, so the held run cannot have been superseded until the
+# next run is published, and a run is published once per cadence. One cadence
+# after the last success, a newer run has therefore been missed. A bound on
+# `reference_time` would instead have to cover the publication lag, which is
+# unpublished and was measured at more than 5.5 h (2026-11-01: the 09:00Z run
+# was still the newest at 17:30Z), so it could hardly be tighter than the
+# probability's.
+ENSEMBLE_STORM_MAX_FALLBACK = ENSEMBLE_RUN_INTERVAL
+
 # Stepped precipitation probability, an estimate derived here from the
 # ensemble tp percentiles -- GeoSphere publishes no probability. A percentile
 # above PRECIP_MIN_MM bounds the fraction of wet ensemble members (p10 wet ->
