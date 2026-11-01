@@ -3,19 +3,19 @@
     "step": {
       "user": {
         "title": "GeoSphere Austria Next",
-        "description": "Punktvorhersage (AROME) und aktuelle Messwerte (INCA-Nowcast) direkt von der offiziellen GeoSphere-Austria-Dataset-API für einen beliebigen Standort — keine Wetterstation erforderlich.",
+        "description": "Punktvorhersage (C-LAEF, 1 km) und aktuelle Messwerte (INCA-Nowcast) direkt von der offiziellen GeoSphere-Austria-Dataset-API für einen beliebigen Standort — keine Wetterstation erforderlich.",
         "data": {
           "name": "Name",
           "location": "Standort"
         },
         "data_description": {
-          "location": "Beliebiger Punkt innerhalb des AROME-Modellgebiets (Österreich und umliegender Alpenraum). Aktuelle Messwerte sind nur innerhalb Österreichs verfügbar."
+          "location": "Beliebiger Punkt innerhalb des Vorhersagemodell-Gebiets (Österreich und umliegender Alpenraum). Aktuelle Messwerte sind nur innerhalb Österreichs verfügbar."
         }
       }
     },
     "error": {
       "cannot_connect": "Verbindung zur GeoSphere-API fehlgeschlagen",
-      "out_of_domain": "Dieser Standort liegt außerhalb des GeoSphere-AROME-Modellgebiets"
+      "out_of_domain": "Dieser Standort liegt außerhalb des GeoSphere-Vorhersagemodell-Gebiets"
     },
     "abort": {
       "already_configured": "Dieser Standort ist bereits konfiguriert"
@@ -31,8 +31,8 @@
           "air_quality": "Luftqualitäts-Sensoren"
         },
         "data_description": {
-          "current_interval": "Wie oft der Nowcast abgefragt wird. Das AROME-Modell selbst rechnet nur alle 3 Stunden neu.",
-          "forecast_interval": "Wie oft die AROME-Vorhersage abgefragt wird.",
+          "current_interval": "Wie oft der Nowcast abgefragt wird. Das Vorhersagemodell selbst rechnet nur alle 3 Stunden neu.",
+          "forecast_interval": "Wie oft die Vorhersage abgefragt wird.",
           "air_quality": "Ergänzt NO₂, O₃, PM10, PM2.5 und einen täglichen Europäischen Luftqualitätsindex aus der WRF-Chem-Vorhersage von GeoSphere (ca. 2 zusätzliche API-Anfragen pro Stunde)."
         }
       }
@@ -54,7 +54,6 @@
       "global_radiation": { "name": "Globalstrahlung" },
       "snow_limit": { "name": "Schneefallgrenze" },
       "cape": { "name": "CAPE" },
-      "cin": { "name": "Konvektive Hemmung" },
       "precipitation_kind": {
         "name": "Niederschlagsart",
         "state": {

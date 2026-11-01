@@ -66,7 +66,7 @@ def test_current_condition_sensors_keep_their_state_class() -> None:
     from custom_components.geosphere_next.sensor import SENSORS
 
     by_key = {description.key: description for description in SENSORS}
-    for key in ("wind_speed", "wind_gust_speed", "cape", "cin"):
+    for key in ("wind_speed", "wind_gust_speed", "cape"):
         assert by_key[key].state_class == SensorStateClass.MEASUREMENT, key
 
 
@@ -84,7 +84,7 @@ async def test_sensor_values(
         "sensor.geosphere_next_dew_point": ("12.59", "°C"),
         "sensor.geosphere_next_pressure": ("1015.9", "hPa"),
         "sensor.geosphere_next_global_radiation": ("248.94", "W/m²"),
-        "sensor.geosphere_next_condition": ("sunny", None),
+        "sensor.geosphere_next_condition": ("cloudy", None),
         "sensor.geosphere_next_precipitation_last_hour": ("0.0", "mm"),
     }
     for entity_id, (value, unit) in expectations.items():
@@ -115,13 +115,20 @@ async def test_diagnostic_sensors_disabled_by_default(
     from homeassistant.helpers import entity_registry as er
 
     registry = er.async_get(hass)
-    for key in ("cape", "cin", "precipitation_type", "weather_symbol"):
+    for key in ("cape", "precipitation_type", "weather_symbol"):
         entry = registry.async_get_entity_id(
             "sensor", "geosphere_next", f"{mock_config_entry.entry_id}-{key}"
         )
         assert entry is not None
         assert registry.async_get(entry).disabled_by is not None, key
     assert hass.states.get("sensor.geosphere_next_cape") is None
+    # The forecast publishes no convective inhibition, so there is no sensor.
+    assert (
+        registry.async_get_entity_id(
+            "sensor", "geosphere_next", f"{mock_config_entry.entry_id}-cin"
+        )
+        is None
+    )
 
 
 async def test_precipitation_type_reports_geosphere_s_code_table(
@@ -234,16 +241,18 @@ async def test_outlook_sensors(
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
 
-    # 6.203 m/s: the gust of the hour beginning 16:00Z, which AROME stamps at
-    # 17:00Z because ugust/vgust are the maximum over the interval ending at
-    # their stamp.
+    # The 1 h window holds the rows 16:00Z and 17:00Z. Their gusts are read
+    # one stamp on, because `10fg` is the maximum over the interval ending at
+    # its stamp: 1.7 m/s (17:00Z) and 1.9 m/s (18:00Z), so 6.84 km/h.
     gust_1h = hass.states.get("sensor.geosphere_next_wind_gust_max_1h")
-    assert float(gust_1h.state) == pytest.approx(22.33, abs=0.01)
+    assert float(gust_1h.state) == pytest.approx(6.84, abs=0.01)
     assert gust_1h.attributes["unit_of_measurement"] == "km/h"
 
+    # 6.5 m/s, stamped 2026-07-16T05:00Z: the gust of the hour beginning
+    # 04:00Z, the last row inside the 12 h window.
     gust_12h = hass.states.get("sensor.geosphere_next_wind_gust_max_12h")
-    assert float(gust_12h.state) == pytest.approx(22.33, abs=0.01)
-    assert gust_12h.attributes["peak_time"] == "2026-07-15T16:00:00+00:00"
+    assert float(gust_12h.state) == pytest.approx(23.4, abs=0.01)
+    assert gust_12h.attributes["peak_time"] == "2026-07-16T04:00:00+00:00"
 
     # The recorded forecast never reaches the 1000 J/kg thunder threshold.
     assert hass.states.get("sensor.geosphere_next_next_thunderstorm").state == "unknown"
@@ -327,23 +336,21 @@ async def test_outlook_gust_horizons_differ(
 ) -> None:
     """A second clock where the 1 h and 12 h peaks are genuinely different.
 
-    At the 16:00Z clock the fixture's peak gust sits in the in-progress hour,
-    inside both windows — so swapping the two horizons would go unnoticed.
-    At 2026-07-16T04:00Z the 1 h window (04:00-05:00) peaks at 2.886 m/s
-    (10.39 km/h) while the 12 h window peaks at 6.030 m/s (21.71 km/h) in the
-    hour beginning 12:00Z.
+    At 18:00Z the 1 h window (18:00-19:00) peaks at 4.0 m/s (14.4 km/h)
+    while the 12 h window peaks at 6.6 m/s (23.76 km/h) in the hour beginning
+    2026-07-16T05:00Z.
     """
-    freezer.move_to("2026-07-16T04:00:00+00:00")
+    freezer.move_to("2026-07-15T18:00:00+00:00")
     mock_config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
 
     gust_1h = hass.states.get("sensor.geosphere_next_wind_gust_max_1h")
-    assert float(gust_1h.state) == pytest.approx(10.39, abs=0.01)
+    assert float(gust_1h.state) == pytest.approx(14.4, abs=0.01)
 
     gust_12h = hass.states.get("sensor.geosphere_next_wind_gust_max_12h")
-    assert float(gust_12h.state) == pytest.approx(21.71, abs=0.01)
-    assert gust_12h.attributes["peak_time"] == "2026-07-16T12:00:00+00:00"
+    assert float(gust_12h.state) == pytest.approx(23.76, abs=0.01)
+    assert gust_12h.attributes["peak_time"] == "2026-07-16T05:00:00+00:00"
 
 
 async def test_outlook_window_re_evaluates_on_the_hour(
@@ -363,20 +370,20 @@ async def test_outlook_window_re_evaluates_on_the_hour(
     await hass.async_block_till_done()
 
     def arome_calls() -> int:
-        return sum("nwp-v1-1h-2500m" in str(call[1]) for call in mock_api.mock_calls)
+        return sum("nwp-v2-1h-1km" in str(call[1]) for call in mock_api.mock_calls)
 
     baseline = arome_calls()
     gust_1h = hass.states.get("sensor.geosphere_next_wind_gust_max_1h")
-    assert float(gust_1h.state) == pytest.approx(22.33, abs=0.01)
+    assert float(gust_1h.state) == pytest.approx(6.84, abs=0.01)
 
     # The 16:00Z hour has elapsed; the window is now 17:00-18:00, whose peak
-    # is 4.383 m/s — the 16:00Z hour's 6.203 m/s has dropped out.
+    # is the 18:00Z row's 2.5 m/s, which the 16:00Z window did not reach.
     freezer.move_to("2026-07-15T17:00:05+00:00")
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
 
     gust_1h = hass.states.get("sensor.geosphere_next_wind_gust_max_1h")
-    assert float(gust_1h.state) == pytest.approx(15.78, abs=0.01)
+    assert float(gust_1h.state) == pytest.approx(9.0, abs=0.01)
     # ...and no forecast fetch happened in between.
     assert arome_calls() == baseline
 
@@ -384,18 +391,13 @@ async def test_outlook_window_re_evaluates_on_the_hour(
 def _two_storm_arome() -> dict:
     """The AROME fixture with storms at 16:00Z (CAPE 1500) and 19:00Z (2500).
 
-    `stormy_arome` wets index 1 (16:00Z); index 4 (19:00Z) gets 1 mm added to
-    the run-accumulated series from index 5 onward — the delta at index 5 is
-    the rain of the hour *starting* at index 4 — which leaves every later
-    hourly difference untouched.
+    `stormy_arome` wets index 4 (16:00Z); index 7 (19:00Z) gets 1 mm written
+    to `tp` at index 8, which is the rain of the hour *starting* at index 7.
     """
-    payload = stormy_arome(indexes=(1,), cape=1500.0, cin=0.0)
+    payload = stormy_arome(indexes=(4,), cape=1500.0)
     parameters = payload["features"][0]["properties"]["parameters"]
-    parameters["cape"]["data"][4] = 2500.0
-    parameters["cin"]["data"][4] = 0.0
-    accumulated = parameters["rr_acc"]["data"]
-    for index in range(5, len(accumulated)):
-        accumulated[index] += 1.0
+    parameters["cape"]["data"][7] = 2500.0
+    parameters["tp"]["data"][8] = 1.0
     return payload
 
 

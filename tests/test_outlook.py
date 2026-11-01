@@ -21,7 +21,6 @@ def _hour(
     *,
     gust: float | None = None,
     cape: float | None = None,
-    cin: float | None = None,
     precipitation: float | None = None,
     condition: str | None = None,
 ) -> HourlyForecast:
@@ -30,8 +29,6 @@ def _hour(
         datetime=datetime(2026, 7, 15, 16, 0, tzinfo=UTC)
         + timedelta(hours=offset_hours),
         temperature=None,
-        templow=None,
-        temphigh=None,
         humidity=None,
         precipitation=precipitation,
         snow=None,
@@ -40,7 +37,6 @@ def _hour(
         wind_gust_speed=gust,
         cloud_coverage=None,
         cape=cape,
-        cin=cin,
         condition=condition,
     )
 
@@ -120,37 +116,37 @@ def test_next_thunderstorm_includes_the_in_progress_hour() -> None:
 def test_thundersnow_is_detected_despite_the_snowy_condition() -> None:
     """`derive_condition` returns `snowy` before it ever checks thunder.
 
-    A snow hour with ample CAPE, weak inhibition and precipitation is a
+    A snow hour with ample CAPE and precipitation is a
     thundersnow hour — the condition string alone would miss it.
     """
-    hourly = [_hour(0, condition="snowy", cape=1500.0, cin=0.0, precipitation=0.8)]
+    hourly = [_hour(0, condition="snowy", cape=1500.0, precipitation=0.8)]
     assert next_thunderstorm(hourly, NOW)[0] == datetime(2026, 7, 15, 16, 0, tzinfo=UTC)
 
 
 def test_thunder_is_detected_when_cloud_cover_is_missing() -> None:
     """`derive_condition` returns None without `tcc`, hiding a real storm."""
-    hourly = [_hour(0, condition=None, cape=1500.0, cin=0.0, precipitation=0.5)]
+    hourly = [_hour(0, condition=None, cape=1500.0, precipitation=0.5)]
     assert thunderstorm_outlook(hourly, 1, NOW) is True
 
 
 def test_dry_high_cape_without_precipitation_is_not_a_storm() -> None:
     """The false-positive guard: CAPE alone is a routine summer afternoon.
 
-    Vienna reaches CAPE >= 1000 J/kg with weak inhibition on many days that
+    Vienna reaches CAPE >= 1000 J/kg on many days that
     produce no storm; without forecast precipitation the model is not saying
     convection is happening.
     """
     hourly = [
-        _hour(0, condition="partlycloudy", cape=2500.0, cin=0.0, precipitation=0.0),
-        _hour(1, condition="sunny", cape=3000.0, cin=0.0, precipitation=None),
+        _hour(0, condition="partlycloudy", cape=2500.0, precipitation=0.0),
+        _hour(1, condition="sunny", cape=3000.0, precipitation=None),
     ]
     assert thunderstorm_outlook(hourly, 1, NOW) is False
     assert next_thunderstorm(hourly, NOW) == (None, None)
 
 
-def test_capped_cape_with_precipitation_is_not_a_storm() -> None:
-    """A strong lid (cin <= -50) blocks convection even with rain falling."""
-    hourly = [_hour(0, condition="snowy", cape=2500.0, cin=-80.0, precipitation=1.0)]
+def test_cape_below_the_threshold_with_precipitation_is_not_a_storm() -> None:
+    """Rain under CAPE short of THUNDER_CAPE_JKG is ordinary rain."""
+    hourly = [_hour(0, condition="snowy", cape=900.0, precipitation=1.0)]
     assert thunderstorm_outlook(hourly, 1, NOW) is False
 
 

@@ -2,118 +2,100 @@
   "title": "numerical weather prediction",
   "parameters": [
     {
-      "name": "cape",
-      "long_name": "Convective available potential energy",
-      "desc": "Convectively available potential energy",
-      "unit": "m2 s-2"
+      "name": "10fg",
+      "long_name": "maximum 10 metre wind gust in the last forecast interval",
+      "desc": "maximum 10 metre wind gust in the last forecast interval",
+      "unit": "m s-1"
     },
     {
-      "name": "cin",
-      "long_name": "Convective inhibition",
-      "desc": "Convective inhibition",
-      "unit": "J kg-1"
+      "name": "10u",
+      "long_name": "10m wind speed in eastward direction",
+      "desc": "wind speed in eastward direction 10m above ground",
+      "unit": "m s-1"
     },
     {
-      "name": "grad",
-      "long_name": "surface global radiation",
-      "desc": "Surface downwelling shortwave is the sum of direct and diffuse solar radiation incident on the surface, and is sometimes called global radiation",
-      "unit": "Ws m-2"
+      "name": "10v",
+      "long_name": "10m wind speed in northward direction",
+      "desc": "wind speed in northward direction",
+      "unit": "m s-1"
     },
     {
-      "name": "mnt2m",
-      "long_name": "minimum 2m temperature in the last forecast period",
-      "desc": "Minimum 2m temperature in the last forecast intervall",
-      "unit": "degree Celsius"
-    },
-    {
-      "name": "mxt2m",
-      "long_name": "maximum 2m temperature in the last forecast period",
-      "desc": "Maximum 2m temperature in the last forecast intervall",
-      "unit": "degree Celsius"
-    },
-    {
-      "name": "rain_acc",
-      "long_name": "total rainfall amount",
-      "desc": "Accumulated total amount of rainfall since start of the forecast",
-      "unit": "kg m-2"
-    },
-    {
-      "name": "rh2m",
+      "name": "2r",
       "long_name": "relative humidity 2m above ground",
       "desc": "relative humidity 2m above ground",
       "unit": "%"
     },
     {
-      "name": "rr_acc",
-      "long_name": "total precipitation amount",
-      "desc": "Accumulated total amount of liquid and solid precipitation since start of the forecast",
-      "unit": "kg m-2"
-    },
-    {
-      "name": "snow_acc",
-      "long_name": "total snowfall amount",
-      "desc": "Total snowfall amount since start of forecast",
-      "unit": "kg m-2"
-    },
-    {
-      "name": "snowlmt",
-      "long_name": "snowlimit",
-      "desc": "Height above ground where falling snow melts",
-      "unit": "m"
-    },
-    {
-      "name": "sp",
-      "long_name": "surface pressure",
-      "desc": "surface pressure",
-      "unit": "Pa"
-    },
-    {
-      "name": "sundur_acc",
-      "long_name": "sunshine duration accumulated",
-      "desc": "sunshine duration since forecast start",
-      "unit": "s"
-    },
-    {
-      "name": "sy",
-      "long_name": "weather symbol",
-      "desc": "Codes for GeoSphere Austria weather symbol.",
-      "unit": "1"
-    },
-    {
-      "name": "t2m",
+      "name": "2t",
       "long_name": "2m temperature",
       "desc": "air temperature 2m above ground",
       "unit": "degree Celsius"
     },
     {
-      "name": "tcc",
-      "long_name": "Total cloud cover",
-      "desc": "total cloud cover",
+      "name": "cape",
+      "long_name": "convective available potential energy",
+      "desc": "convectively available potential energy",
+      "unit": "m2 s-2"
+    },
+    {
+      "name": "msl",
+      "long_name": "mean sea level pressure",
+      "desc": "air pressure at mean sea level",
+      "unit": "Pa"
+    },
+    {
+      "name": "pt",
+      "long_name": "severe precipitation type in the last forecast interval",
+      "desc": "precipitation type",
       "unit": "1"
     },
     {
-      "name": "u10m",
-      "long_name": "10m wind speed in eastward direction",
-      "desc": "wind speed in eastward direction",
-      "unit": "m s-1"
+      "name": "rain",
+      "long_name": "rainfall amount in the last forecast interval",
+      "desc": "rainfall amount in the last forecast interval",
+      "unit": "kg m-2"
     },
     {
-      "name": "ugust",
-      "long_name": "u component of maximum wind gust",
-      "desc": "U component of maximum wind gust in the last forecast intervall",
-      "unit": "m s-1"
+      "name": "sf",
+      "long_name": "snowfall amount in the last forecast interval",
+      "desc": "snowfall amount in the last forecast interval",
+      "unit": "kg m-2"
     },
     {
-      "name": "v10m",
-      "long_name": "10m wind speed in northward direction",
-      "desc": "wind speed in northward direction 10m above ground",
-      "unit": "m s-1"
+      "name": "snowlmt",
+      "long_name": "snowlimit",
+      "desc": "height above ground where falling snow melts",
+      "unit": "m"
     },
     {
-      "name": "vgust",
-      "long_name": "v compoment of maximum wind gust",
-      "desc": "V component of maximum wind gust in the last forecast intervall",
-      "unit": "m s-1"
+      "name": "ssrd",
+      "long_name": "surface global radiation",
+      "desc": "surface downwelling shortwave is the sum of direct and diffuse solar radiation incident on the surface, and is sometimes called global radiation",
+      "unit": "W m-2"
+    },
+    {
+      "name": "sund",
+      "long_name": "sunshine duration in the last forecast interval",
+      "desc": "length of time for which surface incident radiative flux from solar beam exceeds 120 W m-2 in the last forecast interval",
+      "unit": "s"
+    },
+    {
+      "name": "sy",
+      "long_name": "weather symbol",
+      "desc": "codes for GeoSphere Austria weather symbol",
+      "unit": "1"
+    },
+    {
+      "name": "tcc",
+      "long_name": "total cloud cover",
+      "desc": "total cloud cover",
+      "unit": "%"
+    },
+    {
+      "name": "tp",
+      "long_name": "total precipitation amount in the last forecast interval",
+      "desc": "total amount of liquid and solid precipitation in the last forecast interval",
+      "unit": "kg m-2"
     }
   ],
   "frequency": "1H",
@@ -123,40 +105,40 @@
     "geojson",
     "csv"
   ],
-  "last_forecast_reftime": "2026-07-15T12:00+00:00",
+  "last_forecast_reftime": "2026-11-01T03:00+00:00",
   "max_forecast_offset": 5,
   "available_forecast_reftimes": [
-    "2026-07-15T12:00+00:00",
-    "2026-07-15T09:00+00:00",
-    "2026-07-15T06:00+00:00",
-    "2026-07-15T03:00+00:00",
-    "2026-07-15T00:00+00:00",
-    "2026-07-14T21:00+00:00"
+    "2026-11-01T03:00+00:00",
+    "2026-11-01T00:00+00:00",
+    "2026-10-31T21:00+00:00",
+    "2026-10-31T18:00+00:00",
+    "2026-10-31T15:00+00:00",
+    "2026-10-31T12:00+00:00"
   ],
   "forecast_length": 61,
   "bbox": [
-    42.981,
-    5.498,
-    51.81900000000034,
-    22.10199999999975
+    43.002,
+    5.0317,
+    51.498000000000324,
+    22.56819999999951
   ],
   "bbox_outer": [
-    42.972,
-    5.484,
-    51.82800000000034,
-    22.11599999999975
+    42.9975,
+    5.02495,
+    51.502500000000325,
+    22.57494999999951
   ],
   "spatial_resolution": [
-    0.028,
-    0.018
+    0.0135,
+    0.009
   ],
   "spatial_resolution_unit": "deg",
-  "spatial_resolution_m": 2500,
+  "spatial_resolution_m": 1000,
   "crs": "EPSG:4326",
   "grid_bounds": [
-    42.981,
-    5.498,
-    51.81900000000034,
-    22.10199999999975
+    43.002,
+    5.0317,
+    51.498000000000324,
+    22.56819999999951
   ]
 }

@@ -67,7 +67,7 @@ def _is_lightning(hour: HourlyForecast) -> bool:
 
     a) the derived condition starts with "lightning" — the model's own
        judgement that convection is occurring, and the primary signal; or
-    b) the raw CAPE/CIN thunder predicate holds *and* the hour is forecast to
+    b) the raw CAPE thunder predicate holds *and* the hour is forecast to
        produce precipitation. `derive_condition` returns `snowy` /
        `snowy-rainy` before it ever looks at thunder (thundersnow) and returns
        `None` when cloud cover is missing, so those hours would otherwise read
@@ -80,7 +80,7 @@ def _is_lightning(hour: HourlyForecast) -> bool:
     if hour.condition is not None and hour.condition.startswith(_LIGHTNING_PREFIX):
         return True
     precipitation = hour.precipitation or 0.0
-    return is_thunder(hour.cape, hour.cin) and precipitation >= PRECIP_MIN_MM
+    return is_thunder(hour.cape) and precipitation >= PRECIP_MIN_MM
 
 
 def _is_decidable(hour: HourlyForecast) -> bool:

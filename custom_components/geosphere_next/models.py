@@ -47,8 +47,6 @@ class HourlyForecast:
 
     datetime: datetime
     temperature: float | None
-    templow: float | None
-    temphigh: float | None
     humidity: float | None
     precipitation: float | None
     snow: float | None
@@ -57,10 +55,9 @@ class HourlyForecast:
     wind_gust_speed: float | None
     cloud_coverage: float | None
     cape: float | None
-    cin: float | None
     dew_point: float | None = None
     condition: str | None = None
-    # Stepped estimate from the C-LAEF ensemble rr percentiles (0/30/70/95).
+    # Stepped estimate from the C-LAEF ensemble tp percentiles (0/30/70/95).
     precipitation_probability: int | None = None
 
 
@@ -121,6 +118,5 @@ class CurrentConditions:
     global_radiation: float | None = None
     snow_limit: float | None = None
     cape: float | None = None
-    cin: float | None = None
     weather_symbol: int | None = None
     condition: str | None = None
