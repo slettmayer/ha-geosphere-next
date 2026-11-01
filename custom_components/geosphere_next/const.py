@@ -187,9 +187,8 @@ ENSEMBLE_MAX_FALLBACK_AGE = timedelta(hours=12)
 # next run is published, and a run is published once per cadence. One cadence
 # after the last success, a newer run has therefore been missed. A bound on
 # `reference_time` would instead have to cover the publication lag, which is
-# unpublished and was measured at more than 5.5 h (2026-11-01: the 09:00Z run
-# was still the newest at 17:30Z), so it could hardly be tighter than the
-# probability's.
+# unpublished and longer than the cadence (see DATASETS.md), so it could hardly
+# be tighter than the probability's.
 ENSEMBLE_STORM_MAX_FALLBACK = ENSEMBLE_RUN_INTERVAL
 
 # Stepped precipitation probability, an estimate derived here from the
@@ -221,7 +220,7 @@ THUNDER_SOURCE_BOTH = "symbol_and_ensemble"
 
 # GeoSphere's `sy` weather-symbol code table, published in German in
 # https://github.com/Geosphere-Austria/dataset-api-docs/issues/30#issuecomment-2042539848
-# (confirmed there for nwp-v1; nwp-v2 measured to follow it, see DATASETS.md).
+# (confirmed there for nwp-v1 and assumed for nwp-v2, see DATASETS.md).
 # Codes are grouped by the Home Assistant condition they map to; the HA
 # strings themselves live in condition.py. 1-2 map to `sunny`, or
 # `clear-night` at night.
