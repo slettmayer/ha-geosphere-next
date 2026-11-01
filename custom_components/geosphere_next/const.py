@@ -159,7 +159,9 @@ AROME_RUN_INTERVAL = timedelta(hours=3)
 ENSEMBLE_RUN_INTERVAL = timedelta(hours=3)
 
 # How old the held C-LAEF run may get while its endpoint keeps failing, before
-# the precipitation probability is dropped rather than derived from it. Serving
+# the precipitation probability is dropped rather than derived from it. The
+# thunderstorm outlook reads the ensemble only while its run is this young
+# (`outlook.ensemble_is_current`). Serving
 # a superseded run through a brief outage is worth more than a blank field;
 # serving one indefinitely is not, because nothing on display says which run a
 # probability came from. The bound has to cover one whole missed rerun on top
@@ -168,20 +170,6 @@ ENSEMBLE_RUN_INTERVAL = timedelta(hours=3)
 # bound of a few cadences would drop it on the first failed fetch. Twelve hours
 # is the lag plus two cadences, with margin.
 ENSEMBLE_MAX_FALLBACK_AGE = timedelta(hours=12)
-
-# How long after the last successful ensemble fetch a held run may still feed
-# the thunderstorm outlook while the endpoint keeps failing. Far tighter than
-# the probability's bound, because storm blinds act on it. Measured from the
-# fetch rather than from `reference_time`: every successful fetch returns the
-# newest run there is, so the held run cannot have been superseded until the
-# next run is published, and a run is published once per cadence. One cadence
-# after the last success, a newer run has therefore been missed. A bound on
-# `reference_time` would instead have to cover the publication lag, which is
-# unpublished and longer than the cadence (see DATASETS.md), so it could hardly
-# be tighter than the probability's. The outlook applies it when it is read
-# (`ForecastData.ensemble_storm_valid_until`), so it holds on the clock however
-# long the forecast poll interval is.
-ENSEMBLE_STORM_MAX_FALLBACK = ENSEMBLE_RUN_INTERVAL
 
 # Stepped precipitation probability, an estimate derived here from the
 # ensemble tp percentiles -- GeoSphere publishes no probability. A percentile
@@ -208,7 +196,7 @@ THUNDER_CAPE_JKG = 1000.0
 # Values of the thunderstorm outlook's `source` attribute: which signal fired.
 THUNDER_SOURCE_SYMBOL = "symbol"
 THUNDER_SOURCE_ENSEMBLE = "ensemble"
-THUNDER_SOURCE_BOTH = "symbol_and_ensemble"
+THUNDER_SOURCE_BOTH = "both"
 
 # GeoSphere's `sy` weather-symbol code table, published in German in
 # https://github.com/Geosphere-Austria/dataset-api-docs/issues/30#issuecomment-2042539848

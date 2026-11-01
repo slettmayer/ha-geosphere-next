@@ -347,22 +347,8 @@ def _cape_max_state(
 def _next_thunderstorm_state(
     data: ForecastData, now: datetime
 ) -> tuple[datetime | None, dict[str, object]]:
-    """The storm hour's start, which signal fired, and the CAPE behind each.
-
-    `cape` is the deterministic run's, behind the weather symbol;
-    `ensemble_cape_p90` the ensemble's 90th percentile, behind the ensemble
-    signal. Both are reported whichever signal fired.
-    """
-    hour, source = next_thunderstorm(
-        data.hourly, now, ensemble_until=data.ensemble_storm_valid_until
-    )
-    if hour is None:
-        return None, {"cape": None, "ensemble_cape_p90": None, "source": None}
-    return hour.datetime, {
-        "cape": hour.cape,
-        "ensemble_cape_p90": hour.ensemble_cape_p90,
-        "source": source,
-    }
+    start, source = next_thunderstorm(data.hourly, now, data.ensemble_reference_time)
+    return start, {"source": source}
 
 
 # These are forecast *predictions*, not measurements, so they deliberately
@@ -564,19 +550,16 @@ class GeoSphereOutlookSensor(
 
     @callback
     def _refresh_outlook(self) -> None:
-        """Recompute state and attributes from a single sample of the clock.
-
-        Sampling `dt_util.utcnow()` once per property let a write that straddles
-        an hour boundary publish, say, a `cape` attribute belonging to a
-        different hour than the `next_thunderstorm` timestamp beside it. One
-        sample for both makes that impossible — and scans the series once
-        instead of twice.
+        """Recompute state and attributes from one scan at one sample of the clock.
 
         Within a clock hour the answer is invariant: every scan floors `now` to
         the top of the hour, and the window end (`now + hours`) only crosses a
         top-of-hour stamp when the hour itself changes. So recomputing on
         coordinator updates and at each hour boundary is equivalent to
-        recomputing on every read, without carrying a stale `now`.
+        recomputing on every read, without carrying a stale `now`. The one
+        exception is the thunderstorm outlook's ensemble age bound
+        (`outlook.ensemble_is_current`), which takes effect at the next of
+        those refreshes.
 
         `None` / `{}` when there is no forecast to scan, matching
         `GeoSphereBinarySensor._refresh_outlook`. Unreachable while

@@ -46,10 +46,7 @@ def _thunderstorm_state(
     data: ForecastData, now: datetime
 ) -> tuple[bool | None, dict[str, object]]:
     expected, source = thunderstorm_outlook(
-        data.hourly,
-        OUTLOOK_SHORT_HORIZON_HOURS,
-        now,
-        ensemble_until=data.ensemble_storm_valid_until,
+        data.hourly, OUTLOOK_SHORT_HORIZON_HOURS, now, data.ensemble_reference_time
     )
     return expected, {"source": source}
 
@@ -135,7 +132,7 @@ class GeoSphereBinarySensor(
     def _refresh_outlook(self) -> None:
         """Recompute state and attributes from a single sample of the clock.
 
-        Tri-state: None (unknown) when there is no usable forecast window. A
+        Tri-state: None (unknown) when no forecast hour covers the window. A
         data gap must not read as a confident "off" — a downstream
         `is_state(..., 'off')` template would treat it as "no storm".
         """

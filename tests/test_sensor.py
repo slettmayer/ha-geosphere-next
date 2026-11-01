@@ -31,6 +31,7 @@ from .conftest import (
     NOWCAST_URL,
     load_fixture,
     stormy_arome,
+    stormy_ensemble,
     wet_nowcast,
 )
 
@@ -388,18 +389,6 @@ async def test_outlook_window_re_evaluates_on_the_hour(
     assert arome_calls() == baseline
 
 
-def _two_storm_arome() -> dict:
-    """The AROME fixture with storms at 16:00Z (CAPE 1500) and 19:00Z (2500).
-
-    `stormy_arome` puts a thunderstorm symbol on index 4 (16:00Z) and index
-    7 (19:00Z); only their CAPE differs.
-    """
-    payload = stormy_arome(indexes=(4, 7), cape=1500.0)
-    parameters = payload["features"][0]["properties"]["parameters"]
-    parameters["cape"]["data"][7] = 2500.0
-    return payload
-
-
 class _TickingClock:
     """A `dt_util` stand-in whose `utcnow()` jumps an hour on every call."""
 
@@ -413,8 +402,10 @@ class _TickingClock:
 
 
 async def _setup_two_storms(hass, mock_config_entry, aioclient_mock) -> None:
-    aioclient_mock.get(AROME_URL, json=_two_storm_arome())
-    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    # Thunderstorm symbols at 16:00Z and 19:00Z; only the second also carries
+    # the ensemble signal, so the two storms differ in `source`.
+    aioclient_mock.get(AROME_URL, json=stormy_arome(indexes=(4, 7)))
+    aioclient_mock.get(ENSEMBLE_URL, json=stormy_ensemble(indexes=(7,)))
     aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
     aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
     mock_config_entry.add_to_hass(hass)
@@ -436,7 +427,7 @@ async def test_outlook_state_and_attributes_come_from_one_clock_sample(
     """One state write must not describe two different hours.
 
     Sampling the clock separately for the state and for the attributes lets a
-    write that straddles an hour boundary publish a `cape` belonging to a
+    write that straddles an hour boundary publish a `source` belonging to a
     different storm than the published timestamp. The ticking clock makes that
     race deterministic: with two samples the state reports the 16:00Z storm
     while the attribute reports the 19:00Z one.
@@ -447,7 +438,7 @@ async def test_outlook_state_and_attributes_come_from_one_clock_sample(
     entity_id = "sensor.geosphere_next_next_thunderstorm"
     state = hass.states.get(entity_id)
     assert state.state == "2026-07-15T16:00:00+00:00"
-    assert state.attributes["cape"] == 1500.0
+    assert state.attributes["source"] == "symbol"
 
     monkeypatch.setattr(
         sensor,
@@ -460,7 +451,7 @@ async def test_outlook_state_and_attributes_come_from_one_clock_sample(
 
     state = hass.states.get(entity_id)
     assert state.state == "2026-07-15T16:00:00+00:00"
-    assert state.attributes["cape"] == 1500.0
+    assert state.attributes["source"] == "symbol"
 
 
 async def test_outlook_attributes_follow_the_state_across_the_hour(
@@ -476,7 +467,7 @@ async def test_outlook_attributes_follow_the_state_across_the_hour(
     entity_id = "sensor.geosphere_next_next_thunderstorm"
     state = hass.states.get(entity_id)
     assert state.state == "2026-07-15T16:00:00+00:00"
-    assert state.attributes["cape"] == 1500.0
+    assert state.attributes["source"] == "symbol"
 
     # The 16:00Z storm hour has elapsed; the next one is 19:00Z.
     freezer.move_to("2026-07-15T17:00:05+00:00")
@@ -485,7 +476,7 @@ async def test_outlook_attributes_follow_the_state_across_the_hour(
 
     state = hass.states.get(entity_id)
     assert state.state == "2026-07-15T19:00:00+00:00"
-    assert state.attributes["cape"] == 2500.0
+    assert state.attributes["source"] == "both"
 
 
 async def test_observation_time_sensor_exposes_the_analysis_age(
@@ -622,9 +613,9 @@ async def test_outlook_sensors_scan_the_series_once_per_refresh(
         calls.append(f"max_gust {hours}")
         return real_gust(hourly, hours, now)
 
-    def counting_storm(hourly, now, **kwargs):
+    def counting_storm(hourly, now, ensemble_reference_time):
         calls.append("next_thunderstorm")
-        return real_storm(hourly, now, **kwargs)
+        return real_storm(hourly, now, ensemble_reference_time)
 
     monkeypatch.setattr(sensor, "max_gust", counting_gust)
     monkeypatch.setattr(sensor, "next_thunderstorm", counting_storm)

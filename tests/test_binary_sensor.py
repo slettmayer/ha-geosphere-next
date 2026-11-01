@@ -39,6 +39,8 @@ from .conftest import (
 FROZEN_NOW = "2026-07-15T16:00:00+00:00"
 ENTITY_ID = "binary_sensor.geosphere_next_thunderstorm_expected_next_hour"
 PRECIPITATING_ENTITY_ID = "binary_sensor.geosphere_next_precipitating"
+NEXT_STORM_ENTITY_ID = "sensor.geosphere_next_next_thunderstorm"
+STANDARD_ATTRIBUTES = {"attribution", "device_class", "friendly_name", "icon"}
 
 
 def _mock_api_with(
@@ -85,12 +87,12 @@ async def test_thunderstorm_expected_is_on_for_a_stormy_forecast(
     state = hass.states.get(ENTITY_ID)
     assert state.state == "on"
     assert state.attributes["source"] == "symbol"
-    # The storm hour's two CAPE values: the deterministic one behind the
-    # symbol (patched to 1500) and the ensemble's recorded 11.2.
-    next_storm = hass.states.get("sensor.geosphere_next_next_thunderstorm")
+    next_storm = hass.states.get(NEXT_STORM_ENTITY_ID)
+    assert next_storm.state == "2026-07-15T16:00:00+00:00"
     assert next_storm.attributes["source"] == "symbol"
-    assert next_storm.attributes["cape"] == 1500.0
-    assert next_storm.attributes["ensemble_cape_p90"] == 11.2
+    # `source` is the only attribute either entity adds.
+    for entity in (state, next_storm):
+        assert set(entity.attributes) - STANDARD_ATTRIBUTES == {"source"}
 
 
 async def test_thunderstorm_expected_is_on_from_the_ensemble_alone(
@@ -117,12 +119,9 @@ async def test_thunderstorm_expected_is_on_from_the_ensemble_alone(
     state = hass.states.get(ENTITY_ID)
     assert state.state == "on"
     assert state.attributes["source"] == "ensemble"
-    next_storm = hass.states.get("sensor.geosphere_next_next_thunderstorm")
+    next_storm = hass.states.get(NEXT_STORM_ENTITY_ID)
     assert next_storm.state == "2026-07-15T17:00:00+00:00"
     assert next_storm.attributes["source"] == "ensemble"
-    # The ensemble CAPE that fired, beside the recorded deterministic 1.5.
-    assert next_storm.attributes["ensemble_cape_p90"] == 1500.0
-    assert next_storm.attributes["cape"] == 1.5
 
 
 async def test_thunderstorm_expected_names_both_signals(
@@ -141,7 +140,7 @@ async def test_thunderstorm_expected_names_both_signals(
 
     state = hass.states.get(ENTITY_ID)
     assert state.state == "on"
-    assert state.attributes["source"] == "symbol_and_ensemble"
+    assert state.attributes["source"] == "both"
 
 
 async def test_thunderstorm_expected_is_unknown_without_data_to_judge(
@@ -150,12 +149,46 @@ async def test_thunderstorm_expected_is_unknown_without_data_to_judge(
     aioclient_mock: AiohttpClientMocker,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """No symbol in the window and no ensemble: unknown, not a confident off."""
+    """Unknown once no forecast hour covers the window, not a confident off.
+
+    The run is cut after 17:00Z, so its only row is 16:00Z. At 17:00Z, with no
+    forecast refresh due, the window holds no row at all.
+    """
+    arome = load_fixture("arome.json")
+    arome["timestamps"] = arome["timestamps"][:6]
+    for parameter in arome["features"][0]["properties"]["parameters"].values():
+        parameter["data"] = parameter["data"][:6]
+    freezer.move_to(FROZEN_NOW)
+    _mock_api_with(aioclient_mock, arome)
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={CONF_FORECAST_INTERVAL: 180}
+    )
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY_ID).state == "off"
+
+    freezer.move_to("2026-07-15T17:00:05+00:00")
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == "unknown"
+    assert state.attributes["source"] is None
+
+
+async def test_a_symbol_without_its_table_entry_reads_off(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Rows without a known symbol and without an ensemble are no storm."""
     arome = load_fixture("arome.json")
     sy = arome["features"][0]["properties"]["parameters"]["sy"]["data"]
     # The 16:00Z and 17:00Z rows read the 17:00Z and 18:00Z codes.
     sy[5] = None
-    sy[6] = None
+    sy[6] = 99.0
     freezer.move_to(FROZEN_NOW)
     aioclient_mock.get(AROME_URL, json=arome)
     aioclient_mock.get(ENSEMBLE_URL, status=400)
@@ -166,7 +199,7 @@ async def test_thunderstorm_expected_is_unknown_without_data_to_judge(
     await hass.async_block_till_done()
 
     state = hass.states.get(ENTITY_ID)
-    assert state.state == "unknown"
+    assert state.state == "off"
     assert state.attributes["source"] is None
 
 
@@ -215,9 +248,9 @@ async def test_thunderstorm_expected_scans_the_series_once_per_refresh(
     calls: list[datetime] = []
     real = binary_sensor.thunderstorm_outlook
 
-    def counting(hourly, hours, now, **kwargs):
+    def counting(hourly, hours, now, ensemble_reference_time):
         calls.append(now)
-        return real(hourly, hours, now, **kwargs)
+        return real(hourly, hours, now, ensemble_reference_time)
 
     monkeypatch.setattr(binary_sensor, "thunderstorm_outlook", counting)
     freezer.move_to(FROZEN_NOW)
@@ -242,66 +275,29 @@ async def test_thunderstorm_expected_scans_the_series_once_per_refresh(
     assert state.attributes["source"] is None
 
 
-async def test_ensemble_storm_signal_expires_on_the_clock_not_at_the_next_poll(
+async def test_an_ensemble_run_13_hours_old_is_ignored(
     hass: HomeAssistant,
     mock_config_entry,
     aioclient_mock: AiohttpClientMocker,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """The one-cadence bound holds at 3 h of wall-clock time.
+    """Even freshly fetched, a run past ENSEMBLE_MAX_FALLBACK_AGE is ignored.
 
-    With a 150 min poll the ensemble is fetched at 16:00Z and the next poll,
-    at 18:30Z, fails and keeps the held run. The hour-boundary re-evaluation
-    at 19:00Z -- 3 h after the fetch, before the 21:00Z poll -- must already
-    drop its storm signal.
+    Both fixtures are stamped 12:00Z; at 01:00Z the next day the ensemble's
+    storm signal for that hour must not count.
     """
-    freezer.move_to(FROZEN_NOW)
+    freezer.move_to("2026-07-16T01:00:00+00:00")
     _mock_api_with(
-        aioclient_mock,
-        load_fixture("arome.json"),
-        stormy_ensemble(indexes=tuple(range(4, 12))),
+        aioclient_mock, load_fixture("arome.json"), stormy_ensemble(indexes=(13,))
     )
     mock_config_entry.add_to_hass(hass)
-    hass.config_entries.async_update_entry(
-        mock_config_entry, options={CONF_FORECAST_INTERVAL: 150}
-    )
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
-    assert hass.states.get(ENTITY_ID).attributes["source"] == "ensemble"
 
-    aioclient_mock.clear_requests()
-    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
-    aioclient_mock.get(ENSEMBLE_URL, status=500)
-    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
-    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
-
-    freezer.move_to("2026-07-15T18:30:01+00:00")
-    async_fire_time_changed(hass)
-    # The interval refresh runs as a background task.
-    await hass.async_block_till_done(wait_background_tasks=True)
-    ensemble_calls = sum(
-        "ensemble-v2-1h-1km" in str(call[1]) for call in aioclient_mock.mock_calls
-    )
-    assert ensemble_calls > 0
-    state = hass.states.get(ENTITY_ID)
-    assert state.state == "on"
-    assert state.attributes["source"] == "ensemble"
-
-    forecast_calls = len(aioclient_mock.mock_calls)
-    freezer.move_to("2026-07-15T19:00:05+00:00")
-    async_fire_time_changed(hass)
-    await hass.async_block_till_done(wait_background_tasks=True)
-    # No forecast fetch between the 18:30Z poll and this boundary.
-    assert not [
-        call
-        for call in aioclient_mock.mock_calls[forecast_calls:]
-        if "nwp-v2-1h-1km" in str(call[1]) or "ensemble-v2-1h-1km" in str(call[1])
-    ]
     state = hass.states.get(ENTITY_ID)
     assert state.state == "off"
     assert state.attributes["source"] is None
-    next_storm = hass.states.get("sensor.geosphere_next_next_thunderstorm")
-    assert next_storm.state == "unknown"
+    assert hass.states.get(NEXT_STORM_ENTITY_ID).state == "unknown"
 
 
 async def test_precipitating_is_off_for_a_dry_analysis(

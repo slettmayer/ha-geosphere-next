@@ -51,7 +51,6 @@ from .const import (
     ENSEMBLE_MAX_FALLBACK_AGE,
     ENSEMBLE_PARAMETERS,
     ENSEMBLE_RUN_INTERVAL,
-    ENSEMBLE_STORM_MAX_FALLBACK,
     FORECAST_ROW_MIDPOINT,
     HOURLY_LOOKBACK_HOURS,
     INCA_LOOKBACK_HOURS,
@@ -168,9 +167,6 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         self.longitude: float = config_entry.data[CONF_LONGITUDE]
         self._arome: GeoSphereResponse | None = None
         self._ensemble: GeoSphereResponse | None = None
-        # When the held ensemble run was last fetched successfully; bounds how
-        # long it may feed the thunderstorm outlook through a failing endpoint.
-        self._ensemble_fetched_at: datetime | None = None
         # `sy` codes outside GeoSphere's table already reported, so a new one
         # warns once rather than on every update for as long as it is served.
         self._unknown_sy_codes: set[int] = set()
@@ -182,9 +178,8 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         # publishes a forecast that starts at the hour under way on every tick
         # of the configured interval, fetch or no fetch.
         arome = await self._async_get_arome()
-        ensemble, fetched = await self._async_get_ensemble()
-        fetched_at = dt_util.utcnow() if fetched else self._ensemble_fetched_at
-        data = self._process(arome, ensemble, ensemble_fetched_at=fetched_at)
+        ensemble = await self._async_get_ensemble()
+        data = self._process(arome, ensemble)
 
         # Cache only what produced a usable forecast. A run that parses but
         # cannot be processed — a truncated series, or one whose every stamp
@@ -194,7 +189,6 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         # pre-gating recovery: the next tick fetches again.
         self._arome = arome
         self._ensemble = ensemble
-        self._ensemble_fetched_at = fetched_at
         return data
 
     def _series_start(self) -> datetime:
@@ -236,13 +230,8 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         except GeoSphereApiError as err:
             raise UpdateFailed(f"AROME update failed: {err}") from err
 
-    async def _async_get_ensemble(
-        self,
-    ) -> tuple[GeoSphereResponse | None, bool]:
+    async def _async_get_ensemble(self) -> GeoSphereResponse | None:
         """Return the C-LAEF run, re-fetching only once it can have been rerun.
-
-        Returns `(run, fetched)`: the run to use, and whether it was just
-        fetched.
 
         The percentiles add the precipitation probability and the outlook's
         ensemble storm signal, so a failure must not take the forecast down. A
@@ -251,24 +240,20 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         superseded run still has a value for every hour it covers, and the
         hours it has run past report nothing.
 
-        That fallback is bounded twice. A superseded run is not the same answer
-        as the current one, it is an older and worse forecast for the same
-        hour, and nothing on display distinguishes the two. The probability
-        keeps the held run up to `ENSEMBLE_MAX_FALLBACK_AGE` of run age; past
-        it the probability disappears — visible, rather than quietly wrong.
-        The outlook, which storm blinds act on, keeps it only for
-        `ENSEMBLE_STORM_MAX_FALLBACK` after the last successful fetch, after
-        which a newer run has been missed; it then rests on the weather symbol
-        alone. That bound is carried on `ForecastData` and applied by the
-        outlook when it is read, so it holds on the clock rather than at the
-        next poll; the warning here only reports where it stands.
+        That fallback is bounded. A superseded run is not the same answer as
+        the current one, it is an older and worse forecast for the same hour,
+        and nothing on display distinguishes the two. Past
+        `ENSEMBLE_MAX_FALLBACK_AGE` an endpoint that never recovers would
+        otherwise keep a days-old run in service until its horizon ran out, so
+        the cache is dropped and the probability disappears instead — visible,
+        rather than quietly wrong.
         """
         cached = self._ensemble
         if cached is not None and _run_is_current(cached, ENSEMBLE_RUN_INTERVAL):
-            return cached, False
+            return cached
 
         try:
-            response = await self._client.get_timeseries(
+            return await self._client.get_timeseries(
                 *DATASET_ENSEMBLE,
                 parameters=ENSEMBLE_PARAMETERS,
                 latitude=self.latitude,
@@ -276,45 +261,16 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                 start=self._series_start(),
             )
         except GeoSphereApiError as err:
-            error = err
-        else:
-            return response, True
+            _LOGGER.warning(
+                "Ensemble update failed, omitting precipitation probability: %s", err
+            )
 
-        if cached is None or not _run_is_current(cached, ENSEMBLE_MAX_FALLBACK_AGE):
-            _LOGGER.warning(
-                "Ensemble update failed, omitting the precipitation probability "
-                "and the thunderstorm outlook's ensemble signal: %s",
-                error,
-            )
-            return None, False
-        fetched_at = self._ensemble_fetched_at
-        storm = (
-            fetched_at is not None
-            and dt_util.utcnow() - fetched_at < ENSEMBLE_STORM_MAX_FALLBACK
-        )
-        if storm:
-            _LOGGER.warning(
-                "Ensemble update failed, keeping the %s run for the precipitation "
-                "probability and the thunderstorm outlook: %s",
-                cached.reference_time,
-                error,
-            )
-        else:
-            _LOGGER.warning(
-                "Ensemble update failed, keeping the %s run for the precipitation "
-                "probability only; the thunderstorm outlook drops its ensemble "
-                "signal: %s",
-                cached.reference_time,
-                error,
-            )
-        return cached, False
+        if cached is not None and _run_is_current(cached, ENSEMBLE_MAX_FALLBACK_AGE):
+            return cached
+        return None
 
     def _process(
-        self,
-        response: GeoSphereResponse,
-        ensemble: GeoSphereResponse | None = None,
-        *,
-        ensemble_fetched_at: datetime | None = None,
+        self, response: GeoSphereResponse, ensemble: GeoSphereResponse | None = None
     ) -> ForecastData:
         now = dt_util.utcnow()
         hourly: list[HourlyForecast] = []
@@ -357,13 +313,6 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                 ts: ensemble.value_at("cape_p90", i)
                 for i, ts in enumerate(ensemble.timestamps)
             }
-        # How long the outlook may read the storm percentiles: one cadence
-        # after the run was fetched. Enforced at read time by the outlook.
-        ensemble_storm_valid_until = (
-            ensemble_fetched_at + ENSEMBLE_STORM_MAX_FALLBACK
-            if ensemble is not None and ensemble_fetched_at is not None
-            else None
-        )
 
         # Keep the in-progress hour so the forecast starts at the current hour
         # (matching OWM / Open-Meteo), comparing against the top of the hour
@@ -452,7 +401,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
             hourly=hourly,
             current=hourly[0],
             snow_limit=snow_limit,
-            ensemble_storm_valid_until=ensemble_storm_valid_until,
+            ensemble_reference_time=ensemble.reference_time if ensemble else None,
         )
 
 
