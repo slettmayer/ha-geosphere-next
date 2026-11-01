@@ -7,7 +7,7 @@ condition, and the shared meteorological helper math.
 
 ## Responsibilities
 - Document the `sy` code table and its mapping to HA condition strings.
-- Explain `condition_from_symbol` (forecast hours) and `derive_current_condition` (now).
+- Explain `derive_condition_from_symbol` (forecast hours) and `derive_current_condition` (now).
 - Cover the helper functions: wind vectors, apparent temperature, dew point, night.
 
 ## Non-Responsibilities
@@ -56,7 +56,7 @@ guess. The table has no night variants, so `is_night` decides between `sunny`
 and `clear-night`. HA's `windy`, `windy-variant`, `lightning` (dry thunder),
 `hail` and `exceptional` have no code and never occur.
 
-### `condition_from_symbol` (per forecast hour)
+### `derive_condition_from_symbol` (per forecast hour)
 
 Inputs: the hour's `sy` code and `night`. Returns the table's condition. Every
 thunderstorm code, the sleet and snow ones (29–32) included, maps to

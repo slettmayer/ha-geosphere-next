@@ -8,7 +8,7 @@ import pytest
 
 from custom_components.geosphere_next.condition import (
     apparent_temperature,
-    condition_from_symbol,
+    derive_condition_from_symbol,
     derive_current_condition,
     derive_precipitation_type,
     dew_point_from_t_rh,
@@ -56,24 +56,24 @@ SYMBOL_TABLE = {
 
 
 @pytest.mark.parametrize(("symbol", "expected"), sorted(SYMBOL_TABLE.items()))
-def test_condition_from_symbol_by_day(symbol: int, expected: str) -> None:
-    assert condition_from_symbol(symbol, night=False) == expected
+def test_derive_condition_from_symbol_by_day(symbol: int, expected: str) -> None:
+    assert derive_condition_from_symbol(symbol, night=False) == expected
 
 
 @pytest.mark.parametrize(("symbol", "expected"), sorted(SYMBOL_TABLE.items()))
-def test_condition_from_symbol_by_night(symbol: int, expected: str) -> None:
+def test_derive_condition_from_symbol_by_night(symbol: int, expected: str) -> None:
     """Only the clear codes have a night variant; every other code keeps its."""
     night_expected = "clear-night" if expected == "sunny" else expected
-    assert condition_from_symbol(symbol, night=True) == night_expected
+    assert derive_condition_from_symbol(symbol, night=True) == night_expected
 
 
 @pytest.mark.parametrize("symbol", [None, 0, 33, 99, 255, -1])
-def test_condition_from_symbol_is_unknown_outside_the_table(
+def test_derive_condition_from_symbol_is_unknown_outside_the_table(
     symbol: int | None,
 ) -> None:
     """A missing or unpublished code is unknown, never a guess."""
-    assert condition_from_symbol(symbol, night=False) is None
-    assert condition_from_symbol(symbol, night=True) is None
+    assert derive_condition_from_symbol(symbol, night=False) is None
+    assert derive_condition_from_symbol(symbol, night=True) is None
 
 
 @pytest.mark.parametrize(

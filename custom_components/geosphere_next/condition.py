@@ -89,7 +89,7 @@ def dew_point_from_t_rh(
     return round(b * gamma / (a - gamma), 1)
 
 
-def condition_from_symbol(symbol: int | None, night: bool) -> str | None:
+def derive_condition_from_symbol(symbol: int | None, night: bool) -> str | None:
     """The HA condition for a GeoSphere `sy` code (per forecast hour).
 
     A missing code, or one outside GeoSphere's table, is `None` -- unknown,
@@ -199,7 +199,7 @@ def derive_current_condition(
     """
     observed = is_precipitating(precipitation_type, precipitation_rate_mm_h)
     if observed is None:
-        return condition_from_symbol(symbol, night)
+        return derive_condition_from_symbol(symbol, night)
     rate = precipitation_rate_mm_h or 0.0
     if observed:
         # `None` when the code names no kind; never "no_precipitation" here,
@@ -228,4 +228,4 @@ def derive_current_condition(
 
     if symbol is not None and symbol in SY_PRECIPITATION:
         return "cloudy"
-    return condition_from_symbol(symbol, night)
+    return derive_condition_from_symbol(symbol, night)

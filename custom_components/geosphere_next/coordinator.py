@@ -22,7 +22,7 @@ from .api import (
 )
 from .condition import (
     apparent_temperature,
-    condition_from_symbol,
+    derive_condition_from_symbol,
     derive_current_condition,
     derive_precipitation_type,
     dew_point_from_t_rh,
@@ -365,7 +365,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                     ensemble_cape_p90=cape_p90_by_ts.get(ts),
                     ensemble_precipitation_p90=tp_p90_by_ts.get(ts),
                     weather_symbol=symbol,
-                    condition=condition_from_symbol(
+                    condition=derive_condition_from_symbol(
                         symbol, is_night(self.latitude, self.longitude, ts)
                     ),
                 )
