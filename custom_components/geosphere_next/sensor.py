@@ -547,7 +547,7 @@ class GeoSphereOutlookSensor(
         recomputing on every read, without carrying a stale `now`.
 
         `None` / `{}` when there is no forecast to scan, matching
-        `GeoSphereBinarySensor.is_on`. Unreachable while
+        `GeoSphereBinarySensor._refresh_outlook`. Unreachable while
         `async_config_entry_first_refresh` guarantees data.
         """
         data = self.coordinator.data
