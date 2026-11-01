@@ -90,6 +90,17 @@ def _is_ensemble_storm(hour: HourlyForecast) -> bool:
     )
 
 
+def _source(symbol: bool, ensemble: bool) -> str | None:
+    """The `source` value naming which signals fired, `None` for neither."""
+    if symbol and ensemble:
+        return THUNDER_SOURCE_BOTH
+    if symbol:
+        return THUNDER_SOURCE_SYMBOL
+    if ensemble:
+        return THUNDER_SOURCE_ENSEMBLE
+    return None
+
+
 def _is_decidable(hour: HourlyForecast) -> bool:
     """True when the hour carries enough data to judge thunder either way.
 
@@ -132,8 +143,13 @@ def max_cape(hourly: list[HourlyForecast], hours: int, now: datetime) -> float |
 
 def next_thunderstorm(
     hourly: list[HourlyForecast], now: datetime
-) -> tuple[datetime | None, float | None]:
-    """First hour whose weather symbol is a thunderstorm, and that hour's CAPE.
+) -> tuple[datetime | None, float | None, str | None]:
+    """First thunderstorm hour, its CAPE, and which signal fired in it.
+
+    A thunderstorm hour is one with a thunderstorm symbol or the ensemble
+    storm signal — the same per-hour test `thunderstorm_outlook` applies, so
+    whenever that outlook is on, this names an hour inside its window. The
+    source is judged for that hour alone.
 
     Scans the full horizon rather than a window — "no storm for two days" and
     "storm in 40 hours" are both useful answers.
@@ -149,9 +165,10 @@ def next_thunderstorm(
     for hour in hourly:
         if hour.datetime < start:
             continue
-        if _is_lightning(hour):
-            return hour.datetime, hour.cape
-    return None, None
+        source = _source(_is_lightning(hour), _is_ensemble_storm(hour))
+        if source is not None:
+            return hour.datetime, hour.cape, source
+    return None, None, None
 
 
 def thunderstorm_outlook(
@@ -170,14 +187,12 @@ def thunderstorm_outlook(
     The source is `None` unless the outlook is on.
     """
     window = _window(hourly, hours, now)
-    symbol = any(_is_lightning(hour) for hour in window)
-    ensemble = any(_is_ensemble_storm(hour) for hour in window)
-    if symbol and ensemble:
-        return True, THUNDER_SOURCE_BOTH
-    if symbol:
-        return True, THUNDER_SOURCE_SYMBOL
-    if ensemble:
-        return True, THUNDER_SOURCE_ENSEMBLE
+    source = _source(
+        any(_is_lightning(hour) for hour in window),
+        any(_is_ensemble_storm(hour) for hour in window),
+    )
+    if source is not None:
+        return True, source
     if not any(_is_decidable(hour) for hour in window):
         return None, None
     return False, None

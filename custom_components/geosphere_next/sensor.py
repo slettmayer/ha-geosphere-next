@@ -317,6 +317,15 @@ AIR_QUALITY_SENSORS: tuple[GeoSphereAirQualitySensorEntityDescription, ...] = (
 # Consumed by __init__ to clean the entity registry when the option is off.
 AIR_QUALITY_SENSOR_KEYS = tuple(description.key for description in AIR_QUALITY_SENSORS)
 
+
+def _next_thunderstorm_attributes(
+    data: ForecastData, now: datetime
+) -> dict[str, object]:
+    """The storm hour's CAPE and which signal fired in it."""
+    _, cape, source = next_thunderstorm(data.hourly, now)
+    return {"cape": cape, "source": source}
+
+
 # These are forecast *predictions*, not measurements, so they deliberately
 # carry no `state_class`: long-term statistics over a prediction would mix
 # future values into the recorder's history of what actually happened.
@@ -368,9 +377,7 @@ OUTLOOK_SENSORS: tuple[GeoSphereOutlookSensorEntityDescription, ...] = (
         translation_key="next_thunderstorm",
         device_class=SensorDeviceClass.TIMESTAMP,
         value_fn=lambda data, now: next_thunderstorm(data.hourly, now)[0],
-        attributes_fn=lambda data, now: {
-            "cape": next_thunderstorm(data.hourly, now)[1]
-        },
+        attributes_fn=_next_thunderstorm_attributes,
     ),
 )
 

@@ -164,8 +164,9 @@ The entities:
   blinds, where a false alarm costs a closed blind and a miss costs the blind,
   so either signal suffices.
 - `next_thunderstorm`: the start of the first row from the in-progress hour on
-  whose symbol is 26–32 (the symbol's verdict only), with that row's `cape` as
-  an attribute.
+  that fires either signal — the same per-row test, so whenever the binary
+  sensor is on, this names a row inside its window. Attributes: that row's
+  `cape` and its own `source` (judged for that row alone).
 - `cape_max_12h`: peak deterministic CAPE over 12 h, a plain diagnostic that
   no longer decides anything.
 

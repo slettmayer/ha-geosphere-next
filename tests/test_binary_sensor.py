@@ -97,7 +97,8 @@ async def test_thunderstorm_expected_is_on_from_the_ensemble_alone(
 
     `stormy_ensemble` sets cape_p90 at 17:00Z and tp_p90 for the hour it
     starts -- inside the 16:00Z window -- while the deterministic run stays
-    calm, so the symbol-based `next_thunderstorm` stays unknown.
+    calm. `next_thunderstorm` applies the same signals, so it names that hour
+    and the same source.
     """
     freezer.move_to(FROZEN_NOW)
     _mock_api_with(
@@ -110,9 +111,9 @@ async def test_thunderstorm_expected_is_on_from_the_ensemble_alone(
     state = hass.states.get(ENTITY_ID)
     assert state.state == "on"
     assert state.attributes["source"] == "ensemble"
-    assert hass.states.get("sensor.geosphere_next_next_thunderstorm").state == (
-        "unknown"
-    )
+    next_storm = hass.states.get("sensor.geosphere_next_next_thunderstorm")
+    assert next_storm.state == "2026-07-15T17:00:00+00:00"
+    assert next_storm.attributes["source"] == "ensemble"
 
 
 async def test_thunderstorm_expected_names_both_signals(

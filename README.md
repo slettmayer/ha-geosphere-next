@@ -105,7 +105,9 @@ Forecast-derived signals scanned from the hourly forecast series. The gust
 maxima are deliberately threshold-free: what counts as "too windy" is your
 automation's policy, not this integration's.
 
-Thunder has two signals, and the binary sensor turns on for either:
+Thunder has two signals, and both thunder entities apply the same per-hour
+test — an hour with either signal is a thunderstorm hour, so whenever the
+binary sensor is on, `next_thunderstorm` names an hour inside its window:
 
 - **Symbol** — GeoSphere's own weather symbol for the hour is a thunderstorm
   code (26–32, thunder with rain, sleet or snow).
@@ -114,16 +116,18 @@ Thunder has two signals, and the binary sensor turns on for either:
   of the ensemble members allow a storm the deterministic run may not show.
 
 It leans towards false alarms on purpose: for storm blinds a needless close is
-cheap and a missed storm is not. Its `source` attribute says which signal
-fired — `symbol`, `ensemble` or `symbol_and_ensemble` — so you can tell why it
-turned on, or ignore the ensemble branch in your own automation.
+cheap and a missed storm is not. Both entities carry a `source` attribute
+saying which signal fired — `symbol`, `ensemble` or `symbol_and_ensemble` —
+so you can tell why they turned on, or ignore the ensemble branch in your own
+automation. The binary sensor judges it across its window, `next_thunderstorm`
+for the hour it names.
 
 | Sensor | Description | Unit |
 |---|---|---|
 | `wind_gust_max_1h` | Peak forecast wind gust over the 1-hour horizon (see the rounding note below) | km/h |
 | `wind_gust_max_12h` | Peak forecast wind gust over the 12-hour horizon; carries a `peak_time` attribute | km/h |
 | `cape_max_12h` | Peak CAPE over the 12-hour horizon (diagnostic, disabled by default; informational only) | J/kg |
-| `next_thunderstorm` | Start of the first forecast hour whose weather symbol is a thunderstorm (`unknown` if none in the ~57 h horizon); carries a `cape` attribute for that hour | — |
+| `next_thunderstorm` | Start of the first forecast hour with a thunderstorm symbol or the ensemble storm signal (`unknown` if none in the ~57 h horizon); carries `cape` and `source` attributes for that hour | — |
 | `thunderstorm_expected_1h` (binary sensor; entity id: `thunderstorm_expected_next_hour`) | On when any hour in the 1-hour horizon has a thunderstorm symbol or the ensemble storm signal; `source` attribute names which. `unknown` when the window holds no hour with a symbol or ensemble data | — |
 
 Gust maxima are natively km/h, matching the current-condition wind sensors.

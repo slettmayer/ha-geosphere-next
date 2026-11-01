@@ -82,9 +82,10 @@ def test_next_thunderstorm_returns_first_thunder_symbol_hour_and_its_cape() -> N
         _hour(4, symbol=26, cape=1800.0),
         _hour(6, symbol=28, cape=2500.0),
     ]
-    when, cape = next_thunderstorm(hourly, NOW)
+    when, cape, source = next_thunderstorm(hourly, NOW)
     assert when == datetime(2026, 7, 15, 20, 0, tzinfo=UTC)
     assert cape == 1800.0
+    assert source == "symbol"
 
 
 def test_next_thunderstorm_scans_the_whole_horizon() -> None:
@@ -95,11 +96,11 @@ def test_next_thunderstorm_scans_the_whole_horizon() -> None:
 
 def test_next_thunderstorm_ignores_past_hours() -> None:
     hourly = [_hour(-5, symbol=26), _hour(3, symbol=5)]
-    assert next_thunderstorm(hourly, NOW) == (None, None)
+    assert next_thunderstorm(hourly, NOW) == (None, None, None)
 
 
 def test_next_thunderstorm_none_when_calm() -> None:
-    assert next_thunderstorm([_hour(0, symbol=1)], NOW) == (None, None)
+    assert next_thunderstorm([_hour(0, symbol=1)], NOW) == (None, None, None)
 
 
 def test_next_thunderstorm_includes_the_in_progress_hour() -> None:
@@ -109,9 +110,10 @@ def test_next_thunderstorm_includes_the_in_progress_hour() -> None:
     `hour.datetime < now` floor would drop it.
     """
     hourly = [_hour(0, symbol=26, cape=1600.0), _hour(3, symbol=5)]
-    when, cape = next_thunderstorm(hourly, NOW)
+    when, cape, source = next_thunderstorm(hourly, NOW)
     assert when == datetime(2026, 7, 15, 16, 0, tzinfo=UTC)
     assert cape == 1600.0
+    assert source == "symbol"
 
 
 def test_every_thunder_code_counts_including_thundersnow() -> None:
@@ -129,7 +131,7 @@ def test_heavy_rain_and_snow_symbols_are_not_storms() -> None:
         _hour(1, symbol=25, cape=2500.0, precipitation=3.0),
     ]
     assert thunderstorm_outlook(hourly, 1, NOW) == (False, None)
-    assert next_thunderstorm(hourly, NOW) == (None, None)
+    assert next_thunderstorm(hourly, NOW) == (None, None, None)
 
 
 def test_the_ensemble_alone_raises_the_outlook() -> None:
@@ -139,8 +141,53 @@ def test_the_ensemble_alone_raises_the_outlook() -> None:
         _hour(1, symbol=8, cape_p90=1200.0, precipitation_p90=0.4),
     ]
     assert thunderstorm_outlook(hourly, 1, NOW) == (True, "ensemble")
-    # `next_thunderstorm` is the symbol's verdict only.
-    assert next_thunderstorm(hourly, NOW) == (None, None)
+    assert next_thunderstorm(hourly, NOW) == (
+        datetime(2026, 7, 15, 17, 0, tzinfo=UTC),
+        None,
+        "ensemble",
+    )
+
+
+def test_next_thunderstorm_names_the_signals_of_its_own_hour() -> None:
+    """The source is per hour: the first storm hour's, not the window's."""
+    hourly = [
+        _hour(0, symbol=5, cape_p90=1500.0, precipitation_p90=1.0),
+        _hour(2, symbol=26),
+        _hour(3, symbol=28, cape_p90=2000.0, precipitation_p90=2.0),
+    ]
+    assert next_thunderstorm(hourly, NOW)[2] == "ensemble"
+    assert next_thunderstorm(hourly[1:], NOW)[2] == "symbol"
+    assert next_thunderstorm(hourly[2:], NOW)[2] == "symbol_and_ensemble"
+
+
+def test_next_thunderstorm_falls_in_the_window_whenever_the_outlook_is_on() -> None:
+    """The two storm entities never disagree about whether a storm is near.
+
+    Every combination of symbol and ensemble signal over a three-hour series:
+    when the 1-hour outlook is on, `next_thunderstorm` names an hour inside
+    its window, and when it is off, any storm it names lies beyond it.
+    """
+    window_end = NOW + timedelta(hours=1)
+    variants = [
+        {},
+        {"symbol": 26},
+        {"cape_p90": 1500.0, "precipitation_p90": 0.5},
+        {"symbol": 27, "cape_p90": 1500.0, "precipitation_p90": 0.5},
+    ]
+    for first in variants:
+        for second in variants:
+            for third in variants:
+                hourly = [
+                    _hour(0, **{"symbol": 5, **first}),
+                    _hour(1, **{"symbol": 5, **second}),
+                    _hour(2, **{"symbol": 5, **third}),
+                ]
+                on, _ = thunderstorm_outlook(hourly, 1, NOW)
+                when, _, _ = next_thunderstorm(hourly, NOW)
+                if on:
+                    assert when is not None and when <= window_end
+                else:
+                    assert when is None or when > window_end
 
 
 def test_the_ensemble_needs_both_cape_and_precipitation() -> None:
