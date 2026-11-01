@@ -145,8 +145,12 @@ def max_cape(hourly: list[HourlyForecast], hours: int, now: datetime) -> float |
 
 def next_thunderstorm(
     hourly: list[HourlyForecast], now: datetime
-) -> tuple[datetime | None, float | None, str | None]:
-    """First thunderstorm hour, its CAPE, and which signal fired in it.
+) -> tuple[HourlyForecast | None, str | None]:
+    """First thunderstorm hour, and which signal fired in it.
+
+    The hour is returned whole so a caller can report both CAPE values that
+    bear on it: the deterministic `cape` behind the symbol, and the
+    `ensemble_cape_p90` behind the ensemble signal.
 
     A thunderstorm hour is one with a thunderstorm symbol or the ensemble
     storm signal — the same per-hour test `thunderstorm_outlook` applies, so
@@ -169,8 +173,8 @@ def next_thunderstorm(
             continue
         source = _source(_is_lightning(hour), _is_ensemble_storm(hour))
         if source is not None:
-            return hour.datetime, hour.cape, source
-    return None, None, None
+            return hour, source
+    return None, None
 
 
 def thunderstorm_outlook(

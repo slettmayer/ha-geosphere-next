@@ -85,6 +85,12 @@ async def test_thunderstorm_expected_is_on_for_a_stormy_forecast(
     state = hass.states.get(ENTITY_ID)
     assert state.state == "on"
     assert state.attributes["source"] == "symbol"
+    # The storm hour's two CAPE values: the deterministic one behind the
+    # symbol (patched to 1500) and the ensemble's recorded 11.2.
+    next_storm = hass.states.get("sensor.geosphere_next_next_thunderstorm")
+    assert next_storm.attributes["source"] == "symbol"
+    assert next_storm.attributes["cape"] == 1500.0
+    assert next_storm.attributes["ensemble_cape_p90"] == 11.2
 
 
 async def test_thunderstorm_expected_is_on_from_the_ensemble_alone(
@@ -114,6 +120,9 @@ async def test_thunderstorm_expected_is_on_from_the_ensemble_alone(
     next_storm = hass.states.get("sensor.geosphere_next_next_thunderstorm")
     assert next_storm.state == "2026-07-15T17:00:00+00:00"
     assert next_storm.attributes["source"] == "ensemble"
+    # The ensemble CAPE that fired, beside the recorded deterministic 1.5.
+    assert next_storm.attributes["ensemble_cape_p90"] == 1500.0
+    assert next_storm.attributes["cape"] == 1.5
 
 
 async def test_thunderstorm_expected_names_both_signals(

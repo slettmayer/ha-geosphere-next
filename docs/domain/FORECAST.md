@@ -166,8 +166,10 @@ The entities:
   so either signal suffices.
 - `next_thunderstorm`: the start of the first row from the in-progress hour on
   that fires either signal — the same per-row test, so whenever the binary
-  sensor is on, this names a row inside its window. Attributes: that row's
-  `cape` and its own `source` (judged for that row alone).
+  sensor is on, this names a row inside its window. Attributes, for that row
+  alone: `source`, `cape` (deterministic, behind the symbol) and
+  `ensemble_cape_p90` (behind the ensemble signal) — both CAPE values always,
+  so an ensemble-only storm does not show a contradicting low `cape` alone.
 - `cape_max_12h`: peak deterministic CAPE over 12 h, a plain diagnostic that
   no longer decides anything.
 

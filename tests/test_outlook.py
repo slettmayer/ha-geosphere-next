@@ -82,25 +82,27 @@ def test_next_thunderstorm_returns_first_thunder_symbol_hour_and_its_cape() -> N
         _hour(4, symbol=26, cape=1800.0),
         _hour(6, symbol=28, cape=2500.0),
     ]
-    when, cape, source = next_thunderstorm(hourly, NOW)
-    assert when == datetime(2026, 7, 15, 20, 0, tzinfo=UTC)
-    assert cape == 1800.0
+    hour, source = next_thunderstorm(hourly, NOW)
+    assert hour.datetime == datetime(2026, 7, 15, 20, 0, tzinfo=UTC)
+    assert hour.cape == 1800.0
     assert source == "symbol"
 
 
 def test_next_thunderstorm_scans_the_whole_horizon() -> None:
     """Not window-limited — a storm 40 h out is still reported."""
     hourly = [_hour(0, symbol=1), _hour(40, symbol=27)]
-    assert next_thunderstorm(hourly, NOW)[0] == datetime(2026, 7, 17, 8, 0, tzinfo=UTC)
+    assert next_thunderstorm(hourly, NOW)[0].datetime == datetime(
+        2026, 7, 17, 8, 0, tzinfo=UTC
+    )
 
 
 def test_next_thunderstorm_ignores_past_hours() -> None:
     hourly = [_hour(-5, symbol=26), _hour(3, symbol=5)]
-    assert next_thunderstorm(hourly, NOW) == (None, None, None)
+    assert next_thunderstorm(hourly, NOW) == (None, None)
 
 
 def test_next_thunderstorm_none_when_calm() -> None:
-    assert next_thunderstorm([_hour(0, symbol=1)], NOW) == (None, None, None)
+    assert next_thunderstorm([_hour(0, symbol=1)], NOW) == (None, None)
 
 
 def test_next_thunderstorm_includes_the_in_progress_hour() -> None:
@@ -110,9 +112,9 @@ def test_next_thunderstorm_includes_the_in_progress_hour() -> None:
     `hour.datetime < now` floor would drop it.
     """
     hourly = [_hour(0, symbol=26, cape=1600.0), _hour(3, symbol=5)]
-    when, cape, source = next_thunderstorm(hourly, NOW)
-    assert when == datetime(2026, 7, 15, 16, 0, tzinfo=UTC)
-    assert cape == 1600.0
+    hour, source = next_thunderstorm(hourly, NOW)
+    assert hour.datetime == datetime(2026, 7, 15, 16, 0, tzinfo=UTC)
+    assert hour.cape == 1600.0
     assert source == "symbol"
 
 
@@ -131,7 +133,7 @@ def test_heavy_rain_and_snow_symbols_are_not_storms() -> None:
         _hour(1, symbol=25, cape=2500.0, precipitation=3.0),
     ]
     assert thunderstorm_outlook(hourly, 1, NOW) == (False, None)
-    assert next_thunderstorm(hourly, NOW) == (None, None, None)
+    assert next_thunderstorm(hourly, NOW) == (None, None)
 
 
 def test_the_ensemble_alone_raises_the_outlook() -> None:
@@ -141,11 +143,10 @@ def test_the_ensemble_alone_raises_the_outlook() -> None:
         _hour(1, symbol=8, cape_p90=1200.0, precipitation_p90=0.4),
     ]
     assert thunderstorm_outlook(hourly, 1, NOW) == (True, "ensemble")
-    assert next_thunderstorm(hourly, NOW) == (
-        datetime(2026, 7, 15, 17, 0, tzinfo=UTC),
-        None,
-        "ensemble",
-    )
+    hour, source = next_thunderstorm(hourly, NOW)
+    assert hour.datetime == datetime(2026, 7, 15, 17, 0, tzinfo=UTC)
+    assert hour.ensemble_cape_p90 == 1200.0
+    assert source == "ensemble"
 
 
 def test_next_thunderstorm_names_the_signals_of_its_own_hour() -> None:
@@ -155,9 +156,9 @@ def test_next_thunderstorm_names_the_signals_of_its_own_hour() -> None:
         _hour(2, symbol=26),
         _hour(3, symbol=28, cape_p90=2000.0, precipitation_p90=2.0),
     ]
-    assert next_thunderstorm(hourly, NOW)[2] == "ensemble"
-    assert next_thunderstorm(hourly[1:], NOW)[2] == "symbol"
-    assert next_thunderstorm(hourly[2:], NOW)[2] == "symbol_and_ensemble"
+    assert next_thunderstorm(hourly, NOW)[1] == "ensemble"
+    assert next_thunderstorm(hourly[1:], NOW)[1] == "symbol"
+    assert next_thunderstorm(hourly[2:], NOW)[1] == "symbol_and_ensemble"
 
 
 def test_next_thunderstorm_falls_in_the_window_whenever_the_outlook_is_on() -> None:
@@ -183,11 +184,11 @@ def test_next_thunderstorm_falls_in_the_window_whenever_the_outlook_is_on() -> N
                     _hour(2, **{"symbol": 5, **third}),
                 ]
                 on, _ = thunderstorm_outlook(hourly, 1, NOW)
-                when, _, _ = next_thunderstorm(hourly, NOW)
+                hour, _ = next_thunderstorm(hourly, NOW)
                 if on:
-                    assert when is not None and when <= window_end
+                    assert hour is not None and hour.datetime <= window_end
                 else:
-                    assert when is None or when > window_end
+                    assert hour is None or hour.datetime > window_end
 
 
 def test_the_ensemble_needs_both_cape_and_precipitation() -> None:

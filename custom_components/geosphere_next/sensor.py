@@ -318,12 +318,26 @@ AIR_QUALITY_SENSORS: tuple[GeoSphereAirQualitySensorEntityDescription, ...] = (
 AIR_QUALITY_SENSOR_KEYS = tuple(description.key for description in AIR_QUALITY_SENSORS)
 
 
+def _next_thunderstorm_time(data: ForecastData, now: datetime) -> datetime | None:
+    hour, _ = next_thunderstorm(data.hourly, now)
+    return hour.datetime if hour is not None else None
+
+
 def _next_thunderstorm_attributes(
     data: ForecastData, now: datetime
 ) -> dict[str, object]:
-    """The storm hour's CAPE and which signal fired in it."""
-    _, cape, source = next_thunderstorm(data.hourly, now)
-    return {"cape": cape, "source": source}
+    """Which signal fired in the storm hour, and the CAPE behind each signal.
+
+    `cape` is the deterministic run's, behind the weather symbol;
+    `ensemble_cape_p90` the ensemble's 90th percentile, behind the ensemble
+    signal. Both are reported whichever signal fired.
+    """
+    hour, source = next_thunderstorm(data.hourly, now)
+    return {
+        "cape": hour.cape if hour is not None else None,
+        "ensemble_cape_p90": hour.ensemble_cape_p90 if hour is not None else None,
+        "source": source,
+    }
 
 
 # These are forecast *predictions*, not measurements, so they deliberately
@@ -376,7 +390,7 @@ OUTLOOK_SENSORS: tuple[GeoSphereOutlookSensorEntityDescription, ...] = (
         key="next_thunderstorm",
         translation_key="next_thunderstorm",
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda data, now: next_thunderstorm(data.hourly, now)[0],
+        value_fn=_next_thunderstorm_time,
         attributes_fn=_next_thunderstorm_attributes,
     ),
 )
