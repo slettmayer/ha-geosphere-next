@@ -193,9 +193,10 @@ def derive_current_condition(
     Dry by observation, the symbol's own mapping applies -- except that a
     precipitation or thunder code becomes `cloudy`: the model expects
     precipitation that is not falling, under what is then an overcast sky.
-    With no observation at all (outside the nowcast grid, or every source
-    down or stale), the symbol is the only evidence and its mapping applies
-    unchanged.
+    With no observation at all — a `None` rate and no `pt` code: outside the
+    nowcast grid, or the nowcast down with no INCA `RR` fresh enough to count
+    (see INCA_RR_DRY_MAX_AGE_SECONDS) — the symbol is the only evidence and
+    its mapping applies unchanged.
     """
     observed = is_precipitating(precipitation_type, precipitation_rate_mm_h)
     if observed is None:
