@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -17,7 +18,7 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
 
 from custom_components.geosphere_next import api
 from custom_components.geosphere_next.const import CONF_HAS_NOWCAST, DOMAIN
-from custom_components.geosphere_next.models import GeoSphereResponse
+from custom_components.geosphere_next.models import ForecastData, GeoSphereResponse
 
 from .conftest import (
     AROME_URL,
@@ -107,11 +108,12 @@ async def test_forecast_processing(
     assert first.condition == "cloudy"
     # Magnus from 2t 4.8 / 2r 80.89.
     assert first.dew_point == pytest.approx(1.8)
-    # Snow limit and weather symbol are read off the same row that becomes
-    # `current` -- 16:00Z here, not the series' first stamp (where `sy` is
-    # null).
+    # The snow limit is read off the same row that becomes `current` --
+    # 16:00Z here, not the series' first stamp. The weather symbol lives on
+    # the rows only; the current coordinator picks it from the hour covering
+    # now.
     assert data.snow_limit == pytest.approx(854.1)
-    assert data.weather_symbol == 5
+    assert "weather_symbol" not in {f.name for f in fields(ForecastData)}
     assert data.current is first
 
     # Stepped probability from the ensemble tp percentiles, read one stamp on

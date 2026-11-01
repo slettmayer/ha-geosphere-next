@@ -79,7 +79,6 @@ class ForecastData:
     # "Step 0" snapshot for current-state fallbacks (first future-most hour).
     current: HourlyForecast | None = None
     snow_limit: float | None = None
-    weather_symbol: int | None = None
 
 
 @dataclass(slots=True)

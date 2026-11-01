@@ -195,8 +195,8 @@ available at all, `_async_update_data` raises `UpdateFailed`.
 
 ## Dependencies
 - `GeoSphereForecastCoordinator` — injected into the current coordinator's
-  constructor to supply AROME fallback values (`hourly`, `current`, `snow_limit`,
-  `weather_symbol` on each row).
+  constructor to supply AROME fallback values (`hourly`, with the
+  `weather_symbol` on each row, `current`, `snow_limit`).
 - INCA analysis and nowcast datasets — see [DATASETS.md](DATASETS.md).
 
 ## Design Decisions

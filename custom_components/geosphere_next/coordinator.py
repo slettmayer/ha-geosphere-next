@@ -381,7 +381,6 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
             hourly=hourly,
             current=hourly[0],
             snow_limit=snow_limit,
-            weather_symbol=hourly[0].weather_symbol,
         )
 
 
