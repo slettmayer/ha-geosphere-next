@@ -23,8 +23,9 @@ probability, and the thunderstorm outlook scanned from it.
 runs at the forecast interval (default 30 min). Each cycle resolves AROME
 (required) and the C-LAEF ensemble (optional) — from cache when neither can
 have been rerun yet, see [Run gating](#run-gating) — then `_process` builds a
-list of `HourlyForecast` entries (each carrying its `weather_symbol`) plus a
-`current` step-0 snapshot and `snow_limit`. The current-conditions coordinator picks its AROME
+list of `HourlyForecast` entries (each carrying its `weather_symbol` and
+`snow_limit`) plus a `current` step-0 snapshot and the ensemble run's
+`ensemble_reference_time`. The current-conditions coordinator picks its AROME
 hour out of `hourly` by the clock and only falls back to `current` when the
 series no longer covers now — see [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md).
 
@@ -142,36 +143,43 @@ live in `const.py` (`POP_P10_WET_PCT` etc.).
 ### Thunderstorm outlook
 
 `outlook.py` scans the processed rows; the entities re-evaluate on every hour
-boundary as well as on coordinator updates. Two signals:
+boundary as well as on coordinator updates, computing state and `source` from
+one scan per refresh. An hour is a **thunderstorm hour** when either signal
+fires:
 
 - **Symbol**: the row's `sy` is a thunderstorm code (26–32), GeoSphere's own
   verdict for the deterministic run.
-- **Ensemble**: the row's `ensemble_cape_p90` ≥ `THUNDER_CAPE_JKG` (1000 J/kg)
-  **and** its `ensemble_precipitation_p90` ≥ `PRECIP_MIN_MM` (0.1 mm). So at
-  least a tenth of the C-LAEF members reach that CAPE, and at least a tenth
-  that much precipitation — not necessarily the same members. `cape_p90` is
-  instantaneous and read at the row's own stamp, like `cape`; `tp_p90` covers
-  the row's hour, keyed to the preceding stamp like the probability.
+- **Ensemble**: the ensemble is current, and the row's `ensemble_cape_p90` ≥
+  `THUNDER_CAPE_JKG` (1000 J/kg) **and** its `ensemble_precipitation_p90` ≥
+  `PRECIP_MIN_MM` (0.1 mm). So at least a tenth of the C-LAEF members reach
+  that CAPE, and at least a tenth that much precipitation — not necessarily
+  the same members. `cape_p90` is instantaneous and read at the row's own
+  stamp, like `cape`; `tp_p90` covers the row's hour, keyed to the preceding
+  stamp like the probability.
+
+**Ensemble current** is one rule in one helper, `outlook.ensemble_is_current`:
+`ForecastData.ensemble_reference_time` is at most `ENSEMBLE_MAX_FALLBACK_AGE`
+(12 h) before now. No ensemble run, or one without a stamp, is not current,
+and the outlook then rests on the symbol alone. The check runs whenever the
+entities refresh, so it takes effect at the next coordinator update or hour
+boundary — no extra timer.
 
 The entities:
 
 - `thunderstorm_expected_next_hour` (key `thunderstorm_expected_1h`): on when
-  any row in the window (the in-progress hour plus the next) fires either
-  signal. The `source` attribute names which: `symbol`, `ensemble` or
-  `symbol_and_ensemble`, judged across the window; `None` when off. A row is
-  decidable with a symbol from GeoSphere's table (a code outside it counts as
-  unreadable, not calm) or a complete ensemble pair; a window with no
-  decidable row reports `unknown`, never a confident `off`. Built for storm
-  blinds, where a false alarm costs a closed blind and a miss costs the blind,
-  so either signal suffices.
-- `next_thunderstorm`: the start of the first row from the in-progress hour on
-  that fires either signal — the same per-row test, so whenever the binary
-  sensor is on, this names a row inside its window. Attributes, for that row
-  alone: `source`, `cape` (deterministic, behind the symbol) and
-  `ensemble_cape_p90` (behind the ensemble signal) — both CAPE values always,
-  so an ensemble-only storm does not show a contradicting low `cape` alone.
+  any row in the window (the in-progress hour plus the next) is a
+  thunderstorm hour. `unknown` only when no forecast row falls in the window;
+  a row whose symbol is missing or outside GeoSphere's table is no storm
+  unless the ensemble says so — a symbol gap is rare, and treating it as
+  unknown would blank the entity a storm-blind automation reads.
+- `next_thunderstorm`: the start of the first thunderstorm hour from the
+  in-progress hour on — the same per-row test, so whenever the binary sensor
+  is on, this names a row inside its window.
+- Both expose one attribute, `source`: `symbol`, `ensemble` or `both`, or
+  `None` when nothing fired. The binary sensor judges it across its window,
+  `next_thunderstorm` for its own row.
 - `cape_max_12h`: peak deterministic CAPE over 12 h, a plain diagnostic that
-  no longer decides anything.
+  decides nothing.
 
 Measured 2026-11-01, GeoSphere's thunder codes fire at a median CAPE of
 ~160 J/kg and never reached 1000 J/kg anywhere in the domain, so in practice
@@ -183,9 +191,9 @@ situations the deterministic run does not convect on.
 AROME failure raises `UpdateFailed` (rate-limit errors propagate `retry_after`).
 Ensemble failure is caught, logged at warning level, and only omits the
 precipitation probability and the ensemble storm signal — it never takes the
-forecast down; the outlook then rests on the symbol alone. Once a run has
-been cached, a failed ensemble *re*-fetch degrades to that run rather than to
-nothing: the percentiles are matched to AROME by timestamp, so a superseded run
+forecast down; without an ensemble run the outlook rests on the symbol alone.
+Once a run has been cached, a failed ensemble *re*-fetch degrades to that run
+rather than to nothing: the percentiles are matched to AROME by timestamp, so a superseded run
 still has a value for every hour it covers, and hours it has run past simply
 report no probability.
 
@@ -197,21 +205,8 @@ the `model_run` sensor reports AROME's stamp, not C-LAEF's. Past the bound the
 cache is dropped and the probability disappears, which is visible rather than
 quietly wrong.
 
-The **thunderstorm outlook** gets a much tighter bound, because storm blinds
-act on it: the held run feeds the ensemble storm signal only for
-`ENSEMBLE_STORM_MAX_FALLBACK` (3 h, one cadence) after the last *successful
-fetch*; after that the probability may keep the run but the outlook rests on
-the symbol alone, and the warning says which. The coordinator records the
-deadline as `ForecastData.ensemble_storm_valid_until` and the outlook applies
-it when the entities re-evaluate, including at every hour boundary — so the
-signal drops 3 h after the fetch on the clock, not at the next poll, which
-can be up to 180 min away. The bound is measured from the
-fetch rather than from `reference_time` on purpose. Every successful fetch
-returns the newest run there is, so the held run cannot have been superseded
-until the next one is published — at most one cadence later. A bound on run
-age would instead have to absorb the unpublished publication lag (more than
-5.5 h on 2026-11-01: the 09:00Z run was still the newest at 17:30Z), leaving
-it barely tighter than the probability's 12 h.
+The thunderstorm outlook applies the same 12 h bound to run age on its own,
+when it is read (see [Thunderstorm outlook](#thunderstorm-outlook)).
 
 An AROME response is committed to the cache only after `_process` accepts it.
 A run that parses but yields no usable hours would otherwise be pinned by the

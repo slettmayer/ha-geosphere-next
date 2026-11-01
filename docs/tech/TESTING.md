@@ -82,7 +82,8 @@ Document the test framework, fixtures, patterns, and commands for the test suite
 Config-flow validation and out-of-domain handling, API error mapping, coordinator
 merging/stamping/fallback, the full `sy` → condition table (unknown codes and
 night included), the current-condition precedence between observations and
-the symbol, the thunderstorm outlook's symbol and ensemble signals, run
+the symbol, the thunderstorm outlook's symbol and ensemble signals (with
+the ensemble's 12 h age bound and the binary sensor's unknown state), run
 gating (which fetches are skipped inside a model's rerun cadence, and that the
 gate reopens every cycle once it elapses), sensor value extraction, weather
 forecast assembly, and air-quality processing.

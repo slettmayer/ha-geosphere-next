@@ -53,9 +53,8 @@ value. The order encodes which source is trusted most for each field:
   `weather_symbol`, i.e. the `sy` code stamped at the end of the hour (see
   [FORECAST.md](FORECAST.md#hourly-processing)); the `weather_symbol`
   diagnostic sensor reports the same code the condition is mapped from.
-- **Snow limit**: `ForecastData.snow_limit`, which the forecast coordinator
-  computes once per fetch from its first future hour. Unlike the fields above
-  it is not re-picked per hour, so it ages with the forecast interval.
+- **Snow limit**: the AROME current hour's `snow_limit` (`snowlmt` at the
+  row's own stamp), picked by the clock like the fields above.
 - **Condition**: `derive_current_condition` — observations decide whether and
   what is falling, the hour's symbol the rest; see
   [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md). It distinguishes an
@@ -99,8 +98,9 @@ value. The order encodes which source is trusted most for each field:
   `precipitation_1h` (the measurement it actually is) and the condition
   derivation (which must decide either way) use it.
 - **Precipitation rate** (mm/h, feeds the condition): the matched nowcast `rr`
-  bucket × `NOWCAST_BUCKETS_PER_HOUR`, else INCA's hourly `RR` where there is
-  no nowcast at all — but only while that `RR` is younger than
+  bucket × `NOWCAST_BUCKETS_PER_HOUR`, else INCA's hourly `RR` where the
+  nowcast reports neither `pt` nor `rr` — a `pt` of 255 is an observed "dry"
+  that `RR` never overrules — but only while that `RR` is younger than
   `INCA_RR_MAX_AGE_SECONDS` (2 h). `inca_latest` returns the newest value at
   any age and the cached slice is served on indefinitely while refreshes
   fail, so an ungated read derived `rainy` under a clear sky from rain that
@@ -200,7 +200,7 @@ available at all, `_async_update_data` raises `UpdateFailed`.
 ## Dependencies
 - `GeoSphereForecastCoordinator` — injected into the current coordinator's
   constructor to supply AROME fallback values (`hourly`, with the
-  `weather_symbol` on each row, `current`, `snow_limit`).
+  `weather_symbol` and `snow_limit` on each row, and `current`).
 - INCA analysis and nowcast datasets — see [DATASETS.md](DATASETS.md).
 
 ## Design Decisions

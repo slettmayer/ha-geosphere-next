@@ -114,21 +114,23 @@ binary sensor is on, `next_thunderstorm` names an hour inside its window:
 - **Ensemble** — the C-LAEF ensemble's 90th percentiles reach both
   1000 J/kg CAPE and 0.1 mm of precipitation for the hour, so at least a tenth
   of the ensemble members allow a storm the deterministic run may not show.
+  Only an ensemble run at most 12 h old counts; with none, the symbol decides
+  alone.
 
 It leans towards false alarms on purpose: for storm blinds a needless close is
 cheap and a missed storm is not. Both entities carry a `source` attribute
-saying which signal fired — `symbol`, `ensemble` or `symbol_and_ensemble` —
-so you can tell why they turned on, or ignore the ensemble branch in your own
-automation. The binary sensor judges it across its window, `next_thunderstorm`
-for the hour it names.
+saying which signal fired — `symbol`, `ensemble` or `both` (`None` when
+none did) — so you can tell why they turned on, or ignore the ensemble branch
+in your own automation. The binary sensor judges it across its window,
+`next_thunderstorm` for the hour it names. It is their only attribute.
 
 | Sensor | Description | Unit |
 |---|---|---|
 | `wind_gust_max_1h` | Peak forecast wind gust over the 1-hour horizon (see the rounding note below) | km/h |
 | `wind_gust_max_12h` | Peak forecast wind gust over the 12-hour horizon; carries a `peak_time` attribute | km/h |
 | `cape_max_12h` | Peak CAPE over the 12-hour horizon (diagnostic, disabled by default; informational only) | J/kg |
-| `next_thunderstorm` | Start of the first forecast hour with a thunderstorm symbol or the ensemble storm signal (`unknown` if none in the ~57 h horizon). Attributes for that hour: `source`, `cape` (the deterministic run's, behind the symbol) and `ensemble_cape_p90` (the ensemble's 90th percentile, behind the ensemble signal) | — |
-| `thunderstorm_expected_1h` (binary sensor; entity id: `thunderstorm_expected_next_hour`) | On when any hour in the 1-hour horizon has a thunderstorm symbol or the ensemble storm signal; `source` attribute names which. `unknown` when the window holds no hour with a known symbol or ensemble data | — |
+| `next_thunderstorm` | Start of the first forecast hour with a thunderstorm symbol or the ensemble storm signal (`unknown` if none in the ~57 h horizon); `source` attribute names which fired in that hour | — |
+| `thunderstorm_expected_1h` (binary sensor; entity id: `thunderstorm_expected_next_hour`) | On when any hour in the 1-hour horizon has a thunderstorm symbol or the ensemble storm signal; `source` attribute names which. `unknown` only when the forecast has no hour in the window; an hour with a missing or unknown symbol counts as no storm unless the ensemble says otherwise | — |
 
 Gust maxima are natively km/h, matching the current-condition wind sensors.
 The three numeric sensors carry no `state_class`: they are predictions, so
@@ -303,6 +305,13 @@ actually observed: if the nowcast sees nothing falling, a rain or thunder
 symbol becomes `cloudy`. The reverse holds too — observed rain shows `rainy`
 even under a dry symbol. The thunderstorm outlook is not affected by this; it
 reads the forecast symbol and the ensemble directly.
+
+**What does the thunderstorm outlook do when the ensemble is down?**
+It falls back to the weather symbol alone. The ensemble only counts while its
+run is at most 12 h old — GeoSphere publishes it several hours after its
+stamp, so a current run is routinely 6–9 h old — and the age is checked each
+time the outlook entities refresh (on every forecast update and at every full
+hour). The `source` attribute shows whether the ensemble played a part.
 
 **Why does the current temperature disagree with the forecast for this hour?**
 Current thermodynamic values come from the INCA hourly analysis, which is

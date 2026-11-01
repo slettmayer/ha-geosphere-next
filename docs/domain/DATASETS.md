@@ -177,9 +177,10 @@ Later the same day the ensemble lag measured longer still: its 06:00Z run
 first appeared between 11:43Z and 11:50Z (≈ 5 h 45 min), and at 17:30Z its
 newest run was still 09:00Z while AROME's was 12:00Z — the 12:00Z ensemble run
 more than 5.5 h behind its stamp. So the freshest ensemble run in service is
-routinely 6–9 h old, which is why the outlook's ensemble fallback is bounded
-from the last successful fetch rather than by run age (see
-[FORECAST.md](FORECAST.md#partial-failure-isolation)).
+routinely 6–9 h old, which is why both the probability's fallback and the
+thunderstorm outlook allow the ensemble up to 12 h of run age
+(`ENSEMBLE_MAX_FALLBACK_AGE`, see
+[FORECAST.md](FORECAST.md#thunderstorm-outlook)).
 
 The lag is longer than the cadence, so a run is already past its own cadence
 by the time it can be fetched. For the nowcast (15 min cadence) the lag was
