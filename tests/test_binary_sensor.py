@@ -47,7 +47,7 @@ def _mock_api_with(aioclient_mock: AiohttpClientMocker, arome: dict) -> None:
 async def test_thunderstorm_expected_is_off_for_a_calm_forecast(
     hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
 ) -> None:
-    """The recorded fixture never reaches the thunder threshold."""
+    """The recorded fixture carries no thunderstorm symbol."""
     freezer.move_to(FROZEN_NOW)
     mock_config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
@@ -64,10 +64,9 @@ async def test_thunderstorm_expected_is_on_for_a_stormy_forecast(
     aioclient_mock: AiohttpClientMocker,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """The `on` path: CAPE above the threshold, and rain.
+    """The `on` path: a thunderstorm symbol in the in-progress hour.
 
-    `stormy_arome` wets hour 4 of the fixture (16:00Z, the in-progress hour),
-    so raising its CAPE makes it `lightning-rainy`.
+    `stormy_arome` puts one on hour 4 of the fixture (16:00Z).
     """
     freezer.move_to(FROZEN_NOW)
     _mock_api_with(aioclient_mock, stormy_arome(indexes=(4,)))
@@ -90,10 +89,7 @@ async def test_thunderstorm_expected_re_evaluates_on_the_hour(
     inside the 17:00Z one (17:00-18:00).
     """
     freezer.move_to(FROZEN_NOW)
-    # Dry hour, so the condition needs full cloud to read as `lightning`.
-    _mock_api_with(
-        aioclient_mock, stormy_arome(indexes=(6,), cloud=100.0, precipitation=0.0)
-    )
+    _mock_api_with(aioclient_mock, stormy_arome(indexes=(6,)))
     mock_config_entry.add_to_hass(hass)
     # The longest allowed forecast interval: no data refresh within the hour.
     hass.config_entries.async_update_entry(

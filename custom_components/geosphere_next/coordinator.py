@@ -22,7 +22,7 @@ from .api import (
 )
 from .condition import (
     apparent_temperature,
-    derive_condition,
+    condition_from_symbol,
     derive_current_condition,
     derive_precipitation_type,
     dew_point_from_t_rh,
@@ -268,10 +268,9 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
     ) -> ForecastData:
         now = dt_util.utcnow()
         hourly: list[HourlyForecast] = []
-        # Read off the row that becomes `hourly[0]`, below. Both are read at
-        # that row's own stamp, so they describe the same hour as `current` by
-        # construction rather than by a second index kept in step with it.
-        symbol: float | None = None
+        # Read off the row that becomes `hourly[0]`, below, so it describes
+        # the same hour as `current` by construction rather than by a second
+        # index kept in step with it.
         snow_limit: float | None = None
 
         # Ensemble hours align with AROME's whole-hour stamps (both 1 h grids,
@@ -306,14 +305,19 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         # A row stamped `ts` describes the hour *beginning* at `ts` — Home
         # Assistant's forecast convention. The dataset mixes two stampings (see
         # AROME_PARAMETERS for how each was classified):
-        #   * instantaneous AT the stamp: 2t, 2r, 10u/10v, tcc, cape, snowlmt,
-        #     and sy, whose cloud classes follow `tcc` at the same stamp;
+        #   * instantaneous AT the stamp: 2t, 2r, 10u/10v, tcc, cape, snowlmt;
         #   * the interval ENDING at the stamp: 10fg, tp and sf ("... in the
         #     last forecast interval"), each already a per-hour value.
         # The interval fields covering the hour that *starts* at `ts` therefore
         # live one step later, at `nxt`. Reading them at `i` would report the
         # hour that already ended — rain that has stopped, the previous hour's
         # gust peak. The final stamp has no successor and so cannot be emitted.
+        #
+        # `sy` is read at `nxt` too. Its precipitation classes follow `tp` at
+        # their own stamp, so only there does the symbol agree with the row's
+        # precipitation: at `i` a row would show rain for the hour after it
+        # stopped and none for the hour it started. Its cloud classes bin `tcc`
+        # at that same later stamp, i.e. the sky at the end of the row's hour.
         cutoff = now.replace(minute=0, second=0, microsecond=0)
         for i in range(len(response.timestamps) - 1):
             ts = response.timestamps[i]
@@ -321,7 +325,6 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                 continue
             nxt = i + 1
             if not hourly:
-                symbol = response.value_at("sy", i)
                 snow_limit = response.value_at("snowlmt", i)
             wind_speed, wind_bearing = wind_from_components(
                 response.value_at("10u", i), response.value_at("10v", i)
@@ -333,6 +336,8 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
             cape = response.value_at("cape", i)
             temperature = response.value_at("2t", i)
             humidity = response.value_at("2r", i)
+            raw_symbol = response.value_at("sy", nxt)
+            symbol = int(raw_symbol) if raw_symbol is not None else None
             hourly.append(
                 HourlyForecast(
                     datetime=ts,
@@ -347,13 +352,9 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                     cape=cape,
                     dew_point=dew_point_from_t_rh(temperature, humidity),
                     precipitation_probability=pop_by_ts.get(ts),
-                    condition=derive_condition(
-                        precipitation,
-                        snow,
-                        cloud,
-                        cape,
-                        gust_speed,
-                        is_night(self.latitude, self.longitude, ts),
+                    weather_symbol=symbol,
+                    condition=condition_from_symbol(
+                        symbol, is_night(self.latitude, self.longitude, ts)
                     ),
                 )
             )
@@ -368,7 +369,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
             hourly=hourly,
             current=hourly[0],
             snow_limit=snow_limit,
-            weather_symbol=int(symbol) if symbol is not None else None,
+            weather_symbol=hourly[0].weather_symbol,
         )
 
 
@@ -472,9 +473,9 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         # forecast fetch: this coordinator runs every 15 min by default while
         # the forecast one can be up to 180 min apart. The step-0 snapshot —
         # the hour that was in progress when the forecast was last fetched —
-        # can therefore be hours old. Cloud cover and CAPE have no other
-        # source, and both feed the derived condition, so the reported
-        # condition would go stale with it. Pick the hour covering `now`
+        # can therefore be hours old. Cloud cover, CAPE and the weather symbol
+        # have no other source, and the symbol feeds the derived condition, so
+        # the reported condition would go stale with it. Pick the hour covering `now`
         # instead, degrading to that snapshot only when the series no longer
         # covers now at all.
         arome: HourlyForecast | None = None
@@ -536,6 +537,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         gust = chain(now_value("fx"), arome.wind_gust_speed if arome else None)
         cloud = chain(arome.cloud_coverage if arome else None)
         cape = arome.cape if arome else None
+        symbol = arome.weather_symbol if arome else None
 
         p0, _ = inca_latest("P0")
         # INCA `RR` is the only source for the hourly accumulation. Summing
@@ -585,8 +587,8 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         # and `_async_get_inca` serves a cached slice indefinitely while
         # refreshes fail, so an ungated read derived `rainy` under a clear sky
         # from rain that had stopped hours ago, and held there. Past
-        # INCA_RR_MAX_AGE_SECONDS the derivation falls through to cloud cover,
-        # which is what the sky actually says. The bound is deliberately well
+        # INCA_RR_MAX_AGE_SECONDS the derivation falls through to the dry
+        # branch and the weather symbol. The bound is deliberately well
         # past INCA's own ~90 min worst-case lag so ordinary publishing never
         # trips it -- see the constant.
         #
@@ -700,16 +702,12 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
             global_radiation=inca_latest("GL")[0],
             snow_limit=forecast_data.snow_limit if forecast_data else None,
             cape=cape,
-            weather_symbol=forecast_data.weather_symbol if forecast_data else None,
+            weather_symbol=symbol,
             condition=derive_current_condition(
                 precipitation_type=precipitation_type,
                 precipitation_rate_mm_h=rate_mm_h,
                 temperature=temperature,
-                humidity=humidity,
-                wind_speed=wind_speed,
-                cloud_coverage=cloud,
-                cape=cape,
-                gust_speed=gust,
+                symbol=symbol,
                 night=night,
             ),
         )

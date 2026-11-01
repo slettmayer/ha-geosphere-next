@@ -56,8 +56,11 @@ class HourlyForecast:
     cloud_coverage: float | None
     cape: float | None
     dew_point: float | None = None
+    # GeoSphere's `sy` code for the hour, and the HA condition mapped from it.
+    weather_symbol: int | None = None
     condition: str | None = None
-    # Stepped estimate from the C-LAEF ensemble tp percentiles (0/30/70/95).
+    # Stepped estimate derived from the C-LAEF ensemble tp percentiles
+    # (0/30/70/95); GeoSphere publishes no probability.
     precipitation_probability: int | None = None
 
 

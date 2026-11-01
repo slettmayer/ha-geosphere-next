@@ -13,13 +13,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from .condition import is_thunder
-from .const import PRECIP_MIN_MM
+from .condition import is_thunder_symbol
 from .models import HourlyForecast
-
-# A condition string starting with this prefix means the derivation decided
-# thunder is likely ("lightning" and "lightning-rainy").
-_LIGHTNING_PREFIX = "lightning"
 
 
 def _window(
@@ -61,35 +56,17 @@ def hour_at(hourly: list[HourlyForecast], now: datetime) -> HourlyForecast | Non
 
 
 def _is_lightning(hour: HourlyForecast) -> bool:
-    """True when the hour reads as a thunderstorm hour.
-
-    Two branches, because the derived condition alone misses real storms:
-
-    a) the derived condition starts with "lightning" — the model's own
-       judgement that convection is occurring, and the primary signal; or
-    b) the raw CAPE thunder predicate holds *and* the hour is forecast to
-       produce precipitation. `derive_condition` returns `snowy` /
-       `snowy-rainy` before it ever looks at thunder (thundersnow) and returns
-       `None` when cloud cover is missing, so those hours would otherwise read
-       as "no storm".
-
-    Branch (b) deliberately requires precipitation: dry convective CAPE under
-    low cloud is a routine Vienna summer afternoon and must not raise a storm
-    signal.
-    """
-    if hour.condition is not None and hour.condition.startswith(_LIGHTNING_PREFIX):
-        return True
-    precipitation = hour.precipitation or 0.0
-    return is_thunder(hour.cape) and precipitation >= PRECIP_MIN_MM
+    """True when GeoSphere's weather symbol calls the hour a thunderstorm."""
+    return is_thunder_symbol(hour.weather_symbol)
 
 
 def _is_decidable(hour: HourlyForecast) -> bool:
     """True when the hour carries enough data to judge thunder either way.
 
-    An hour with neither a derived condition nor CAPE says nothing about
-    thunder — "no storm" would be a guess, not an answer.
+    An hour without a weather symbol says nothing about thunder — "no storm"
+    would be a guess, not an answer.
     """
-    return hour.condition is not None or hour.cape is not None
+    return hour.weather_symbol is not None
 
 
 def max_gust(
@@ -122,7 +99,7 @@ def max_cape(hourly: list[HourlyForecast], hours: int, now: datetime) -> float |
 def next_thunderstorm(
     hourly: list[HourlyForecast], now: datetime
 ) -> tuple[datetime | None, float | None]:
-    """First hour with thunder expected, and that hour's CAPE.
+    """First hour whose weather symbol is a thunderstorm, and that hour's CAPE.
 
     Scans the full horizon rather than a window — "no storm for two days" and
     "storm in 40 hours" are both useful answers.

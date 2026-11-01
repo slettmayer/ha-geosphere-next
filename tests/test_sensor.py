@@ -254,7 +254,7 @@ async def test_outlook_sensors(
     assert float(gust_12h.state) == pytest.approx(23.4, abs=0.01)
     assert gust_12h.attributes["peak_time"] == "2026-07-16T04:00:00+00:00"
 
-    # The recorded forecast never reaches the 1000 J/kg thunder threshold.
+    # The recorded forecast carries no thunderstorm symbol.
     assert hass.states.get("sensor.geosphere_next_next_thunderstorm").state == "unknown"
 
 
@@ -391,13 +391,12 @@ async def test_outlook_window_re_evaluates_on_the_hour(
 def _two_storm_arome() -> dict:
     """The AROME fixture with storms at 16:00Z (CAPE 1500) and 19:00Z (2500).
 
-    `stormy_arome` wets index 4 (16:00Z); index 7 (19:00Z) gets 1 mm written
-    to `tp` at index 8, which is the rain of the hour *starting* at index 7.
+    `stormy_arome` puts a thunderstorm symbol on index 4 (16:00Z) and index
+    7 (19:00Z); only their CAPE differs.
     """
-    payload = stormy_arome(indexes=(4,), cape=1500.0)
+    payload = stormy_arome(indexes=(4, 7), cape=1500.0)
     parameters = payload["features"][0]["properties"]["parameters"]
     parameters["cape"]["data"][7] = 2500.0
-    parameters["tp"]["data"][8] = 1.0
     return payload
 
 

@@ -98,6 +98,9 @@ async def test_forecast_processing(
     assert first.wind_gust_speed == 1.7
     # `tcc` is published in percent and passed through unscaled.
     assert first.cloud_coverage == 100.0
+    # `sy` covers the interval ending at its stamp, like `tp`, so the hour
+    # beginning 16:00Z reads the 17:00Z code: 5 (Bedeckt).
+    assert first.weather_symbol == 5
     assert first.condition == "cloudy"
     # Magnus from 2t 4.8 / 2r 80.89.
     assert first.dew_point == pytest.approx(1.8)
@@ -754,6 +757,7 @@ async def test_forecast_parameters_are_requested_and_populated(
         "precipitation",
         "snow",
         "cape",
+        "weather_symbol",
         "condition",
         "precipitation_probability",
     ):
@@ -763,40 +767,116 @@ async def test_forecast_parameters_are_requested_and_populated(
         str(call[1]) for call in mock_api.mock_calls if "nwp-v2-1h-1km" in str(call[1])
     ]
     assert arome_urls
-    for name in ("2t", "2r", "10u", "10v", "10fg", "tcc", "tp", "sf", "cape"):
+    for name in ("2t", "2r", "10u", "10v", "10fg", "tcc", "tp", "sf", "cape", "sy"):
         assert all(name in url for url in arome_urls), name
 
 
 @pytest.mark.parametrize(
-    ("cape", "expected"),
+    ("symbol", "expected"),
     [
-        # Ample CAPE plus rain derives a thunderstorm...
-        (1500.0, "lightning-rainy"),
-        # ...and CAPE short of THUNDER_CAPE_JKG keeps it plain rain.
-        (900.0, "rainy"),
+        (26, "lightning-rainy"),
+        (19, "pouring"),
+        (23, "snowy"),
+        (20, "snowy-rainy"),
+        (6, "fog"),
+        (3, "partlycloudy"),
+        (1, "sunny"),
     ],
 )
-async def test_cape_decides_thunder_end_to_end(
+async def test_symbol_decides_the_forecast_condition_end_to_end(
     hass: HomeAssistant,
     mock_config_entry,
     aioclient_mock: AiohttpClientMocker,
     freezer: FrozenDateTimeFactory,
-    cape: float,
+    symbol: int,
     expected: str,
 ) -> None:
-    """End-to-end proof that the thunder test is wired, not just unit-tested.
+    """End-to-end proof that the symbol mapping is wired, not just unit-tested.
 
-    `stormy_arome` wets hour 4 of the fixture (16:00Z) so the derivation can
-    reach `lightning-rainy`; only its CAPE varies across the cases.
+    `stormy_arome` writes `symbol` to the code of the 16:00Z hour (index 5).
+    16:00Z is daytime in Vienna in July, so code 1 is `sunny`.
     """
     freezer.move_to(FROZEN_NOW)
-    aioclient_mock.get(AROME_URL, json=stormy_arome(indexes=(4,), cape=cape))
+    aioclient_mock.get(
+        AROME_URL, json=stormy_arome(indexes=(4,), symbol=symbol, cape=0.0)
+    )
     aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
     aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
     aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
     await _setup(hass, mock_config_entry)
 
-    assert mock_config_entry.runtime_data.forecast.data.hourly[0].condition == expected
+    first = mock_config_entry.runtime_data.forecast.data.hourly[0]
+    assert first.weather_symbol == symbol
+    assert first.condition == expected
+
+
+async def test_forecast_symbol_describes_the_hour_it_starts(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A row reads the symbol stamped one hour on, as it reads `tp`.
+
+    Measured against the live nwp-v2 grid: every precipitation class is wet
+    in `tp` at its own stamp, i.e. it describes the interval *ending* there.
+    A thunderstorm code stamped 17:00Z is therefore the storm of the hour
+    beginning 16:00Z, and one stamped 16:00Z belongs to the hour that has
+    already ended. Reading it at the row's own stamp would show the storm an
+    hour late and keep it an hour after it has passed.
+    """
+    payload = load_fixture("arome.json")
+    sy = payload["features"][0]["properties"]["parameters"]["sy"]["data"]
+    # 16:00Z: the hour 15:00-16:00, already over at the frozen clock.
+    sy[4] = 26.0
+    # 18:00Z: the hour 17:00-18:00.
+    sy[6] = 28.0
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=payload)
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await _setup(hass, mock_config_entry)
+
+    hourly = mock_config_entry.runtime_data.forecast.data.hourly
+    conditions = {hour.datetime.hour: hour.condition for hour in hourly[:3]}
+    assert conditions == {16: "cloudy", 17: "lightning-rainy", 18: "cloudy"}
+
+
+async def test_current_condition_reads_the_symbol_of_the_hour(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Observations decide what falls; the hour's symbol the rest.
+
+    A thunderstorm symbol for the in-progress hour under a dry nowcast is
+    `cloudy` -- the model expects a storm nobody observes -- while the same
+    symbol over observed rain is a thunderstorm. The `weather_symbol` sensor
+    reports the code that was read.
+    """
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=stormy_arome(indexes=(4,), symbol=27))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await _setup(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data.current
+
+    assert coordinator.data.weather_symbol == 27
+    assert coordinator.data.is_precipitating is False
+    assert coordinator.data.condition == "cloudy"
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(AROME_URL, json=stormy_arome(indexes=(4,), symbol=27))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=wet_nowcast(rate_mm=0.5))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await coordinator.async_refresh()
+
+    assert coordinator.data.is_precipitating is True
+    assert coordinator.data.condition == "lightning-rainy"
 
 
 async def test_current_arome_fields_follow_the_clock(
@@ -820,9 +900,10 @@ async def test_current_arome_fields_follow_the_clock(
         return sum("nwp-v2-1h-1km" in str(call[1]) for call in mock_api.mock_calls)
 
     baseline = arome_calls()
-    # Fixture hour 16:00Z: tcc 100 %, cape 2.8.
+    # Fixture hour 16:00Z: tcc 100 %, cape 2.8, symbol 5 (read at 17:00Z).
     assert coordinator.data.cloud_coverage == 100.0
     assert coordinator.data.cape == pytest.approx(2.8)
+    assert coordinator.data.weather_symbol == 5
 
     # Three hours on, without refetching the forecast: hour 19:00Z carries
     # tcc 97 %, cape 7.3.
@@ -831,6 +912,14 @@ async def test_current_arome_fields_follow_the_clock(
     assert arome_calls() == baseline
     assert coordinator.data.cloud_coverage == 97.0
     assert coordinator.data.cape == pytest.approx(7.3)
+
+    # And the symbol: the hour 20:00Z reads code 8 (light rain, stamped
+    # 21:00Z), which the dry nowcast turns into `cloudy`.
+    freezer.move_to("2026-07-15T20:30:00+00:00")
+    await coordinator.async_refresh()
+    assert arome_calls() == baseline
+    assert coordinator.data.weather_symbol == 8
+    assert coordinator.data.condition == "cloudy"
 
 
 async def test_current_falls_back_when_the_forecast_aged_out(

@@ -81,32 +81,30 @@ def load_fixture(name: str) -> dict:
 def stormy_arome(
     *,
     indexes: tuple[int, ...] = (4,),
+    symbol: int = 26,
     cape: float = 1500.0,
-    cloud: float | None = None,
     precipitation: float = 0.5,
 ) -> dict:
     """The recorded AROME fixture with a synthetic storm patched into it.
 
-    SYNTHETIC, derived from `arome.json` — the recording peaks at 29 J/kg
-    CAPE and so never crosses `THUNDER_CAPE_JKG`, which leaves every thunder
-    "on" path untestable. `indexes` are into the fixture's 61 hourly stamps
-    (4 = 2026-07-15T16:00Z, the in-progress hour at the tests' frozen clock).
-    `cloud` optionally overrides `tcc` (%) for those hours, which the
-    dry-thunder branch of `derive_condition` requires.
+    SYNTHETIC, derived from `arome.json` — the recording is a wet November
+    day with no thunderstorm symbol and at most 29 J/kg CAPE, which leaves
+    every thunder "on" path untestable. `indexes` are into the fixture's 61
+    hourly stamps (4 = 2026-07-15T16:00Z, the in-progress hour at the tests'
+    frozen clock), and name the hour each storm *starts*.
 
-    `precipitation` (mm) wets the storm hours, since `derive_condition` needs
-    rain to reach `lightning-rainy`; pass 0.0 for a dry storm. `tp` covers the
-    hour *ending* at its stamp, so the rain of the hour starting at `index` is
-    written to `index + 1`.
+    `sy` and `tp` both describe the interval ending at their stamp, so the
+    storm hour starting at `index` gets `symbol` (a thunderstorm code by
+    default) and `precipitation` (mm) written to `index + 1`. `cape` is
+    instantaneous and goes to `index` itself; nothing derives thunder from it,
+    but the `next_thunderstorm` sensor reports it.
     """
     payload = load_fixture("arome.json")
     parameters = payload["features"][0]["properties"]["parameters"]
     for index in indexes:
+        parameters["sy"]["data"][index + 1] = float(symbol)
         parameters["cape"]["data"][index] = cape
-        if cloud is not None:
-            parameters["tcc"]["data"][index] = cloud
-        if precipitation:
-            parameters["tp"]["data"][index + 1] = precipitation
+        parameters["tp"]["data"][index + 1] = precipitation
     return payload
 
 
