@@ -105,7 +105,7 @@ def derive_condition_from_symbol(symbol: int | None, night: bool) -> str | None:
 
 def is_thunder_symbol(symbol: int | None) -> bool:
     """True when a `sy` code is one of GeoSphere's thunderstorm codes."""
-    return symbol is not None and symbol in SY_THUNDER
+    return symbol in SY_THUNDER
 
 
 def is_precipitating(
@@ -227,6 +227,6 @@ def derive_current_condition(
             return "pouring"
         return "rainy"
 
-    if symbol is not None and symbol in SY_PRECIPITATION:
+    if symbol in SY_PRECIPITATION:
         return "cloudy"
     return derive_condition_from_symbol(symbol, night)
