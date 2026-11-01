@@ -188,7 +188,7 @@ Requires Home Assistant 2025.12.0 or newer. The integration is in the
 4. Pick a location (defaults to your home coordinates).
 
 The forecast covers Austria and the surrounding Alpine region (latitude
-43.0–51.5°, longitude 5.0–22.6°); current
+43.0–51.5°, longitude 5.03–22.57°); current
 conditions (INCA/nowcast) are available inside Austria only. Locations inside
 the forecast domain but outside Austria fall back to forecast-based current
 values automatically.
@@ -274,20 +274,22 @@ measured against TAWES stations to lag by up to ±2 °C on diurnal ramps (too
 cold while warming, too warm while cooling) — precisely the situation above.
 
 **How often does the integration actually hit the API?**
-Less often than the interval sliders suggest. The models rerun on fixed
-cadences — AROME every 3 hours, the C-LAEF ensemble every 12 — so between
-reruns a request would return exactly what the integration already holds. Those
-requests are skipped: the forecast coordinator still wakes on your configured
-interval and re-derives everything that depends on the clock, but only reaches
-the network once the run it holds could have been superseded.
+About as often as the interval sliders suggest, and well inside GeoSphere's
+240 requests/hour. Both forecast models rerun every 3 hours, and a request
+that could only return the run the integration already holds is skipped: the
+forecast coordinator still wakes on your configured interval and re-derives
+everything that depends on the clock, but only reaches the network once the
+run it holds could have been superseded. In practice that is most of the
+time, because GeoSphere publishes a run more than 3 hours after its stamp —
+so the forecast costs up to two requests per interval.
 
 That last part is why the intervals are not simply scheduled against the model
 run times. GeoSphere computes a run well after the hour it is stamped for, and
-the lag is neither published nor constant — measured on 2026-08-17 at 05:02
-UTC, the newest AROME run was 00:00 UTC (the 03:00 run was not out yet) and the
-newest ensemble run was the *previous day's* 12:00 UTC. A schedule pinned to
-00/03/06 would fetch before the data exists; waiting for the run stamp to change
-needs no guess about the lag and adapts on its own if GeoSphere shifts it.
+the lag is neither published nor constant — on 2026-11-01 at 09:19 UTC, the
+newest run of both models was still 03:00 UTC (the 06:00 run was not out yet).
+A schedule pinned to 00/03/06 would fetch before the data exists; waiting for
+the run stamp to change needs no guess about the lag and adapts on its own if
+GeoSphere shifts it.
 
 The **Model run** sensor (diagnostic, enabled by default) shows which run is on
 display. If it looks old, that is usually GeoSphere's publication lag rather

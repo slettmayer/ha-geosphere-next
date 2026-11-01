@@ -106,7 +106,7 @@ as `grid_latitude` / `grid_longitude`, which differs from the requested point.
 
 The forecast/ensemble/WRF-Chem grids cover Austria and the surrounding
 region — for the forecast and ensemble, latitude 43.0–51.5° and longitude
-5.0–22.6° (`bbox_outer` in the dataset metadata); INCA analysis and nowcast are
+5.03–22.57° (`bbox_outer` in the dataset metadata); INCA analysis and nowcast are
 Austria-only. A point outside a grid is answered with HTTP 400 and a `detail`
 of "… is outside of dataset bounds!", which the client maps to
 `GeoSphereOutOfDomainError`; nothing in the integration hard-codes the bounds. The config flow probes both AROME
@@ -117,14 +117,18 @@ and nowcast at setup to decide `has_nowcast` — see
 
 A run's `reference_time` is the hour it is stamped for, not the moment it
 becomes available — GeoSphere computes it well afterwards, and the lag is not
-published. Measured at 47.07/15.44 on 2026-08-17 05:02Z:
+published. Measured from the datasets' `/metadata` (`last_forecast_reftime`),
+polled every 5 min on 2026-11-01 from 08:49Z to 09:19Z:
 
 | Dataset | Cadence | Newest `reference_time` | Implied lag |
 |---|---|---|---|
-| AROME | 3 h | `2026-08-17T00:00Z` | 03:00Z run not yet out → >2 h |
-| C-LAEF ensemble | 12 h | `2026-08-16T12:00Z` | 00:00Z run not yet out → >5 h |
-| INCA nowcast | 15 min | `2026-08-17T04:30Z` | ~30 min |
-| WRF-Chem | 1 d | `2026-08-17T00:00Z` | — |
+| AROME (`nwp-v2-1h-1km`) | 3 h | `2026-11-01T03:00Z` throughout | 06:00Z run not yet out at 09:19Z → >3 h |
+| C-LAEF ensemble (`ensemble-v2-1h-1km`) | 3 h | `2026-11-01T03:00Z` throughout | 06:00Z run not yet out at 09:19Z → >3 h |
+
+The lag is longer than the cadence, so a run is already past its own cadence
+by the time it can be fetched. For the nowcast (15 min cadence) the lag was
+~30 min and WRF-Chem (daily) publishes its 00:00Z run the same morning
+(measured 2026-08-17).
 
 This is why fetches are gated on the cadence rather than scheduled against the
 run hours — see [FORECAST.md](FORECAST.md#run-gating).
@@ -132,10 +136,12 @@ run hours — see [FORECAST.md](FORECAST.md#run-gating).
 ## Dependencies
 - GeoSphere Austria Dataset API — `https://dataset.api.hub.geosphere.at/v1`.
 - Request budget: 5 req/s, 240 req/h (no key). Default polling stays well under
-  it: the forecast coordinator skips AROME and ensemble requests whose run
-  cannot have been superseded, so it costs ~2 req/h at rest and up to ~4 req/h
-  while hunting for a new run, plus the current coordinator's ~4–6 req/h and
-  ~2 req/h with air quality enabled.
+  it. The forecast coordinator skips AROME and ensemble requests whose run
+  cannot have been superseded, but because both publish later than their 3 h
+  cadence (see [Publication latency](#publication-latency)) that gate rarely
+  holds, so expect up to two requests per forecast tick (~4 req/h at the
+  default 30 min), plus the current coordinator's ~4–6 req/h and ~2 req/h with
+  air quality enabled.
 
 ## Design Decisions
 - Datasets are `(mode, resource_id)` tuples so `get_timeseries(*DATASET_X, ...)`
