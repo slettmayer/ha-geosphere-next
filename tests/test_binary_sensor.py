@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
+import pytest
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE
 from homeassistant.core import HomeAssistant
@@ -13,6 +16,7 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
 )
 
+from custom_components.geosphere_next import binary_sensor
 from custom_components.geosphere_next.const import (
     CONF_FORECAST_INTERVAL,
     CONF_HAS_NOWCAST,
@@ -184,6 +188,48 @@ async def test_thunderstorm_expected_re_evaluates_on_the_hour(
     await hass.async_block_till_done()
 
     assert hass.states.get(ENTITY_ID).state == "on"
+
+
+async def test_thunderstorm_expected_scans_the_series_once_per_refresh(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """State and `source` come from one outlook scan, not one each.
+
+    Two scans could straddle an hour boundary and publish an `on` from one
+    window beside a `source` from another.
+    """
+    calls: list[datetime] = []
+    real = binary_sensor.thunderstorm_outlook
+
+    def counting(hourly, hours, now):
+        calls.append(now)
+        return real(hourly, hours, now)
+
+    monkeypatch.setattr(binary_sensor, "thunderstorm_outlook", counting)
+    freezer.move_to(FROZEN_NOW)
+    _mock_api_with(aioclient_mock, stormy_arome(indexes=(4,)))
+    mock_config_entry.add_to_hass(hass)
+    # No data refresh within the hour: only the hour boundary re-evaluates.
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={CONF_FORECAST_INTERVAL: 180}
+    )
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert calls
+
+    calls.clear()
+    freezer.move_to("2026-07-15T17:00:05+00:00")
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    assert len(calls) == 1
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == "off"
+    assert state.attributes["source"] is None
 
 
 async def test_precipitating_is_off_for_a_dry_analysis(

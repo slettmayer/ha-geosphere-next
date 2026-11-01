@@ -33,10 +33,22 @@ from .outlook import thunderstorm_outlook
 
 @dataclass(frozen=True, kw_only=True)
 class GeoSphereBinarySensorEntityDescription(BinarySensorEntityDescription):
-    """Forecast-outlook binary sensor description; both extractors take `now`."""
+    """Forecast-outlook binary sensor description.
 
-    value_fn: Callable[[ForecastData, datetime], bool | None]
-    attributes_fn: Callable[[ForecastData, datetime], dict[str, object]] | None = None
+    `state_fn` returns the state and the attributes together, from one scan
+    of the series at one `now`.
+    """
+
+    state_fn: Callable[[ForecastData, datetime], tuple[bool | None, dict[str, object]]]
+
+
+def _thunderstorm_state(
+    data: ForecastData, now: datetime
+) -> tuple[bool | None, dict[str, object]]:
+    expected, source = thunderstorm_outlook(
+        data.hourly, OUTLOOK_SHORT_HORIZON_HOURS, now
+    )
+    return expected, {"source": source}
 
 
 # The 1-hour horizon rounds up to whole hourly steps (see `outlook._window`
@@ -47,14 +59,7 @@ BINARY_SENSORS: tuple[GeoSphereBinarySensorEntityDescription, ...] = (
     GeoSphereBinarySensorEntityDescription(
         key="thunderstorm_expected_1h",
         translation_key="thunderstorm_expected_1h",
-        value_fn=lambda data, now: thunderstorm_outlook(
-            data.hourly, OUTLOOK_SHORT_HORIZON_HOURS, now
-        )[0],
-        attributes_fn=lambda data, now: {
-            "source": thunderstorm_outlook(
-                data.hourly, OUTLOOK_SHORT_HORIZON_HOURS, now
-            )[1]
-        },
+        state_fn=_thunderstorm_state,
     ),
 )
 
@@ -136,11 +141,8 @@ class GeoSphereBinarySensor(
             self._attr_is_on = None
             self._attr_extra_state_attributes = {}
             return
-        now = dt_util.utcnow()
-        self._attr_is_on = self.entity_description.value_fn(data, now)
-        attributes_fn = self.entity_description.attributes_fn
-        self._attr_extra_state_attributes = (
-            {} if attributes_fn is None else attributes_fn(data, now)
+        self._attr_is_on, self._attr_extra_state_attributes = (
+            self.entity_description.state_fn(data, dt_util.utcnow())
         )
 
     @callback
