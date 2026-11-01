@@ -201,7 +201,11 @@ The **thunderstorm outlook** gets a much tighter bound, because storm blinds
 act on it: the held run feeds the ensemble storm signal only for
 `ENSEMBLE_STORM_MAX_FALLBACK` (3 h, one cadence) after the last *successful
 fetch*; after that the probability may keep the run but the outlook rests on
-the symbol alone, and the warning says which. The bound is measured from the
+the symbol alone, and the warning says which. The coordinator records the
+deadline as `ForecastData.ensemble_storm_valid_until` and the outlook applies
+it when the entities re-evaluate, including at every hour boundary — so the
+signal drops 3 h after the fetch on the clock, not at the next poll, which
+can be up to 180 min away. The bound is measured from the
 fetch rather than from `reference_time` on purpose. Every successful fetch
 returns the newest run there is, so the held run cannot have been superseded
 until the next one is published — at most one cadence later. A bound on run

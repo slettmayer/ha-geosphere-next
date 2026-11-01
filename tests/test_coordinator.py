@@ -20,6 +20,7 @@ from custom_components.geosphere_next import api
 from custom_components.geosphere_next.condition import is_night
 from custom_components.geosphere_next.const import CONF_HAS_NOWCAST, DOMAIN
 from custom_components.geosphere_next.models import ForecastData, GeoSphereResponse
+from custom_components.geosphere_next.outlook import next_thunderstorm
 
 from .conftest import (
     AROME_URL,
@@ -454,8 +455,8 @@ async def test_ensemble_storm_signal_has_a_tighter_fallback_than_probability(
 
     The probability may serve the held run for ENSEMBLE_MAX_FALLBACK_AGE of
     run age, but the storm signal drives storm blinds: one cadence after the
-    last successful fetch a newer run has been published and missed, so the
-    outlook drops the ensemble and rests on the symbol alone.
+    last successful fetch a newer run has been published and missed. The
+    bound travels on `ForecastData` and the outlook applies it when read.
     """
     freezer.move_to(FROZEN_NOW)
     aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
@@ -465,11 +466,15 @@ async def test_ensemble_storm_signal_has_a_tighter_fallback_than_probability(
     await _setup(hass, mock_config_entry)
     coordinator = mock_config_entry.runtime_data.forecast
     storm_hour = datetime(2026, 7, 16, 8, tzinfo=UTC)
+    valid_until = datetime(2026, 7, 15, 19, tzinfo=UTC)
+    assert coordinator.data.ensemble_storm_valid_until == valid_until
 
-    def storm_row():
-        return next(h for h in coordinator.data.hourly if h.datetime == storm_hour)
-
-    assert storm_row().ensemble_cape_p90 == 1500.0
+    def next_storm(now: datetime):
+        return next_thunderstorm(
+            coordinator.data.hourly,
+            now,
+            ensemble_until=coordinator.data.ensemble_storm_valid_until,
+        )
 
     aioclient_mock.clear_requests()
     aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
@@ -478,10 +483,13 @@ async def test_ensemble_storm_signal_has_a_tighter_fallback_than_probability(
     aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
 
     # 2 h after the last success: still inside one cadence.
-    freezer.move_to("2026-07-15T18:00:00+00:00")
+    now = datetime(2026, 7, 15, 18, tzinfo=UTC)
+    freezer.move_to(now)
     await coordinator.async_refresh()
-    assert storm_row().ensemble_cape_p90 == 1500.0
-    assert storm_row().ensemble_precipitation_p90 == 0.5
+    assert coordinator.data.ensemble_storm_valid_until == valid_until
+    hour, source = next_storm(now)
+    assert hour.datetime == storm_hour
+    assert source == "ensemble"
     assert any(
         "for the precipitation probability and the thunderstorm outlook"
         in record.getMessage()
@@ -489,12 +497,14 @@ async def test_ensemble_storm_signal_has_a_tighter_fallback_than_probability(
     )
 
     # 3 h 30 min after it: the storm signal is gone, the probability is not.
-    freezer.move_to("2026-07-15T19:30:00+00:00")
+    now = datetime(2026, 7, 15, 19, 30, tzinfo=UTC)
+    freezer.move_to(now)
     await coordinator.async_refresh()
     assert coordinator.last_update_success
-    assert storm_row().ensemble_cape_p90 is None
-    assert storm_row().ensemble_precipitation_p90 is None
-    assert storm_row().precipitation_probability is not None
+    assert coordinator.data.ensemble_storm_valid_until == valid_until
+    assert next_storm(now) == (None, None)
+    row = next(h for h in coordinator.data.hourly if h.datetime == storm_hour)
+    assert row.precipitation_probability is not None
     assert any(
         "the thunderstorm outlook drops its ensemble signal" in record.getMessage()
         for record in caplog.records

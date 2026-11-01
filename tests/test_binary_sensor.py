@@ -215,9 +215,9 @@ async def test_thunderstorm_expected_scans_the_series_once_per_refresh(
     calls: list[datetime] = []
     real = binary_sensor.thunderstorm_outlook
 
-    def counting(hourly, hours, now):
+    def counting(hourly, hours, now, **kwargs):
         calls.append(now)
-        return real(hourly, hours, now)
+        return real(hourly, hours, now, **kwargs)
 
     monkeypatch.setattr(binary_sensor, "thunderstorm_outlook", counting)
     freezer.move_to(FROZEN_NOW)
@@ -240,6 +240,68 @@ async def test_thunderstorm_expected_scans_the_series_once_per_refresh(
     state = hass.states.get(ENTITY_ID)
     assert state.state == "off"
     assert state.attributes["source"] is None
+
+
+async def test_ensemble_storm_signal_expires_on_the_clock_not_at_the_next_poll(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The one-cadence bound holds at 3 h of wall-clock time.
+
+    With a 150 min poll the ensemble is fetched at 16:00Z and the next poll,
+    at 18:30Z, fails and keeps the held run. The hour-boundary re-evaluation
+    at 19:00Z -- 3 h after the fetch, before the 21:00Z poll -- must already
+    drop its storm signal.
+    """
+    freezer.move_to(FROZEN_NOW)
+    _mock_api_with(
+        aioclient_mock,
+        load_fixture("arome.json"),
+        stormy_ensemble(indexes=tuple(range(4, 12))),
+    )
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={CONF_FORECAST_INTERVAL: 150}
+    )
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY_ID).attributes["source"] == "ensemble"
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, status=500)
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+
+    freezer.move_to("2026-07-15T18:30:01+00:00")
+    async_fire_time_changed(hass)
+    # The interval refresh runs as a background task.
+    await hass.async_block_till_done(wait_background_tasks=True)
+    ensemble_calls = sum(
+        "ensemble-v2-1h-1km" in str(call[1]) for call in aioclient_mock.mock_calls
+    )
+    assert ensemble_calls > 0
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == "on"
+    assert state.attributes["source"] == "ensemble"
+
+    forecast_calls = len(aioclient_mock.mock_calls)
+    freezer.move_to("2026-07-15T19:00:05+00:00")
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    # No forecast fetch between the 18:30Z poll and this boundary.
+    assert not [
+        call
+        for call in aioclient_mock.mock_calls[forecast_calls:]
+        if "nwp-v2-1h-1km" in str(call[1]) or "ensemble-v2-1h-1km" in str(call[1])
+    ]
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == "off"
+    assert state.attributes["source"] is None
+    next_storm = hass.states.get("sensor.geosphere_next_next_thunderstorm")
+    assert next_storm.state == "unknown"
 
 
 async def test_precipitating_is_off_for_a_dry_analysis(

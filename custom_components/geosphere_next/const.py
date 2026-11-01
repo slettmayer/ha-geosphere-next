@@ -178,7 +178,9 @@ ENSEMBLE_MAX_FALLBACK_AGE = timedelta(hours=12)
 # after the last success, a newer run has therefore been missed. A bound on
 # `reference_time` would instead have to cover the publication lag, which is
 # unpublished and longer than the cadence (see DATASETS.md), so it could hardly
-# be tighter than the probability's.
+# be tighter than the probability's. The outlook applies it when it is read
+# (`ForecastData.ensemble_storm_valid_until`), so it holds on the clock however
+# long the forecast poll interval is.
 ENSEMBLE_STORM_MAX_FALLBACK = ENSEMBLE_RUN_INTERVAL
 
 # Stepped precipitation probability, an estimate derived here from the

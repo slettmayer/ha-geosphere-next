@@ -79,6 +79,9 @@ class ForecastData:
     # "Step 0" snapshot for current-state fallbacks (first future-most hour).
     current: HourlyForecast | None = None
     snow_limit: float | None = None
+    # Until when the outlook may read the rows' ensemble storm percentiles;
+    # `None` when there is no ensemble run.
+    ensemble_storm_valid_until: datetime | None = None
 
 
 @dataclass(slots=True)

@@ -182,8 +182,9 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         # publishes a forecast that starts at the hour under way on every tick
         # of the configured interval, fetch or no fetch.
         arome = await self._async_get_arome()
-        ensemble, fetched, ensemble_storm = await self._async_get_ensemble()
-        data = self._process(arome, ensemble, ensemble_storm=ensemble_storm)
+        ensemble, fetched = await self._async_get_ensemble()
+        fetched_at = dt_util.utcnow() if fetched else self._ensemble_fetched_at
+        data = self._process(arome, ensemble, ensemble_fetched_at=fetched_at)
 
         # Cache only what produced a usable forecast. A run that parses but
         # cannot be processed — a truncated series, or one whose every stamp
@@ -193,8 +194,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         # pre-gating recovery: the next tick fetches again.
         self._arome = arome
         self._ensemble = ensemble
-        if fetched:
-            self._ensemble_fetched_at = dt_util.utcnow()
+        self._ensemble_fetched_at = fetched_at
         return data
 
     def _series_start(self) -> datetime:
@@ -238,12 +238,11 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
 
     async def _async_get_ensemble(
         self,
-    ) -> tuple[GeoSphereResponse | None, bool, bool]:
+    ) -> tuple[GeoSphereResponse | None, bool]:
         """Return the C-LAEF run, re-fetching only once it can have been rerun.
 
-        Returns `(run, fetched, storm)`: the run to use, whether it was just
-        fetched, and whether the thunderstorm outlook may read its storm
-        percentiles.
+        Returns `(run, fetched)`: the run to use, and whether it was just
+        fetched.
 
         The percentiles add the precipitation probability and the outlook's
         ensemble storm signal, so a failure must not take the forecast down. A
@@ -260,11 +259,13 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         The outlook, which storm blinds act on, keeps it only for
         `ENSEMBLE_STORM_MAX_FALLBACK` after the last successful fetch, after
         which a newer run has been missed; it then rests on the weather symbol
-        alone.
+        alone. That bound is carried on `ForecastData` and applied by the
+        outlook when it is read, so it holds on the clock rather than at the
+        next poll; the warning here only reports where it stands.
         """
         cached = self._ensemble
         if cached is not None and _run_is_current(cached, ENSEMBLE_RUN_INTERVAL):
-            return cached, False, True
+            return cached, False
 
         try:
             response = await self._client.get_timeseries(
@@ -277,7 +278,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         except GeoSphereApiError as err:
             error = err
         else:
-            return response, True, True
+            return response, True
 
         if cached is None or not _run_is_current(cached, ENSEMBLE_MAX_FALLBACK_AGE):
             _LOGGER.warning(
@@ -285,7 +286,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                 "and the thunderstorm outlook's ensemble signal: %s",
                 error,
             )
-            return None, False, False
+            return None, False
         fetched_at = self._ensemble_fetched_at
         storm = (
             fetched_at is not None
@@ -306,14 +307,14 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                 cached.reference_time,
                 error,
             )
-        return cached, False, storm
+        return cached, False
 
     def _process(
         self,
         response: GeoSphereResponse,
         ensemble: GeoSphereResponse | None = None,
         *,
-        ensemble_storm: bool = True,
+        ensemble_fetched_at: datetime | None = None,
     ) -> ForecastData:
         now = dt_util.utcnow()
         hourly: list[HourlyForecast] = []
@@ -356,11 +357,13 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                 ts: ensemble.value_at("cape_p90", i)
                 for i, ts in enumerate(ensemble.timestamps)
             }
-        # A held run past ENSEMBLE_STORM_MAX_FALLBACK still feeds the
-        # probability, but no longer the storm signal.
-        if not ensemble_storm:
-            tp_p90_by_ts = {}
-            cape_p90_by_ts = {}
+        # How long the outlook may read the storm percentiles: one cadence
+        # after the run was fetched. Enforced at read time by the outlook.
+        ensemble_storm_valid_until = (
+            ensemble_fetched_at + ENSEMBLE_STORM_MAX_FALLBACK
+            if ensemble is not None and ensemble_fetched_at is not None
+            else None
+        )
 
         # Keep the in-progress hour so the forecast starts at the current hour
         # (matching OWM / Open-Meteo), comparing against the top of the hour
@@ -449,6 +452,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
             hourly=hourly,
             current=hourly[0],
             snow_limit=snow_limit,
+            ensemble_storm_valid_until=ensemble_storm_valid_until,
         )
 
 

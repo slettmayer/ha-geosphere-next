@@ -46,7 +46,10 @@ def _thunderstorm_state(
     data: ForecastData, now: datetime
 ) -> tuple[bool | None, dict[str, object]]:
     expected, source = thunderstorm_outlook(
-        data.hourly, OUTLOOK_SHORT_HORIZON_HOURS, now
+        data.hourly,
+        OUTLOOK_SHORT_HORIZON_HOURS,
+        now,
+        ensemble_until=data.ensemble_storm_valid_until,
     )
     return expected, {"source": source}
 

@@ -353,7 +353,9 @@ def _next_thunderstorm_state(
     `ensemble_cape_p90` the ensemble's 90th percentile, behind the ensemble
     signal. Both are reported whichever signal fired.
     """
-    hour, source = next_thunderstorm(data.hourly, now)
+    hour, source = next_thunderstorm(
+        data.hourly, now, ensemble_until=data.ensemble_storm_valid_until
+    )
     if hour is None:
         return None, {"cape": None, "ensemble_cape_p90": None, "source": None}
     return hour.datetime, {

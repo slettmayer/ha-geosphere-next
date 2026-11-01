@@ -622,9 +622,9 @@ async def test_outlook_sensors_scan_the_series_once_per_refresh(
         calls.append(f"max_gust {hours}")
         return real_gust(hourly, hours, now)
 
-    def counting_storm(hourly, now):
+    def counting_storm(hourly, now, **kwargs):
         calls.append("next_thunderstorm")
-        return real_storm(hourly, now)
+        return real_storm(hourly, now, **kwargs)
 
     monkeypatch.setattr(sensor, "max_gust", counting_gust)
     monkeypatch.setattr(sensor, "next_thunderstorm", counting_storm)

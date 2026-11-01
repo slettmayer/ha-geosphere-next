@@ -73,6 +73,15 @@ def _is_lightning(hour: HourlyForecast) -> bool:
     return is_thunder_symbol(hour.weather_symbol)
 
 
+def _ensemble_usable(now: datetime, ensemble_until: datetime | None) -> bool:
+    """Whether the ensemble storm percentiles may still be read at `now`.
+
+    `ensemble_until` is `ForecastData.ensemble_storm_valid_until`; `None`
+    leaves them unbounded (rows without an ensemble carry no percentiles).
+    """
+    return ensemble_until is None or now < ensemble_until
+
+
 def _is_ensemble_storm(hour: HourlyForecast) -> bool:
     """True when the ensemble's 90th percentiles allow a thunderstorm.
 
@@ -102,16 +111,18 @@ def _source(symbol: bool, ensemble: bool) -> str | None:
     return None
 
 
-def _is_decidable(hour: HourlyForecast) -> bool:
+def _is_decidable(hour: HourlyForecast, ensemble: bool) -> bool:
     """True when the hour carries enough data to judge thunder either way.
 
     Either signal suffices: a weather symbol from GeoSphere's table, or both
     ensemble percentiles. A code outside the table is unreadable, not calm.
-    An hour with neither says nothing about thunder — "no storm" would be a
+    Ensemble percentiles past their validity do not count. An hour with
+    neither says nothing about thunder — "no storm" would be a
     guess, not an answer.
     """
     return hour.weather_symbol in SY_CODES or (
-        hour.ensemble_cape_p90 is not None
+        ensemble
+        and hour.ensemble_cape_p90 is not None
         and hour.ensemble_precipitation_p90 is not None
     )
 
@@ -144,7 +155,10 @@ def max_cape(hourly: list[HourlyForecast], hours: int, now: datetime) -> float |
 
 
 def next_thunderstorm(
-    hourly: list[HourlyForecast], now: datetime
+    hourly: list[HourlyForecast],
+    now: datetime,
+    *,
+    ensemble_until: datetime | None = None,
 ) -> tuple[HourlyForecast | None, str | None]:
     """First thunderstorm hour, and which signal fired in it.
 
@@ -167,18 +181,23 @@ def next_thunderstorm(
     `max(0, (next_thunderstorm - now) minutes)`, rather than assuming the
     timestamp is always in the future.
     """
+    ensemble = _ensemble_usable(now, ensemble_until)
     start = now.replace(minute=0, second=0, microsecond=0)
     for hour in hourly:
         if hour.datetime < start:
             continue
-        source = _source(_is_lightning(hour), _is_ensemble_storm(hour))
+        source = _source(_is_lightning(hour), ensemble and _is_ensemble_storm(hour))
         if source is not None:
             return hour, source
     return None, None
 
 
 def thunderstorm_outlook(
-    hourly: list[HourlyForecast], hours: int, now: datetime
+    hourly: list[HourlyForecast],
+    hours: int,
+    now: datetime,
+    *,
+    ensemble_until: datetime | None = None,
 ) -> tuple[bool | None, str | None]:
     """Tri-state thunderstorm outlook for the horizon, and which signal fired.
 
@@ -191,14 +210,19 @@ def thunderstorm_outlook(
     and `None` when it holds none at all or none that are decidable — so an
     entity can report "unknown" instead of a confident "off" on a data gap.
     The source is `None` unless the outlook is on.
+
+    Ensemble percentiles count only before `ensemble_until`, the
+    `ForecastData.ensemble_storm_valid_until` bound; applying it here, at
+    read time, makes it hold on the clock rather than at the next poll.
     """
+    ensemble = _ensemble_usable(now, ensemble_until)
     window = _window(hourly, hours, now)
     source = _source(
         any(_is_lightning(hour) for hour in window),
-        any(_is_ensemble_storm(hour) for hour in window),
+        ensemble and any(_is_ensemble_storm(hour) for hour in window),
     )
     if source is not None:
         return True, source
-    if not any(_is_decidable(hour) for hour in window):
+    if not any(_is_decidable(hour, ensemble) for hour in window):
         return None, None
     return False, None
