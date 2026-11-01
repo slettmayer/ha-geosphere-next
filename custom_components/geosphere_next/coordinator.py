@@ -92,17 +92,10 @@ class GeoSphereNextData:
     air_quality: GeoSphereAirQualityCoordinator | None = None
 
 
-def _percent(value: float | None) -> float | None:
-    """Normalize AROME tcc (verified 0-1 scale) to percent."""
-    if value is None:
-        return None
-    return round(value * 100.0, 0)
-
-
 def _precipitation_probability(
     p10: float | None, p50: float | None, p90: float | None
 ) -> int | None:
-    """Stepped probability of a wet hour (>= PRECIP_MIN_MM) from rr percentiles.
+    """Stepped probability of a wet hour (>= PRECIP_MIN_MM) from tp percentiles.
 
     The ensemble API only publishes p10/p50/p90 (no member fractions), so the
     wettest percentile above the threshold bounds the share of wet members and
@@ -144,20 +137,6 @@ def _run_is_current(response: GeoSphereResponse | None, cadence: timedelta) -> b
     if response is None or response.reference_time is None:
         return False
     return timedelta(0) <= dt_util.utcnow() - response.reference_time < cadence
-
-
-def _diff(series: list[float | None], index: int) -> float | None:
-    """Hourly value from a run-accumulated series: acc[i] - acc[i-1].
-
-    Negative deltas (accumulation reset on a new model run) clamp to 0.
-    Index 0 has no predecessor and returns None.
-    """
-    if index < 1 or index >= len(series):
-        return None
-    current, previous = series[index], series[index - 1]
-    if current is None or previous is None:
-        return None
-    return max(round(current - previous, 2), 0.0)
 
 
 class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData]):
@@ -249,10 +228,6 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
     async def _async_get_ensemble(self) -> GeoSphereResponse | None:
         """Return the C-LAEF run, re-fetching only once it can have been rerun.
 
-        The 12 h cadence makes this the biggest saving of the two: polled
-        blind, an ensemble that changes twice a day was re-fetched on every
-        tick of a 30 min interval.
-
         The percentiles only add the precipitation probability, so a failure
         must not take the forecast down. A failed *re*-fetch degrades to the
         run already held rather than to nothing — the percentiles are matched
@@ -293,10 +268,9 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
     ) -> ForecastData:
         now = dt_util.utcnow()
         hourly: list[HourlyForecast] = []
-        # Read off the row that becomes `hourly[0]`, below. Both are
-        # instantaneous at that row's own stamp, so they describe the same hour
-        # as `current` by construction rather than by a second index kept in
-        # step with it.
+        # Read off the row that becomes `hourly[0]`, below. Both are read at
+        # that row's own stamp, so they describe the same hour as `current` by
+        # construction rather than by a second index kept in step with it.
         symbol: float | None = None
         snow_limit: float | None = None
 
@@ -304,7 +278,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         # matched by exact timestamp); missing hours yield no probability.
         #
         # The percentiles are interval values, like the AROME fields below:
-        # "Total amount of ... precipitation in the last forecast period". The
+        # "total amount of ... precipitation in the last forecast interval". The
         # probability stamped `ts` therefore belongs to the period *ending* at
         # `ts`, so it is keyed by that period's start — which is simply the
         # preceding stamp, the row that reports the matching amount.
@@ -320,9 +294,9 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         if ensemble is not None:
             for i in range(1, len(ensemble.timestamps)):
                 pop_by_ts[ensemble.timestamps[i - 1]] = _precipitation_probability(
-                    ensemble.value_at("rr_p10", i),
-                    ensemble.value_at("rr_p50", i),
-                    ensemble.value_at("rr_p90", i),
+                    ensemble.value_at("tp_p10", i),
+                    ensemble.value_at("tp_p50", i),
+                    ensemble.value_at("tp_p90", i),
                 )
 
         # Keep the in-progress hour so the forecast starts at the current hour
@@ -330,14 +304,12 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         # rather than the exact instant.
         #
         # A row stamped `ts` describes the hour *beginning* at `ts` — Home
-        # Assistant's forecast convention. AROME mixes two stampings, and the
-        # dataset metadata is explicit about which is which:
-        #   * instantaneous AT the stamp: t2m, rh2m, u10m/v10m, tcc, cape,
-        #     cin, snowlmt, sy;
-        #   * the interval ENDING at the stamp: ugust/vgust and mnt2m/mxt2m
-        #     ("... in the last forecast intervall"), plus the rr_acc /
-        #     snow_acc deltas, which are accumulations since the run start so
-        #     acc[i] - acc[i-1] spans (ts[i-1], ts[i]].
+        # Assistant's forecast convention. The dataset mixes two stampings (see
+        # AROME_PARAMETERS for how each was classified):
+        #   * instantaneous AT the stamp: 2t, 2r, 10u/10v, tcc, cape, snowlmt,
+        #     and sy, whose cloud classes follow `tcc` at the same stamp;
+        #   * the interval ENDING at the stamp: 10fg, tp and sf ("... in the
+        #     last forecast interval"), each already a per-hour value.
         # The interval fields covering the hour that *starts* at `ts` therefore
         # live one step later, at `nxt`. Reading them at `i` would report the
         # hour that already ended — rain that has stopped, the previous hour's
@@ -352,24 +324,19 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                 symbol = response.value_at("sy", i)
                 snow_limit = response.value_at("snowlmt", i)
             wind_speed, wind_bearing = wind_from_components(
-                response.value_at("u10m", i), response.value_at("v10m", i)
+                response.value_at("10u", i), response.value_at("10v", i)
             )
-            gust_speed, _ = wind_from_components(
-                response.value_at("ugust", nxt), response.value_at("vgust", nxt)
-            )
-            precipitation = _diff(response.series("rr_acc"), nxt)
-            snow = _diff(response.series("snow_acc"), nxt)
-            cloud = _percent(response.value_at("tcc", i))
+            gust_speed = response.value_at("10fg", nxt)
+            precipitation = response.value_at("tp", nxt)
+            snow = response.value_at("sf", nxt)
+            cloud = response.value_at("tcc", i)
             cape = response.value_at("cape", i)
-            cin = response.value_at("cin", i)
-            temperature = response.value_at("t2m", i)
-            humidity = response.value_at("rh2m", i)
+            temperature = response.value_at("2t", i)
+            humidity = response.value_at("2r", i)
             hourly.append(
                 HourlyForecast(
                     datetime=ts,
                     temperature=temperature,
-                    templow=response.value_at("mnt2m", nxt),
-                    temphigh=response.value_at("mxt2m", nxt),
                     humidity=humidity,
                     precipitation=precipitation,
                     snow=snow,
@@ -378,7 +345,6 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                     wind_gust_speed=gust_speed,
                     cloud_coverage=cloud,
                     cape=cape,
-                    cin=cin,
                     dew_point=dew_point_from_t_rh(temperature, humidity),
                     precipitation_probability=pop_by_ts.get(ts),
                     condition=derive_condition(
@@ -386,7 +352,6 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                         snow,
                         cloud,
                         cape,
-                        cin,
                         gust_speed,
                         is_night(self.latitude, self.longitude, ts),
                     ),
@@ -507,8 +472,8 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         # forecast fetch: this coordinator runs every 15 min by default while
         # the forecast one can be up to 180 min apart. The step-0 snapshot —
         # the hour that was in progress when the forecast was last fetched —
-        # can therefore be hours old. Cloud cover, CAPE and CIN have no other
-        # source, and all three feed the derived condition, so the reported
+        # can therefore be hours old. Cloud cover and CAPE have no other
+        # source, and both feed the derived condition, so the reported
         # condition would go stale with it. Pick the hour covering `now`
         # instead, degrading to that snapshot only when the series no longer
         # covers now at all.
@@ -571,7 +536,6 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         gust = chain(now_value("fx"), arome.wind_gust_speed if arome else None)
         cloud = chain(arome.cloud_coverage if arome else None)
         cape = arome.cape if arome else None
-        cin = arome.cin if arome else None
 
         p0, _ = inca_latest("P0")
         # INCA `RR` is the only source for the hourly accumulation. Summing
@@ -652,10 +616,8 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
             else ((rr_1h or 0.0) if rr_1h_is_current else 0.0)
         )
         # A single bucket can round to 0.0 in the gap between cells of an
-        # active storm, reporting 0 mm/h mid-thunderstorm and starving both
-        # the `pouring` branch and the downpour override that lets observed
-        # rain overrule a modelled CIN lid -- the very case that override
-        # exists for (see `condition.derive_current_condition`). So once the
+        # active storm, reporting 0 mm/h mid-downpour and starving the
+        # `pouring` branch of `condition.derive_current_condition`. So once the
         # nowcast's own `pt` code says it is precipitating, take the peak
         # across the last RATE_LOOKBACK rather than the matched bucket alone.
         #
@@ -663,7 +625,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         # the whole past hour, so substituting it for an instantaneous rate
         # reports rain that has already stopped: 6 mm falling in the first 20
         # minutes and ending, with drizzle keeping `pt` non-zero, would read
-        # as 6 mm/h and derive a thunderstorm from a capped, drizzling sky.
+        # as 6 mm/h and derive `pouring` from a drizzling sky.
         if (
             nowcast is not None
             and precipitation_type is not None
@@ -738,7 +700,6 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
             global_radiation=inca_latest("GL")[0],
             snow_limit=forecast_data.snow_limit if forecast_data else None,
             cape=cape,
-            cin=cin,
             weather_symbol=forecast_data.weather_symbol if forecast_data else None,
             condition=derive_current_condition(
                 precipitation_type=precipitation_type,
@@ -748,7 +709,6 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
                 wind_speed=wind_speed,
                 cloud_coverage=cloud,
                 cape=cape,
-                cin=cin,
                 gust_speed=gust,
                 night=night,
             ),

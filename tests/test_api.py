@@ -43,18 +43,21 @@ async def test_parse_arome_response(
     client = GeoSphereApiClient(api_session)
     response = await client.get_timeseries(
         "forecast",
-        "nwp-v1-1h-2500m",
-        parameters=("t2m", "tcc"),
-        latitude=48.2208,
-        longitude=16.3738,
+        "nwp-v2-1h-1km",
+        parameters=("2t", "tcc"),
+        latitude=46.63,
+        longitude=14.15,
     )
 
     assert response.reference_time is not None
     assert response.reference_time.isoformat() == "2026-07-15T12:00:00+00:00"
-    assert len(response.timestamps) == 58
-    assert response.grid_latitude == pytest.approx(48.219, abs=0.001)
-    assert response.value_at("t2m", 0) is not None
-    assert response.parameters["tcc"].unit == "1"
+    assert len(response.timestamps) == 61
+    assert response.grid_latitude == pytest.approx(46.629, abs=0.001)
+    assert response.value_at("2t", 0) is not None
+    assert response.parameters["tcc"].unit == "%"
+    # Interval-ending parameters have no value at the run's own t0.
+    assert "tp" in response.parameters
+    assert response.value_at("tp", 0) is None
     # Unknown parameter degrades to a None series, not a KeyError.
     assert response.value_at("nonexistent", 0) is None
 
@@ -71,8 +74,8 @@ async def test_out_of_domain_error(
     with pytest.raises(GeoSphereOutOfDomainError):
         await client.get_timeseries(
             "forecast",
-            "nwp-v1-1h-2500m",
-            parameters=("t2m",),
+            "nwp-v2-1h-1km",
+            parameters=("2t",),
             latitude=52.52,
             longitude=13.405,
         )
@@ -86,8 +89,8 @@ async def test_rate_limit_error(
     with pytest.raises(GeoSphereRateLimitError) as err:
         await client.get_timeseries(
             "forecast",
-            "nwp-v1-1h-2500m",
-            parameters=("t2m",),
+            "nwp-v2-1h-1km",
+            parameters=("2t",),
             latitude=48.0,
             longitude=16.0,
         )
@@ -102,8 +105,8 @@ async def test_unexpected_shape_raises_api_error(
     with pytest.raises(GeoSphereApiError):
         await client.get_timeseries(
             "forecast",
-            "nwp-v1-1h-2500m",
-            parameters=("t2m",),
+            "nwp-v2-1h-1km",
+            parameters=("2t",),
             latitude=48.0,
             longitude=16.0,
         )
@@ -113,8 +116,8 @@ async def _fetch(client: GeoSphereApiClient):
     """Request the AROME dataset, the URL the retry tests are wired to."""
     return await client.get_timeseries(
         "forecast",
-        "nwp-v1-1h-2500m",
-        parameters=("t2m",),
+        "nwp-v2-1h-1km",
+        parameters=("2t",),
         latitude=48.0,
         longitude=16.0,
     )
@@ -178,7 +181,7 @@ async def test_server_error_gives_up_after_three_attempts(
 
     assert err.value.status == 502
     # The message the coordinator logs — unchanged by the retry.
-    assert "HTTP 502 for nwp-v1-1h-2500m" in str(err.value)
+    assert "HTTP 502 for nwp-v2-1h-1km" in str(err.value)
     assert aioclient_mock.call_count == api.MAX_ATTEMPTS
 
 

@@ -24,38 +24,42 @@ as `grid_latitude` / `grid_longitude`, which differs from the requested point.
 
 ### Forecast datasets
 
-- **AROME** — `("forecast", "nwp-v1-1h-2500m")`. Deterministic NWP model, 2.5 km
-  grid, model reruns every 3 h, ~60 h hourly horizon. The primary forecast source
-  and the ultimate current-conditions fallback (its hour covering now). Parameters
-  (`AROME_PARAMETERS`): `t2m`, `mnt2m`, `mxt2m` (temp / min / max), `rh2m`
-  (humidity), `u10m` / `v10m` (wind components), `ugust` / `vgust` (gust
-  components), `tcc` (cloud cover, 0–1), `rr_acc` / `snow_acc` (run-accumulated
-  precipitation / snow), `snowlmt` (snow limit, m), `grad` (global radiation),
-  `cape` (J/kg), `cin` (convective inhibition, J/kg), `sy` (proprietary
-  weather-symbol code).
+- **AROME** (the code's name for the deterministic forecast) —
+  `("forecast", "nwp-v2-1h-1km")`. The deterministic control run of the C-LAEF
+  AlpeAdria ensemble, 1 km grid, reruns every 3 h, 61 hourly stamps from the
+  run's t0. The primary forecast source and the ultimate current-conditions
+  fallback (its hour covering now). Parameters (`AROME_PARAMETERS`): `2t`
+  (temperature, °C), `2r` (humidity, %), `10u` / `10v` (wind components),
+  `10fg` (peak 10 m gust, m/s), `tcc` (cloud cover, **%**, 0–100), `tp` / `sf`
+  (per-hour precipitation / snowfall, kg m⁻²), `snowlmt` (snow limit, m),
+  `cape` (J/kg), `sy` (proprietary weather-symbol code).
 
-  AROME publishes `cin` in J/kg as a negative quantity; the observed range in
-  the recorded fixture is −49.5 to 0.0, where 0.0 means uncapped and more
-  negative means a stronger lid. It gates the thunder decision in
-  [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md) — see that doc for the
-  threshold.
+  Each parameter is either instantaneous at its stamp or covers the interval
+  *ending* at it, and which is decided by measurement, not by name: requested
+  from the run's own t0, an interval parameter is `null` at index 0
+  (measured 2026-11-01). `10fg`, `tp` and `sf` are interval-ending; `2t`, `2r`,
+  `10u`/`10v`, `tcc`, `cape` and `snowlmt` are instantaneous. `sy` is `null`
+  at t0 as well, but its cloud classes (codes 1–5) bin exactly on `tcc` at
+  its own stamp (1: 0–10 %, 2: 11–30 %, 3: 32–60 %, 4: 61–90 %, 5: 90–100 %),
+  so it is read at the stamp; its precipitation codes follow `tp` at the same
+  stamp. The dataset also publishes `msl`, `pt` (a precipitation-type code
+  distinct from the nowcast's), `rain`, `ssrd` and `sund`, which are not
+  requested. See [FORECAST.md](FORECAST.md) for how each stamping is read.
 
-  That threshold (`CAP_CIN_JKG = 50.0`, i.e. thunder needs `cin > -50`) sits
-  just outside every value in the fixture: the strongest recorded lid is
-  −49.5. On this sample the gate therefore suppresses nothing, and it is
-  exercised only by synthetic test values. 50 J/kg is a defensible boundary
-  for weak inhibition and a single 57-hour July recording is not evidence the
-  threshold is wrong, but real-world discrimination is unconfirmed. A fixture
-  recorded during a genuinely capped situation (a capped spring/summer
-  airmass, `cin` well below −50) would be worth capturing.
+  There is no convective inhibition, no 2 m min/max temperature and no
+  run-accumulated series in this dataset. Thunder is therefore decided on CAPE
+  alone — see [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md).
 
-  AROME declares CAPE's unit as `m2 s-2`, which is dimensionally identical to
-  J/kg, so the `J/kg` label this integration uses is numerically correct.
-- **C-LAEF ensemble** — `("forecast", "ensemble-v1-1h-2500m")`. Probabilistic
-  companion, 2.5 km-class grid, model reruns every 12 h, ~61 h length. Publishes
-  only three precipitation percentiles per hour (`ENSEMBLE_PARAMETERS`:
-  `rr_p10`, `rr_p50`, `rr_p90`, kg m⁻²) — no member counts or true wet-fraction.
-  Consumed only to derive the stepped precipitation probability.
+  The dataset declares CAPE's unit as `m2 s-2`, which is dimensionally
+  identical to J/kg, so the `J/kg` label this integration uses is numerically
+  correct.
+- **C-LAEF ensemble** — `("forecast", "ensemble-v2-1h-1km")`. Probabilistic
+  companion on the same 1 km grid, reruns every 3 h, 61 hourly stamps. Of its
+  percentile parameters only the precipitation ones are requested
+  (`ENSEMBLE_PARAMETERS`: `tp_p10`, `tp_p50`, `tp_p90`, kg m⁻²) — no member
+  counts or true wet-fraction. Like `tp` they are per-hour amounts for the
+  interval ending at their stamp (`null` at t0). Consumed only to derive the
+  stepped precipitation probability.
 - **INCA nowcast** — `("forecast", "nowcast-v1-15min-1km")`. 1 km, 15-min cadence,
   Austria-only grid. Parameters (`NOWCAST_PARAMETERS`): `t2m`, `td` (dew point),
   `rh2m`, `rr` (15-min precipitation), `pt` (precipitation-type code), `dd` (wind
@@ -100,8 +104,12 @@ as `grid_latitude` / `grid_longitude`, which differs from the requested point.
 
 ### Domain coverage
 
-The AROME/ensemble/WRF-Chem grids cover Austria and the surrounding region;
-INCA analysis and nowcast are Austria-only. The config flow probes both AROME
+The forecast/ensemble/WRF-Chem grids cover Austria and the surrounding
+region — for the forecast and ensemble, latitude 43.0–51.5° and longitude
+5.03–22.57° (`bbox_outer` in the dataset metadata); INCA analysis and nowcast are
+Austria-only. A point outside a grid is answered with HTTP 400 and a `detail`
+of "… is outside of dataset bounds!", which the client maps to
+`GeoSphereOutOfDomainError`; nothing in the integration hard-codes the bounds. The config flow probes both AROME
 and nowcast at setup to decide `has_nowcast` — see
 [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md).
 
@@ -109,14 +117,18 @@ and nowcast at setup to decide `has_nowcast` — see
 
 A run's `reference_time` is the hour it is stamped for, not the moment it
 becomes available — GeoSphere computes it well afterwards, and the lag is not
-published. Measured at 47.07/15.44 on 2026-08-17 05:02Z:
+published. Measured from the datasets' `/metadata` (`last_forecast_reftime`),
+polled every 5 min on 2026-11-01 from 08:49Z to 09:19Z:
 
 | Dataset | Cadence | Newest `reference_time` | Implied lag |
 |---|---|---|---|
-| AROME | 3 h | `2026-08-17T00:00Z` | 03:00Z run not yet out → >2 h |
-| C-LAEF ensemble | 12 h | `2026-08-16T12:00Z` | 00:00Z run not yet out → >5 h |
-| INCA nowcast | 15 min | `2026-08-17T04:30Z` | ~30 min |
-| WRF-Chem | 1 d | `2026-08-17T00:00Z` | — |
+| AROME (`nwp-v2-1h-1km`) | 3 h | `2026-11-01T03:00Z` throughout | 06:00Z run not yet out at 09:19Z → >3 h |
+| C-LAEF ensemble (`ensemble-v2-1h-1km`) | 3 h | `2026-11-01T03:00Z` throughout | 06:00Z run not yet out at 09:19Z → >3 h |
+
+The lag is longer than the cadence, so a run is already past its own cadence
+by the time it can be fetched. For the nowcast (15 min cadence) the lag was
+~30 min and WRF-Chem (daily) publishes its 00:00Z run the same morning
+(measured 2026-08-17).
 
 This is why fetches are gated on the cadence rather than scheduled against the
 run hours — see [FORECAST.md](FORECAST.md#run-gating).
@@ -124,10 +136,12 @@ run hours — see [FORECAST.md](FORECAST.md#run-gating).
 ## Dependencies
 - GeoSphere Austria Dataset API — `https://dataset.api.hub.geosphere.at/v1`.
 - Request budget: 5 req/s, 240 req/h (no key). Default polling stays well under
-  it: the forecast coordinator skips AROME and ensemble requests whose run
-  cannot have been superseded, so it costs ~2 req/h at rest and up to ~4 req/h
-  while hunting for a new run, plus the current coordinator's ~4–6 req/h and
-  ~2 req/h with air quality enabled.
+  it. The forecast coordinator skips AROME and ensemble requests whose run
+  cannot have been superseded, but because both publish later than their 3 h
+  cadence (see [Publication latency](#publication-latency)) that gate rarely
+  holds, so expect up to two requests per forecast tick (~4 req/h at the
+  default 30 min), plus the current coordinator's ~4–6 req/h and ~2 req/h with
+  air quality enabled.
 
 ## Design Decisions
 - Datasets are `(mode, resource_id)` tuples so `get_timeseries(*DATASET_X, ...)`

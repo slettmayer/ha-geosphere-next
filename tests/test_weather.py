@@ -39,7 +39,8 @@ async def test_weather_state(
 
     state = hass.states.get(ENTITY_ID)
     assert state is not None
-    assert state.state == "sunny"
+    # Dry and overcast: the forecast hour's 100 % cloud cover.
+    assert state.state == "cloudy"
     # INCA analysis value, rounded display precision.
     assert state.attributes["temperature"] == 30.4
     assert state.attributes["humidity"] is not None
@@ -90,16 +91,21 @@ async def test_get_forecasts_hourly(
         )
     )[ENTITY_ID]["forecast"]
     assert hourly[0]["datetime"] == "2026-07-15T16:00:00+00:00"
-    # Dry: the fixture's 0.479 mm accumulated between 15:00Z and 16:00Z, so it
-    # belongs to the hour that has already elapsed, not the one starting here.
+    # Dry: the fixture's 0.002 mm at 16:00Z fell in the hour ending there,
+    # which has already elapsed; the hour starting here reads 17:00Z's 0.0.
     assert hourly[0]["precipitation"] == 0.0
-    # And the probability comes from the same hour as the amount: the 16:00Z
-    # ensemble entry (all percentiles wet, PoP 95 %) covers that elapsed hour
-    # too, so this row takes the 17:00Z one -- median wet, PoP 70 %.
-    assert hourly[0]["precipitation_probability"] == 70
-    # Magnus dew point from t2m 28.6 / rh2m 50.1 (service output is converted,
+    assert hourly[0]["precipitation_probability"] == 0
+    assert hourly[0]["cloud_coverage"] == 100
+    # Magnus dew point from 2t 4.8 / 2r 80.89 (service output is converted,
     # so the key is dew_point, not native_dew_point).
-    assert hourly[0]["dew_point"] == 17.2
+    assert hourly[0]["dew_point"] == 1.8
+    # A wet hour carries its amount and the probability of the same hour:
+    # `tp` 0.424 and the p50-wet ensemble entry, both stamped 06:00Z.
+    by_ts = {hour["datetime"]: hour for hour in hourly}
+    wet = by_ts["2026-07-16T05:00:00+00:00"]
+    assert wet["precipitation"] == 0.42
+    assert wet["precipitation_probability"] == 70
+    assert wet["wind_gust_speed"] is not None
 
 
 async def _get_hourly_forecast(hass: HomeAssistant) -> list[dict]:
@@ -130,7 +136,7 @@ async def test_get_forecasts_hourly_filters_stale_leading_hours(
     await hass.async_block_till_done()
 
     def arome_calls() -> int:
-        return sum("nwp-v1-1h-2500m" in str(call[1]) for call in mock_api.mock_calls)
+        return sum("nwp-v2-1h-1km" in str(call[1]) for call in mock_api.mock_calls)
 
     baseline_calls = arome_calls()
     baseline_forecast = await _get_hourly_forecast(hass)

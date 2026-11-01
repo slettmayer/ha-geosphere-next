@@ -13,39 +13,44 @@ MANUFACTURER = "GeoSphere Austria"
 
 API_BASE_URL = "https://dataset.api.hub.geosphere.at/v1"
 
-# Datasets (mode, resource id)
-DATASET_AROME = ("forecast", "nwp-v1-1h-2500m")
-DATASET_ENSEMBLE = ("forecast", "ensemble-v1-1h-2500m")
+# Datasets (mode, resource id). `AROME` names the deterministic forecast source
+# throughout the code; the dataset itself is the control run of the C-LAEF
+# AlpeAdria ensemble on a 1 km grid, and `DATASET_ENSEMBLE` is that ensemble.
+DATASET_AROME = ("forecast", "nwp-v2-1h-1km")
+DATASET_ENSEMBLE = ("forecast", "ensemble-v2-1h-1km")
 DATASET_NOWCAST = ("forecast", "nowcast-v1-15min-1km")
 DATASET_INCA = ("historical", "inca-v1-1h-1km")
 DATASET_CHEM = ("forecast", "chem-v2-1h-3km")
 DATASET_CHEM_AQI = ("forecast", "chem_aqi-v1-1d-3km")
 
+# Deterministic forecast parameters. Two stampings, classified by checking
+# index 0 of a request that starts at the run's t0 (null there means the value
+# covers the interval *ending* at its stamp) -- see `_process`:
+#   * instantaneous at the stamp: 2t, 2r, 10u/10v, tcc (%), cape, snowlmt;
+#   * the interval ending at the stamp: 10fg (peak gust), tp and sf (per-hour
+#     amounts, kg m-2, not run-accumulated).
+# `sy` is null at t0 too, yet its cloud classes bin on `tcc` at its own stamp,
+# so it is read at the stamp like the instantaneous fields.
 AROME_PARAMETERS = (
-    "t2m",
-    "mnt2m",
-    "mxt2m",
-    "rh2m",
-    "u10m",
-    "v10m",
-    "ugust",
-    "vgust",
+    "2t",
+    "2r",
+    "10u",
+    "10v",
+    "10fg",
     "tcc",
-    "rr_acc",
-    "snow_acc",
+    "tp",
+    "sf",
     "snowlmt",
-    "grad",
     "cape",
-    "cin",
     "sy",
 )
 # C-LAEF ensemble precipitation percentiles (per-hour amounts, kg m-2; the
 # API exposes only p10/p50/p90 — no member counts or true probabilities).
-# Like AROME's interval parameters these cover the period *ending* at their
-# stamp ("in the last forecast period"), so a percentile is keyed to the
-# preceding stamp to describe the hour a forecast row is stamped for. The
-# cadence is read from the series rather than assumed -- see `_process`.
-ENSEMBLE_PARAMETERS = ("rr_p10", "rr_p50", "rr_p90")
+# Like the deterministic interval parameters these cover the period *ending*
+# at their stamp ("in the last forecast interval"), so a percentile is keyed
+# to the preceding stamp to describe the hour a forecast row is stamped for.
+# The cadence is read from the series rather than assumed -- see `_process`.
+ENSEMBLE_PARAMETERS = ("tp_p10", "tp_p50", "tp_p90")
 NOWCAST_PARAMETERS = ("t2m", "td", "rh2m", "rr", "pt", "dd", "ff", "fx")
 INCA_PARAMETERS = ("T2M", "TD2M", "RH2M", "RR", "P0", "GL", "UU", "VV")
 # WRF-Chem surface concentrations (µg/m³) and the daily European AQI (1-6).
@@ -67,16 +72,17 @@ AIR_QUALITY_INTERVAL_MINUTES = 60
 # Hours of history requested alongside the AROME forecast, as margin so the
 # series is certain to reach back to the hour already under way. Losing that
 # hour would take with it the "forecast starts at the current hour" behaviour,
-# `outlook.hour_at`, and the current condition's cloud/CAPE/CIN reading.
+# `outlook.hour_at`, and the current condition's cloud/CAPE reading.
 #
-# What actually protects it is the *anchor*, not this margin. An unbounded
-# request begins well after the current hour (measured 2026-08-12 05:54Z:
-# first stamp 07:00), so `start` has to be named. The API then honours a
-# `start` that lands exactly on a stamp and rounds a mid-hour one *up* to the
-# next -- so `start = now` at 15:30 comes back at 16:00 and the in-progress
-# hour is gone, while `start = 15:00` comes back at 15:00. Anchoring to the
-# top of the hour is therefore load-bearing; this lookback is slack on top of
-# it. `_process` drops whatever precedes the cutoff.
+# What actually protects it is the *anchor*, not this margin. Where an
+# unbounded request begins is the server's choice and is not documented, so
+# `start` has to be named. The API honours a `start` that lands exactly on a
+# stamp and rounds a mid-hour one *up* to the next (measured 2026-11-01:
+# `start = 07:00` came back at 07:00, `start = 07:30` at 08:00) -- so
+# `start = now` at 15:30 would come back at 16:00 and the in-progress hour
+# would be gone. Anchoring to the top of the hour is therefore load-bearing;
+# this lookback is slack on top of it. A `start` before the run's t0 comes
+# back at t0. `_process` drops whatever precedes the cutoff.
 HOURLY_LOOKBACK_HOURS = 1
 
 # How far back the current precipitation rate may look for a wet 15-min
@@ -131,26 +137,32 @@ INCA_RR_MAX_AGE_SECONDS = 2 * 60 * 60
 # returns byte-for-byte what is already cached and the request is pure waste.
 #
 # These are *cadences*, not publication times: GeoSphere computes a run well
-# after the hour it is stamped for. Measured 2026-08-17 05:02Z, the newest
-# AROME run was 00:00Z (the 03:00Z run was not yet published, so >2 h of
-# latency) and the newest C-LAEF run was the *previous day's* 12:00Z (>5 h).
-# Gating on the bare cadence therefore under-caches — once `reference_time +
-# cadence` passes, every update cycle retries until the new run appears. That
+# after the hour it is stamped for. Measured 2026-11-01 from 08:49Z to 09:19Z,
+# the newest run of both datasets was 03:00Z: the 06:00Z run was still
+# unpublished more than 3 h after its stamp, so the lag exceeds the cadence
+# itself. Gating on the bare cadence therefore under-caches — once
+# `reference_time + cadence` passes, every update cycle retries until the new
+# run appears, and with a lag that long a freshly published run is usually
+# already past its own cadence, so the gate rarely holds a run at all. That
 # is the intended behaviour: it never serves a run that has been superseded,
 # and it picks the new one up within one update interval of publication.
 # Adding a latency estimate here would cache longer at the risk of sitting on
 # a stale run whenever GeoSphere publishes early.
 AROME_RUN_INTERVAL = timedelta(hours=3)
-ENSEMBLE_RUN_INTERVAL = timedelta(hours=12)
+ENSEMBLE_RUN_INTERVAL = timedelta(hours=3)
 
 # How old the held C-LAEF run may get while its endpoint keeps failing, before
 # the precipitation probability is dropped rather than derived from it. Serving
 # a superseded run through a brief outage is worth more than a blank field;
 # serving one indefinitely is not, because nothing on display says which run a
-# probability came from. Two cadences allows one whole missed rerun.
-ENSEMBLE_MAX_FALLBACK_AGE = 2 * ENSEMBLE_RUN_INTERVAL
+# probability came from. The bound has to cover one whole missed rerun on top
+# of the publication lag, and that lag is longer than the 3 h cadence itself
+# (see above): the newest run in service is already several hours old, so a
+# bound of a few cadences would drop it on the first failed fetch. Twelve hours
+# is the lag plus two cadences, with margin.
+ENSEMBLE_MAX_FALLBACK_AGE = timedelta(hours=12)
 
-# Stepped precipitation probability from the ensemble rr percentiles: a
+# Stepped precipitation probability from the ensemble tp percentiles: a
 # percentile above PRECIP_MIN_MM bounds the fraction of wet ensemble members
 # (p10 wet -> >=90 %, p50 wet -> >=50 %, p90 wet -> >=10 %); the displayed
 # value is the midpoint of the implied range.
@@ -161,15 +173,6 @@ POP_DRY_PCT = 0
 
 # Condition-derivation thresholds (see condition.py)
 THUNDER_CAPE_JKG = 1000.0
-# Convective inhibition cap. AROME publishes `cin` as NEGATIVE J/kg: 0.0 means
-# uncapped, more negative means a stronger lid. CAPE only counts as thunder
-# potential when inhibition is weaker than this magnitude.
-# The recorded fixture's strongest lid is -49.5 J/kg, just inside this
-# boundary, so the gate suppresses nothing on the only real sample we have and
-# is exercised only by synthetic test values. 50 J/kg is a standard boundary
-# for weak inhibition; discrimination against real capped situations is
-# unconfirmed — see docs/domain/DATASETS.md.
-CAP_CIN_JKG = 50.0
 PRECIP_MIN_MM = 0.1
 POURING_MM_PER_H = 4.0
 WINDY_GUST_MS = 15.0

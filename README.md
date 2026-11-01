@@ -11,8 +11,8 @@ coordinate:
 
 | Data | Dataset | Resolution |
 |---|---|---|
-| Hourly forecast (+60 h) | AROME `nwp-v1-1h-2500m` | 2.5 km, model runs every 3 h |
-| Precipitation probability (per forecast hour) | C-LAEF ensemble `ensemble-v1-1h-2500m` | 2.5 km, model runs every 12 h |
+| Hourly forecast (+60 h) | Deterministic forecast `nwp-v2-1h-1km` (the C-LAEF AlpeAdria control run) | 1 km, model runs every 3 h |
+| Precipitation probability (per forecast hour) | C-LAEF ensemble `ensemble-v2-1h-1km` | 1 km, model runs every 3 h |
 | Current temperature, humidity, dew point, wind, MSL pressure, global radiation, 1 h precipitation | INCA analysis `inca-v1-1h-1km` | 1 km, hourly (observation-anchored) |
 | Current precipitation type/rate, wind gusts; fallback for the INCA fields | INCA nowcast `nowcast-v1-15min-1km` | 1 km, 15 min |
 | Air quality (optional): NO₂, O₃, PM10, PM2.5 (+73 h hourly) | WRF-Chem `chem-v2-1h-3km` | 3 km, model runs daily |
@@ -35,7 +35,7 @@ forecast. It exposes no daily forecast (hourly-only — see the FAQ).
 
 | Attribute | Description | Source |
 |---|---|---|
-| `state` (condition) | HA weather condition (`sunny`, `cloudy`, `rainy`, …), derived from physical parameters — see [below](#how-the-weather-condition-is-derived) | INCA → nowcast → AROME |
+| `state` (condition) | HA weather condition (`sunny`, `cloudy`, `rainy`, …), derived from physical parameters — see [below](#how-the-weather-condition-is-derived) | INCA → nowcast → forecast |
 | `temperature` | Current air temperature | INCA analysis |
 | `apparent_temperature` | "Feels like" temperature | INCA analysis |
 | `dew_point` | Current dew point | INCA analysis |
@@ -44,15 +44,15 @@ forecast. It exposes no daily forecast (hourly-only — see the FAQ).
 | `wind_speed` | Current wind speed | INCA analysis |
 | `wind_bearing` | Wind direction (°) | INCA analysis |
 | `wind_gust_speed` | Current wind gusts | INCA nowcast |
-| `cloud_coverage` | Cloud cover (%) | AROME |
+| `cloud_coverage` | Cloud cover (%) | forecast |
 
 The hourly forecast is read with the `weather.get_forecasts` service (`type:
 hourly`). Each of the ~60 forecast hours carries: `datetime`, `condition`,
 `temperature`, `dew_point`, `humidity`, `precipitation`,
 `precipitation_probability` (a stepped 0 / 30 / 70 / 95 % estimate from the
 C-LAEF ensemble — see the FAQ), `wind_speed`, `wind_bearing`,
-`wind_gust_speed`, and `cloud_coverage`. All forecast values come from AROME
-except the probability (C-LAEF ensemble).
+`wind_gust_speed`, and `cloud_coverage`. All forecast values come from the
+deterministic forecast except the probability (C-LAEF ensemble).
 
 The list is re-filtered to the current hour onward on every read, not just at
 fetch time — so it never carries already-elapsed hours even at the 180-minute
@@ -78,9 +78,9 @@ forecast interval — and re-pushed to any live subscribers at every full hour.
 | `global_radiation` | Downward shortwave (solar) irradiance | W/m² |
 | `snow_limit` | Altitude of the rain/snow line | m |
 | `observation_time` (Observation time) | Which hour the current conditions actually describe — the INCA analysis they came from, which can be ~90 min old (diagnostic category, but enabled: see the FAQ) | timestamp |
-| `model_run` (Model run) | Which AROME run the forecast comes from — its `reference_time`, which can be several hours behind (diagnostic category, but enabled: see the FAQ) | timestamp |
+| `model_run` (Model run) | Which deterministic run the forecast comes from — its `reference_time`, which can be several hours behind (diagnostic category, but enabled: see the FAQ) | timestamp |
 
-Values are merged from INCA analysis → INCA nowcast → AROME forecast with a
+Values are merged from INCA analysis → INCA nowcast → deterministic forecast with a
 per-field fallback chain, so an individual field stays populated even when its
 preferred dataset is briefly unavailable. `wind_speed` and `wind_gust_speed`
 are natively km/h (Home Assistant converts for imperial units); the
@@ -94,19 +94,18 @@ Enable these per-entity in Home Assistant if you want them.
 | Sensor | Description | Unit |
 |---|---|---|
 | `cape` | Convective Available Potential Energy — thunderstorm-potential indicator used in the condition derivation | J/kg |
-| `cin` (entity id: `convective_inhibition`) | Convective inhibition — negative J/kg, `0` = uncapped; gates the thunder decision so capped high-CAPE air does not read as a storm | J/kg |
 | `precipitation_type` (Precipitation type code) | Raw GeoSphere precipitation-type code (diagnostic): 1 rain, 3 freezing rain, 5 snow, 7 rain and snow, 255 no precipitation. The decoded `precipitation_kind` sensor is usually what you want; this one shows a code outside that table, which that sensor reports as `unknown` | — |
 | `weather_symbol` | Raw GeoSphere weather-symbol code (diagnostic; the HA condition is derived independently — see the FAQ) | — |
 
 ### Storm outlook (enabled by default, except `cape_max_12h`)
 
-Forecast-derived signals scanned from the AROME hourly series — pure window
+Forecast-derived signals scanned from the hourly forecast series — pure window
 scans, deliberately threshold-free: what counts as "too windy" or "storm
 risk" is your automation's policy, not this integration's.
 
 "Thunder expected" for an hour means either its derived condition is
 `lightning` / `lightning-rainy`, or the raw thunder predicate holds (CAPE ≥
-1000 J/kg with `cin > -50` J/kg) **and** that hour is forecast to produce ≥
+1000 J/kg) **and** that hour is forecast to produce ≥
 0.1 mm of precipitation. The second branch catches thundersnow and hours with
 missing cloud data, which the condition string alone reports as calm; the
 precipitation requirement keeps dry high-CAPE summer afternoons out.
@@ -123,7 +122,7 @@ Gust maxima are natively km/h, matching the current-condition wind sensors.
 The three numeric sensors carry no `state_class`: they are predictions, so
 Home Assistant deliberately keeps them out of long-term statistics.
 
-**The horizon rounds up to whole hourly steps.** AROME is an hourly series,
+**The horizon rounds up to whole hourly steps.** The forecast is an hourly series,
 and the scan starts at the top of the *current* hour so the in-progress hour
 still counts. An N-hour horizon therefore spans N + 1 hourly stamps: the
 1-hour sensors cover the current hour **and the next one**, and can report an
@@ -153,9 +152,9 @@ additionally re-evaluated at every full hour, so a "next hour" answer never
 describes an hour that has already elapsed, even at the 180-minute interval.
 
 Home Assistant derives entity ids from the translated display name, not the
-sensor key above — that is why `cin` and `thunderstorm_expected_1h` end up
-as `convective_inhibition` and `thunderstorm_expected_next_hour`; the other
-four outlook sensors' entity ids match their keys.
+sensor key above — that is why `thunderstorm_expected_1h` ends up as
+`thunderstorm_expected_next_hour`; the other four outlook sensors' entity ids
+match their keys.
 
 ### Air-quality sensors (optional)
 
@@ -188,9 +187,10 @@ Requires Home Assistant 2025.12.0 or newer. The integration is in the
 3. Settings → Devices & Services → Add Integration → **GeoSphere Austria Next**.
 4. Pick a location (defaults to your home coordinates).
 
-The AROME forecast covers Austria and the surrounding Alpine region; current
+The forecast covers Austria and the surrounding Alpine region (latitude
+43.0–51.5°, longitude 5.03–22.57°); current
 conditions (INCA/nowcast) are available inside Austria only. Locations inside
-the AROME domain but outside Austria fall back to forecast-based current
+the forecast domain but outside Austria fall back to forecast-based current
 values automatically.
 
 ## Options
@@ -198,7 +198,7 @@ values automatically.
 Settings → Devices & Services → GeoSphere Austria Next → Configure:
 
 - **Current conditions update interval** (default 15 min)
-- **Forecast update interval** (default 30 min — the AROME model itself only
+- **Forecast update interval** (default 30 min — the forecast model itself only
   reruns every 3 h)
 - **Air quality sensors** (default off) — see below
 
@@ -226,7 +226,7 @@ WRF-Chem chemical weather forecast (3 km grid, one model run per day, about
   | 5 | poor |
   | 6 | very poor / extremely poor |
 
-The chem model covers central Europe (a superset of the AROME domain), so air
+The chem model covers central Europe (a superset of the forecast domain), so air
 quality works for every location this integration accepts. Note that these are
 *model forecast* values, not station measurements — expect them to track, but
 not exactly match, the nearest monitoring station.
@@ -241,7 +241,7 @@ uses for this model. The raw symbol is still exposed as a diagnostic sensor.
 ## FAQ
 
 **Why does the precipitation probability only show 0 / 30 / 70 / 95 %?**
-AROME itself is a *deterministic* model — each run produces a single outcome,
+The forecast itself is a *deterministic* run — each run produces a single outcome,
 not an ensemble of scenarios, so it has no probability of its own. The
 probability comes from GeoSphere's C-LAEF *ensemble* dataset instead, which
 publishes only three precipitation percentiles per hour (p10 / p50 / p90),
@@ -274,27 +274,29 @@ measured against TAWES stations to lag by up to ±2 °C on diurnal ramps (too
 cold while warming, too warm while cooling) — precisely the situation above.
 
 **How often does the integration actually hit the API?**
-Less often than the interval sliders suggest. The models rerun on fixed
-cadences — AROME every 3 hours, the C-LAEF ensemble every 12 — so between
-reruns a request would return exactly what the integration already holds. Those
-requests are skipped: the forecast coordinator still wakes on your configured
-interval and re-derives everything that depends on the clock, but only reaches
-the network once the run it holds could have been superseded.
+About as often as the interval sliders suggest, and well inside GeoSphere's
+240 requests/hour. Both forecast models rerun every 3 hours, and a request
+that could only return the run the integration already holds is skipped: the
+forecast coordinator still wakes on your configured interval and re-derives
+everything that depends on the clock, but only reaches the network once the
+run it holds could have been superseded. In practice that is most of the
+time, because GeoSphere publishes a run more than 3 hours after its stamp —
+so the forecast costs up to two requests per interval.
 
 That last part is why the intervals are not simply scheduled against the model
 run times. GeoSphere computes a run well after the hour it is stamped for, and
-the lag is neither published nor constant — measured on 2026-08-17 at 05:02
-UTC, the newest AROME run was 00:00 UTC (the 03:00 run was not out yet) and the
-newest ensemble run was the *previous day's* 12:00 UTC. A schedule pinned to
-00/03/06 would fetch before the data exists; waiting for the run stamp to change
-needs no guess about the lag and adapts on its own if GeoSphere shifts it.
+the lag is neither published nor constant — on 2026-11-01 at 09:19 UTC, the
+newest run of both models was still 03:00 UTC (the 06:00 run was not out yet).
+A schedule pinned to 00/03/06 would fetch before the data exists; waiting for
+the run stamp to change needs no guess about the lag and adapts on its own if
+GeoSphere shifts it.
 
 The **Model run** sensor (diagnostic, enabled by default) shows which run is on
 display. If it looks old, that is usually GeoSphere's publication lag rather
 than a stuck integration — compare it against the run cadence above.
 
 **Why is there no daily forecast?**
-AROME is a deliberately high-resolution, *short-range* model: its +60 h
+The forecast is a deliberately high-resolution, *short-range* model: its +60 h
 horizon covers at most 2–3 aggregable local days (and no GeoSphere dataset
 forecasts further ahead — the C-LAEF ensemble has the same 61 h length).
 The Home Assistant frontend only renders forecasts with more than 2 entries,

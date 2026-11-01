@@ -22,8 +22,8 @@ FIXTURES = Path(__file__).parent / "fixtures"
 LATITUDE = 48.2208
 LONGITUDE = 16.3738
 
-AROME_URL = re.compile(r".*/timeseries/forecast/nwp-v1-1h-2500m\?.*")
-ENSEMBLE_URL = re.compile(r".*/timeseries/forecast/ensemble-v1-1h-2500m\?.*")
+AROME_URL = re.compile(r".*/timeseries/forecast/nwp-v2-1h-1km\?.*")
+ENSEMBLE_URL = re.compile(r".*/timeseries/forecast/ensemble-v2-1h-1km\?.*")
 NOWCAST_URL = re.compile(r".*/timeseries/forecast/nowcast-v1-15min-1km\?.*")
 INCA_URL = re.compile(r".*/timeseries/historical/inca-v1-1h-1km\?.*")
 CHEM_URL = re.compile(r".*/timeseries/forecast/chem-v2-1h-3km\?.*")
@@ -80,38 +80,33 @@ def load_fixture(name: str) -> dict:
 
 def stormy_arome(
     *,
-    indexes: tuple[int, ...] = (1,),
+    indexes: tuple[int, ...] = (4,),
     cape: float = 1500.0,
-    cin: float = 0.0,
     cloud: float | None = None,
     precipitation: float = 0.5,
 ) -> dict:
     """The recorded AROME fixture with a synthetic storm patched into it.
 
-    SYNTHETIC, derived from `arome.json` — the recording peaks at 528 J/kg
+    SYNTHETIC, derived from `arome.json` — the recording peaks at 29 J/kg
     CAPE and so never crosses `THUNDER_CAPE_JKG`, which leaves every thunder
-    "on" path untestable. `indexes` are into the fixture's 58 hourly stamps
-    (1 = 2026-07-15T16:00Z, the in-progress hour at the tests' frozen clock).
-    `cloud` optionally overrides `tcc` (0-1 scale) for those hours, which the
+    "on" path untestable. `indexes` are into the fixture's 61 hourly stamps
+    (4 = 2026-07-15T16:00Z, the in-progress hour at the tests' frozen clock).
+    `cloud` optionally overrides `tcc` (%) for those hours, which the
     dry-thunder branch of `derive_condition` requires.
 
     `precipitation` (mm) wets the storm hours, since `derive_condition` needs
-    rain to reach `lightning-rainy`; pass 0.0 for a dry storm. `rr_acc` is
-    accumulated since the run start and the delta at `index + 1` is the rain
-    of the hour *starting* at `index`, so the series is raised from
-    `index + 1` onward — which leaves every later hourly difference untouched.
+    rain to reach `lightning-rainy`; pass 0.0 for a dry storm. `tp` covers the
+    hour *ending* at its stamp, so the rain of the hour starting at `index` is
+    written to `index + 1`.
     """
     payload = load_fixture("arome.json")
     parameters = payload["features"][0]["properties"]["parameters"]
-    accumulated = parameters["rr_acc"]["data"]
     for index in indexes:
         parameters["cape"]["data"][index] = cape
-        parameters["cin"]["data"][index] = cin
         if cloud is not None:
             parameters["tcc"]["data"][index] = cloud
         if precipitation:
-            for later in range(index + 1, len(accumulated)):
-                accumulated[later] += precipitation
+            parameters["tp"]["data"][index + 1] = precipitation
     return payload
 
 

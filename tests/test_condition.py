@@ -19,36 +19,36 @@ from custom_components.geosphere_next.condition import (
 
 
 @pytest.mark.parametrize(
-    ("precip", "snow", "tcc", "cape", "cin", "gust", "night", "expected"),
+    ("precip", "snow", "tcc", "cape", "gust", "night", "expected"),
     [
         # clear / cloud buckets
-        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, False, "sunny"),
-        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, True, "clear-night"),
-        (0.0, 0.0, 12.5, None, None, None, False, "sunny"),
-        (0.0, 0.0, 40.0, 0.0, 0.0, 0.0, False, "partlycloudy"),
-        (0.0, 0.0, 62.5, 0.0, 0.0, 0.0, False, "partlycloudy"),
-        (0.0, 0.0, 80.0, 0.0, 0.0, 0.0, True, "cloudy"),
+        (0.0, 0.0, 0.0, 0.0, 0.0, False, "sunny"),
+        (0.0, 0.0, 0.0, 0.0, 0.0, True, "clear-night"),
+        (0.0, 0.0, 12.5, None, None, False, "sunny"),
+        (0.0, 0.0, 40.0, 0.0, 0.0, False, "partlycloudy"),
+        (0.0, 0.0, 62.5, 0.0, 0.0, False, "partlycloudy"),
+        (0.0, 0.0, 80.0, 0.0, 0.0, True, "cloudy"),
         # precipitation
-        (0.5, 0.0, 90.0, 0.0, 0.0, 0.0, False, "rainy"),
-        (4.0, 0.0, 90.0, 0.0, 0.0, 0.0, False, "pouring"),
-        (0.5, 0.0, 90.0, 1500.0, 0.0, 0.0, False, "lightning-rainy"),
-        (0.5, 0.5, 90.0, 0.0, 0.0, 0.0, False, "snowy"),
-        (1.0, 0.3, 90.0, 0.0, 0.0, 0.0, False, "snowy-rainy"),
+        (0.5, 0.0, 90.0, 0.0, 0.0, False, "rainy"),
+        (4.0, 0.0, 90.0, 0.0, 0.0, False, "pouring"),
+        (0.5, 0.0, 90.0, 1500.0, 0.0, False, "lightning-rainy"),
+        (0.5, 0.5, 90.0, 0.0, 0.0, False, "snowy"),
+        (1.0, 0.3, 90.0, 0.0, 0.0, False, "snowy-rainy"),
         # dry thunder / wind
-        (0.0, 0.0, 80.0, 1500.0, 0.0, 0.0, False, "lightning"),
-        (0.0, 0.0, 30.0, 0.0, 0.0, 16.0, False, "windy"),
-        (0.0, 0.0, 80.0, 0.0, 0.0, 16.0, False, "windy-variant"),
+        (0.0, 0.0, 80.0, 1500.0, 0.0, False, "lightning"),
+        (0.0, 0.0, 30.0, 0.0, 16.0, False, "windy"),
+        (0.0, 0.0, 80.0, 0.0, 16.0, False, "windy-variant"),
         # missing cloud data
-        (0.0, 0.0, None, 0.0, 0.0, 0.0, False, None),
-        # capped: ample CAPE but strong inhibition -> no thunder
-        (0.0, 0.0, 80.0, 1500.0, -80.0, 0.0, False, "cloudy"),
-        (0.5, 0.0, 90.0, 1500.0, -80.0, 0.0, False, "rainy"),
-        # missing CIN degrades to the pre-CIN behaviour
-        (0.0, 0.0, 80.0, 1500.0, None, 0.0, False, "lightning"),
+        (0.0, 0.0, None, 0.0, 0.0, False, None),
+        # thunder is CAPE alone: the threshold is inclusive, and a missing
+        # CAPE is no thunder
+        (0.0, 0.0, 80.0, 1000.0, 0.0, False, "lightning"),
+        (0.0, 0.0, 80.0, 999.9, 0.0, False, "cloudy"),
+        (0.5, 0.0, 90.0, None, 0.0, False, "rainy"),
     ],
 )
-def test_derive_condition(precip, snow, tcc, cape, cin, gust, night, expected) -> None:
-    assert derive_condition(precip, snow, tcc, cape, cin, gust, night) == expected
+def test_derive_condition(precip, snow, tcc, cape, gust, night, expected) -> None:
+    assert derive_condition(precip, snow, tcc, cape, gust, night) == expected
 
 
 def test_current_condition_pt_override_rain() -> None:
@@ -62,7 +62,6 @@ def test_current_condition_pt_override_rain() -> None:
             wind_speed=3.0,
             cloud_coverage=10.0,  # cloud says clear, pt wins
             cape=0.0,
-            cin=0.0,
             gust_speed=5.0,
             night=False,
         )
@@ -82,7 +81,6 @@ def _current(
         wind_speed=3.0,
         cloud_coverage=100.0,
         cape=0.0,
-        cin=0.0,
         gust_speed=5.0,
         night=False,
     )
@@ -124,7 +122,7 @@ def test_current_condition_pt_decides_the_precipitation_kind(
 def test_current_condition_thunder_outranks_every_kind_above_snow_max(
     precipitation_type: int, cape: float, expected: str
 ) -> None:
-    """Observed downpour (8 mm/h) at 4 °C: the CAPE-alone override applies."""
+    """Observed downpour (8 mm/h) at 4 °C."""
     assert (
         derive_current_condition(
             precipitation_type=precipitation_type,
@@ -134,7 +132,6 @@ def test_current_condition_thunder_outranks_every_kind_above_snow_max(
             wind_speed=3.0,
             cloud_coverage=100.0,
             cape=cape,
-            cin=-80.0,
             gust_speed=5.0,
             night=False,
         )
@@ -171,7 +168,6 @@ def test_current_condition_cold_snow_outranks_thunder(
             wind_speed=3.0,
             cloud_coverage=100.0,
             cape=1500.0,
-            cin=-80.0,
             gust_speed=5.0,
             night=False,
         )
@@ -186,7 +182,7 @@ def test_current_condition_cold_snow_outranks_thunder(
 def test_current_condition_snow_thunder_split_through_the_normal_gate(
     temperature: float, expected: str
 ) -> None:
-    """Light snow, uncapped CAPE: thunder from `is_thunder`, not the override."""
+    """Light snow: the snow/thunder split does not depend on the rate."""
     assert (
         derive_current_condition(
             precipitation_type=5,
@@ -196,7 +192,6 @@ def test_current_condition_snow_thunder_split_through_the_normal_gate(
             wind_speed=3.0,
             cloud_coverage=100.0,
             cape=1500.0,
-            cin=0.0,
             gust_speed=5.0,
             night=False,
         )
@@ -228,7 +223,6 @@ def test_current_condition_snow_thunder_split_edges(
             wind_speed=3.0,
             cloud_coverage=100.0,
             cape=1500.0,
-            cin=-80.0,
             gust_speed=5.0,
             night=False,
         )
@@ -280,40 +274,12 @@ def test_derive_precipitation_type(
     assert derive_precipitation_type(code, rate) == expected
 
 
-def test_current_condition_thunder_ignores_the_forecast_cap() -> None:
-    """An observed storm is not vetoed by AROME's inhibition for the hour.
+def test_current_condition_light_rain_thunders_on_cape() -> None:
+    """Thunder rests on CAPE alone, whatever the observed rate.
 
-    Precipitation here comes from INCA/the nowcast -- measurements -- while
-    CAPE and CIN are forecast. Inhibition answers "can convection start?", and
-    the observation has already settled that, so a strong modelled cap must
-    not turn a thunderstorm in progress into plain `rainy`. The forecast path
-    (`derive_condition`) still applies the full gate.
-    """
-    assert (
-        derive_current_condition(
-            precipitation_type=1,
-            precipitation_rate_mm_h=6.0,
-            temperature=18.0,
-            humidity=85.0,
-            wind_speed=4.0,
-            cloud_coverage=95.0,
-            cape=1800.0,
-            cin=-60.0,  # past CAP_CIN_JKG: capped, per the model
-            gust_speed=8.0,
-            night=False,
-        )
-        == "lightning-rainy"
-    )
-
-
-def test_current_condition_light_rain_does_not_override_the_cap() -> None:
-    """Only convective-intensity rain overrides the modelled lid.
-
-    Same capped, high-CAPE air as the test above, but the observation is
-    drizzle off a frontal deck rather than a downpour. `precipitating` is true
-    of any rate at all, so without the intensity qualifier this returned
-    `lightning-rainy` -- and contradicted `derive_condition`, which keeps the
-    full gate and calls the same hour `rainy`.
+    The forecast dataset publishes no convective inhibition, so nothing can
+    tell a capped airmass from an uncapped one: light rain under high CAPE
+    reads as a thunderstorm, exactly as `derive_condition` calls that hour.
     """
     assert (
         derive_current_condition(
@@ -324,31 +290,6 @@ def test_current_condition_light_rain_does_not_override_the_cap() -> None:
             wind_speed=4.0,
             cloud_coverage=95.0,
             cape=1800.0,
-            cin=-150.0,  # strongly capped, per the model
-            gust_speed=8.0,
-            night=False,
-        )
-        == "rainy"
-    )
-
-
-def test_current_condition_light_rain_thunders_when_uncapped() -> None:
-    """The intensity qualifier gates the *override*, not thunder itself.
-
-    With weak inhibition the ordinary gate passes on CAPE alone, so light rain
-    still reads as a thunderstorm -- the rate only matters when the model
-    claims a lid.
-    """
-    assert (
-        derive_current_condition(
-            precipitation_type=1,
-            precipitation_rate_mm_h=0.4,
-            temperature=18.0,
-            humidity=85.0,
-            wind_speed=4.0,
-            cloud_coverage=95.0,
-            cape=1800.0,
-            cin=-10.0,  # within CAP_CIN_JKG: effectively uncapped
             gust_speed=8.0,
             night=False,
         )
@@ -356,8 +297,26 @@ def test_current_condition_light_rain_thunders_when_uncapped() -> None:
     )
 
 
-def test_current_condition_without_precipitation_still_honours_the_cap() -> None:
-    """With nothing observed, the verdict is forecast-only and the cap applies."""
+def test_current_condition_downpour_below_the_cape_threshold_is_pouring() -> None:
+    """A downpour alone is not a thunderstorm: CAPE still has to reach it."""
+    assert (
+        derive_current_condition(
+            precipitation_type=1,
+            precipitation_rate_mm_h=6.0,
+            temperature=18.0,
+            humidity=85.0,
+            wind_speed=4.0,
+            cloud_coverage=95.0,
+            cape=900.0,
+            gust_speed=8.0,
+            night=False,
+        )
+        == "pouring"
+    )
+
+
+def test_current_condition_without_precipitation_reads_dry_thunder() -> None:
+    """With nothing observed, the verdict is the forecast's: dry lightning."""
     assert (
         derive_current_condition(
             precipitation_type=255,
@@ -367,11 +326,10 @@ def test_current_condition_without_precipitation_still_honours_the_cap() -> None
             wind_speed=3.0,
             cloud_coverage=95.0,
             cape=1800.0,
-            cin=-60.0,
             gust_speed=5.0,
             night=False,
         )
-        == "cloudy"
+        == "lightning"
     )
 
 
@@ -385,7 +343,6 @@ def test_current_condition_no_precip_falls_through() -> None:
             wind_speed=3.0,
             cloud_coverage=5.0,
             cape=0.0,
-            cin=0.0,
             gust_speed=5.0,
             night=False,
         )
@@ -403,7 +360,6 @@ def test_current_condition_fog() -> None:
             wind_speed=0.5,
             cloud_coverage=100.0,
             cape=0.0,
-            cin=0.0,
             gust_speed=1.0,
             night=False,
         )

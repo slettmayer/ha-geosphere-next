@@ -66,7 +66,7 @@ class GeoSphereNextConfigFlow(ConfigFlow, domain=DOMAIN):
             try:
                 await client.get_timeseries(
                     *DATASET_AROME,
-                    parameters=("t2m",),
+                    parameters=("2t",),
                     latitude=latitude,
                     longitude=longitude,
                 )

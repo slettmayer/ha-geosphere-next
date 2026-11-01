@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.15.0
+
+- Fix: the forecast works again. GeoSphere stopped publishing `nwp-v1-1h-2500m` (its last run is 2026-10-30T21:00Z, and the endpoint now answers with all-null data), so the condition, cloud cover, CAPE, snow limit, next thunderstorm, gust maxima and the whole hourly forecast read `unknown` or empty. The integration now reads `nwp-v2-1h-1km`, the 1 km deterministic control run of GeoSphere's C-LAEF AlpeAdria ensemble, and the precipitation probability reads `ensemble-v2-1h-1km`. Older dataset versions shut down on 2026-11-04. Fixes [#53](https://github.com/slettmayer/ha-geosphere-next/issues/53)
+- Change: forecast values follow the new dataset's semantics, each measured against the live API: precipitation and snow are per-hour amounts (`tp`, `sf`) rather than differenced run totals; the gust is the dataset's own peak (`10fg`) rather than the magnitude of a gust vector; cloud cover is published in percent; and the ensemble percentiles are `tp_p10`/`tp_p50`/`tp_p90`. Precipitation, snow, gust and the percentiles still describe the hour beginning at each forecast row
+- Change: the ensemble reruns every 3 h instead of 12 h, so it is re-fetched on the same cadence as the forecast. A failing ensemble endpoint keeps its last run for up to 12 h (was 24 h) before the probability is dropped
+- Change: thunder is decided on CAPE alone (≥ 1000 J/kg). The new dataset publishes no convective inhibition, so a capped airmass with high CAPE can now show `lightning` / `lightning-rainy` where it previously stayed `cloudy` / `rainy`, and the current condition no longer needs a downpour to override a modelled lid
+- Remove: the `cin` sensor ("Convective inhibition", entity id `sensor.<name>_convective_inhibition`, disabled by default). The dataset no longer provides it; delete the leftover entity from Settings → Entities if you had enabled it
+- Remove: the unused per-hour min/max temperature from the internal forecast model (the weather entity never published it)
+- Change: the setup and options texts no longer name AROME; the forecast domain is latitude 43.0–51.5°, longitude 5.03–22.57°
+- Chore: test fixtures re-recorded from the v2 datasets; `scripts/explore_api.py` now classifies every forecast parameter as instantaneous or interval-ending from a request at the run's own t0
+
 ## 0.14.1
 
 - Fix: a thunderstorm whose nowcast code says snow (`pt` 5) above 1 °C shows `lightning-rainy` again. 0.14.0 put snow ahead of thunder at any temperature, so a convective graupel shower at +4 °C lost the thunderstorm it showed in 0.13. Snow (`pt` 5, or a code naming no kind) now outranks thunder only at or below 1 °C, as in 0.13, and above that, or with no temperature from any source, a storm wins over every kind. A cold storm whose code says rain and snow (`pt` 7) or freezing rain (`pt` 3) keeps showing `lightning-rainy`, as in 0.14.0 (0.13 called any precipitation at or below 1 °C snow; the code says these are not). Found in review of the port to geosphere-mcp-server

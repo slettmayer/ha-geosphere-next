@@ -33,7 +33,7 @@ The AROME hour is selected per merge with `outlook.hour_at(hourly, now)`, which
 matches the top-of-hour floor of `now` — not the `ForecastData.current` snapshot
 taken when the forecast was fetched. The forecast coordinator can run up to
 180 min apart while this one runs every 15 min, so reading that snapshot would
-leave the AROME-only fields (cloud cover, CAPE, CIN) — and with them the derived
+leave the AROME-only fields (cloud cover, CAPE) — and with them the derived
 condition — hours stale. When the series does not cover `now` at all (a forecast
 that has aged out entirely), the merge degrades to `ForecastData.current`.
 
@@ -48,7 +48,7 @@ value. The order encodes which source is trusted most for each field:
 - **Wind gust**: nowcast → AROME current hour.
 - **MSL pressure**: INCA `P0` (Pa) only, converted to hPa.
 - **Global radiation**: INCA `GL` only.
-- **Cloud coverage, CAPE, CIN**: the AROME current hour only — the
+- **Cloud coverage, CAPE**: the AROME current hour only — the
   nowcast/INCA products do not carry them.
 - **Snow limit, weather symbol**: `ForecastData.snow_limit` /
   `.weather_symbol`, which the forecast coordinator computes once per fetch
@@ -111,14 +111,14 @@ value. The order encodes which source is trusted most for each field:
   last `RATE_LOOKBACK`
   (30 min) of buckets is used instead of the matched one alone — a single
   bucket can round to 0.0 in the gap between cells, and a rate of 0 mm/h would
-  then starve both the `pouring` branch and the downpour override in
+  then starve the `pouring` branch in
   [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md).
 
   INCA's hourly `RR` is deliberately *not* the wider source here, though it is
   the obvious candidate. It is a total over the whole past hour, so using it
   as an instantaneous rate reports rain that has already stopped: 6 mm falling
   in the first 20 minutes and ending, with drizzle keeping `pt` non-zero,
-  would read as 6 mm/h and derive a thunderstorm from a capped, drizzling sky.
+  would read as 6 mm/h and derive `pouring` from a drizzling sky.
   The 30-minute window is short enough that what it reports is still falling.
 
 INCA analysis is preferred over the 15-min nowcast for thermodynamic fields and

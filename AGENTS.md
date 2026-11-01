@@ -26,7 +26,7 @@
 Standard Home Assistant integration skeleton, all code flat in
 `custom_components/geosphere_next/`. Internal layering: `api.py` (HTTP + GeoJSON
 parsing) and `models.py` (dataclasses) form a `homeassistant`-free core;
-`coordinator.py` fetches, caches, differences, and merges datasets into models;
+`coordinator.py` fetches, caches, processes, and merges datasets into models;
 `condition.py` derives HA conditions from physical parameters and `outlook.py`
 scans the forecast series for storm/gust outlooks (both pure);
 `const.py` catalogs datasets, parameters, and thresholds; `sensor.py` /
@@ -50,7 +50,8 @@ configured lat/lon. See [ARCHITECTURE.md](docs/tech/ARCHITECTURE.md).
 - Ruff-enforced: 4 spaces, double quotes, line length 88, rule set `E,W,F,I,UP,B,SIM,C4,RUF`. See [CONVENTIONS.md](docs/tech/CONVENTIONS.md).
 
 ## Business Domain
-Samples GeoSphere Austria's gridded datasets (AROME forecast, C-LAEF ensemble,
+Samples GeoSphere Austria's gridded datasets (deterministic 1 km forecast —
+`nwp-v2-1h-1km`, named AROME in the code — C-LAEF ensemble,
 INCA analysis/nowcast, WRF-Chem) at any coordinate and maps them to an HA weather
 entity plus sensors. Current conditions merge INCA → nowcast → AROME with an
 explicit per-field fallback chain; precipitation probability is a stepped value

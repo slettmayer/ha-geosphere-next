@@ -15,7 +15,6 @@ from astral import Observer
 from astral.sun import elevation as solar_elevation
 
 from .const import (
-    CAP_CIN_JKG,
     CLEAR_TCC_PCT,
     CLOUDY_TCC_PCT,
     FOG_HEURISTIC_ENABLED,
@@ -76,15 +75,13 @@ def dew_point_from_t_rh(
     return round(b * gamma / (a - gamma), 1)
 
 
-def is_thunder(cape: float | None, cin: float | None) -> bool:
-    """True when CAPE is sufficient AND convective inhibition is weak enough.
+def is_thunder(cape: float | None) -> bool:
+    """True when CAPE alone is sufficient for thunder.
 
-    AROME publishes `cin` as negative J/kg (0.0 = uncapped). A missing value is
-    treated as uncapped so behaviour degrades to the pre-CIN logic.
+    The forecast dataset publishes no convective inhibition, so the decision
+    rests on CAPE only: a capped airmass with high CAPE reads as thunder too.
     """
-    if cape is None or cape < THUNDER_CAPE_JKG:
-        return False
-    return cin is None or cin > -CAP_CIN_JKG
+    return cape is not None and cape >= THUNDER_CAPE_JKG
 
 
 def derive_condition(
@@ -92,20 +89,19 @@ def derive_condition(
     snow: float | None,
     cloud_coverage: float | None,
     cape: float | None,
-    cin: float | None,
     gust_speed: float | None,
     night: bool,
 ) -> str | None:
     """Derive an HA condition from physical parameters (per forecast hour).
 
-    precipitation/snow in mm per hour, cloud_coverage in %, cape and cin in
-    J/kg (cin negative), gust_speed in m/s.
+    precipitation/snow in mm per hour, cloud_coverage in %, cape in J/kg,
+    gust_speed in m/s.
     """
     precip = precipitation or 0.0
     snowfall = snow or 0.0
     rain = max(precip - snowfall, 0.0)
     tcc = cloud_coverage
-    thunder = is_thunder(cape, cin)
+    thunder = is_thunder(cape)
 
     if snowfall >= PRECIP_MIN_MM and rain >= PRECIP_MIN_MM:
         return "snowy-rainy"
@@ -195,7 +191,6 @@ def derive_current_condition(
     wind_speed: float | None,
     cloud_coverage: float | None,
     cape: float | None,
-    cin: float | None,
     gust_speed: float | None,
     night: bool,
 ) -> str | None:
@@ -212,18 +207,9 @@ def derive_current_condition(
     pre-code temperature rule called any cold precipitation snow.
 
     Note which evidence is which. Precipitation here is *observed* — INCA and
-    the nowcast are anchored to measurements — while CAPE and CIN come from
-    AROME's forecast for the hour. Inhibition answers "can convection get
-    started?", and a downpour already answers it, so observed rain of
-    *convective intensity* (>= POURING_MM_PER_H) overrides the modelled lid:
-    letting it veto would render a thunderstorm in progress as plain `rainy`.
-
-    Intensity is the whole qualifier. Observed precipitation alone is far too
-    weak a signal to spend the gate on — `is_precipitating` is true of drizzle,
-    and high CAPE under a strong lid with light stratiform rain off a frontal
-    deck is a real pattern, not a storm. Below that rate the full CAPE/CIN
-    gate applies, as it does on the non-precipitating branch and throughout
-    `derive_condition`, both of which are forecast-driven end to end.
+    the nowcast are anchored to measurements — while CAPE comes from the
+    forecast for the hour, through the same `is_thunder` test that
+    `derive_condition` applies.
     """
     rate = precipitation_rate_mm_h or 0.0
     if is_precipitating(precipitation_type, rate):
@@ -236,9 +222,7 @@ def derive_current_condition(
         # Unknown temperature is not cold, again as under that rule.
         if cold and kind in (None, PRECIPITATION_TYPES[PT_SNOW]):
             return "snowy"
-        thunder = is_thunder(cape, cin) or (
-            rate >= POURING_MM_PER_H and cape is not None and cape >= THUNDER_CAPE_JKG
-        )
+        thunder = is_thunder(cape)
         # Above it, thunder outranks every kind: it is the hazard people act
         # on, and a graupel or rain-and-snow shower can still be a storm.
         if thunder:
@@ -265,4 +249,4 @@ def derive_current_condition(
     ):
         return "fog"
 
-    return derive_condition(0.0, 0.0, cloud_coverage, cape, cin, gust_speed, night)
+    return derive_condition(0.0, 0.0, cloud_coverage, cape, gust_speed, night)

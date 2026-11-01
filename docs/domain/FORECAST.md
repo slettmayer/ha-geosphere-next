@@ -1,13 +1,14 @@
 # Hourly Forecast
 
 ## Purpose
-Document how the forecast coordinator turns the AROME point forecast (and C-LAEF
-ensemble) into the hourly forecast, including accumulation differencing and the
-stepped precipitation probability.
+Document how the forecast coordinator turns the deterministic point forecast
+(called AROME in the code) and the C-LAEF ensemble into the hourly forecast,
+including the stamping of interval parameters and the stepped precipitation
+probability.
 
 ## Responsibilities
 - Explain AROME hourly processing: time window, wind decomposition, dew point.
-- Explain differencing of run-accumulated precipitation/snow series.
+- Explain how interval-ending parameters (precipitation, snow, gust) are read.
 - Explain the stepped precipitation probability derived from ensemble percentiles.
 
 ## Non-Responsibilities
@@ -28,8 +29,8 @@ series no longer covers now — see [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.m
 
 ### Run gating
 
-The models rerun far less often than the coordinator ticks: AROME every 3 h,
-C-LAEF every 12 h. `_run_is_current` compares a cached response's
+The models rerun less often than the coordinator ticks: both AROME and C-LAEF
+every 3 h. `_run_is_current` compares a cached response's
 `reference_time` against the matching cadence (`AROME_RUN_INTERVAL`,
 `ENSEMBLE_RUN_INTERVAL` in `const.py`) and serves the cache while a re-fetch
 could only return the same bytes. Same shape as the INCA cache in
@@ -60,40 +61,36 @@ default) so a stale forecast is distinguishable from a wrong one.
   Open-Meteo). The **final** stamp is always dropped -- see the stamping rule
   below, which needs a successor.
 - **Two stampings, one row**: a row stamped `T` describes the hour *beginning*
-  at `T`, but AROME mixes instantaneous and interval parameters:
+  at `T`, but the dataset mixes instantaneous and interval parameters:
 
   | Stamping | Parameters | Read at |
   |----------|------------|---------|
-  | Instantaneous at the stamp | `t2m`, `rh2m`, `u10m`/`v10m`, `tcc`, `cape`, `cin`, `snowlmt`, `grad`, `sy` | `i` |
-  | The interval **ending** at the stamp | `ugust`/`vgust`, `mnt2m`/`mxt2m`, and the `rr_acc`/`snow_acc` deltas | `i + 1` |
+  | Instantaneous at the stamp | `2t`, `2r`, `10u`/`10v`, `tcc`, `cape`, `snowlmt`, `sy` | `i` |
+  | The interval **ending** at the stamp | `10fg`, `tp`, `sf` | `i + 1` |
 
-  The dataset metadata is explicit -- `ugust` is "U component of maximum wind
-  gust **in the last forecast intervall**", `mxt2m` likewise, and `rr_acc` is
-  "accumulated ... since start of the forecast" so `acc[i] - acc[i-1]` spans
-  `(ts[i-1], ts[i]]`. Reading the interval fields at `i` reports the hour that
-  already ended: rain that has stopped, and the previous hour's gust peak.
-- **Wind**: `wind_from_components(u10m, v10m)` and `(ugust, vgust)` convert u/v
-  components to (speed m/s, meteorological bearing °) — see
-  [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md).
-- **Dew point**: `dew_point_from_t_rh(t2m, rh2m)` (Magnus formula) — AROME has no
-  dew-point parameter.
-- **Cloud**: `_percent()` normalizes AROME `tcc` (0–1) to a percentage.
+  The metadata says so in words — `10fg` is the "maximum 10 metre wind gust
+  **in the last forecast interval**", `tp` the "total amount of liquid and
+  solid precipitation **in the last forecast interval**" — and the data
+  confirms it: requested from the run's t0, all three are `null` at index 0.
+  `tp` and `sf` are per-hour amounts, not run-accumulated, so they are read
+  directly. Reading the interval fields at `i` reports the hour that already
+  ended: rain that has stopped, and the previous hour's gust peak.
+  `sy` is also `null` at t0, but its cloud classes follow `tcc` at its own
+  stamp, so it is read there — see [DATASETS.md](DATASETS.md).
+- **Wind**: `wind_from_components(10u, 10v)` converts u/v components to (speed
+  m/s, meteorological bearing °) — see
+  [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md). The gust `10fg` is
+  already a scalar speed.
+- **Dew point**: `dew_point_from_t_rh(2t, 2r)` (Magnus formula) — the dataset
+  has no dew-point parameter.
+- **Cloud**: `tcc` is published in percent and passed through unchanged.
 
-### Accumulation differencing
-
-AROME `rr_acc` and `snow_acc` are run-accumulated totals. `_diff(series, index)`
-computes the hourly amount as `acc[i] - acc[i-1]`, rounded to 2 decimals and
-clamped to ≥ 0 so a negative delta (accumulation reset on a new model run) yields
-0. Index 0 returns `None` (no predecessor).
-
-Because that delta covers the interval *ending* at `index`, the row for the hour
-beginning at `ts[i]` calls `_diff(series, i + 1)` — see the stamping table
-above. This rule is verified in `tests/test_coordinator.py`
+This rule is verified in `tests/test_coordinator.py`
 (`test_forecast_interval_fields_describe_the_hour_they_start`).
 
 ### Stepped precipitation probability
 
-The C-LAEF ensemble publishes only `rr_p10` / `rr_p50` / `rr_p90` percentiles
+The C-LAEF ensemble publishes only `tp_p10` / `tp_p50` / `tp_p90` percentiles
 per hour — no member counts, so no true wet-fraction. `_precipitation_probability`
 maps the wettest percentile above `PRECIP_MIN_MM` (0.1 mm) to the midpoint of the
 range it implies:
@@ -104,8 +101,8 @@ range it implies:
 - none wet ⇒ **0 %**
 - `p90` missing ⇒ `None` (no probability)
 
-The percentiles are **interval** values, like AROME's accumulations and gusts:
-GeoSphere documents them as "the last forecast period", so a percentile stamped
+The percentiles are **interval** values, like `tp` and the gust: GeoSphere
+documents them as "in the last forecast interval", so a percentile stamped
 `T` covers the period *ending* at `T`. `_process` therefore keys `pop_by_ts` by
 the **preceding stamp**, putting each probability on the row that reports the
 matching amount. Both grids are hourly, so the keys line up by exact timestamp;
@@ -137,7 +134,8 @@ nothing: the percentiles are matched to AROME by timestamp, so a superseded run
 still has a value for every hour it covers, and hours it has run past simply
 report no probability.
 
-That fallback is bounded by `ENSEMBLE_MAX_FALLBACK_AGE` (two cadences). A
+That fallback is bounded by `ENSEMBLE_MAX_FALLBACK_AGE` (12 h: the publication
+lag, which alone exceeds the 3 h cadence, plus two cadences). A
 superseded run is an older, worse forecast for the same hour rather than the
 same answer, and nothing on display says which run a probability came from —
 the `model_run` sensor reports AROME's stamp, not C-LAEF's. Past the bound the
@@ -165,11 +163,12 @@ forever. See the README FAQ and [../tech/ARCHITECTURE.md](../tech/ARCHITECTURE.m
   accuracy-over-appearance trade-off (v0.8.0).
 - The in-progress hour is kept (comparing to the top of the hour) so the forecast
   begins at the current hour. The request is anchored to the top of the hour and
-  backed off by `HOURLY_LOOKBACK_HOURS`. The anchor is the load-bearing half: an
-  unbounded request begins well after the current hour, and the API rounds a
+  backed off by `HOURLY_LOOKBACK_HOURS`. The anchor is the load-bearing half:
+  where an unbounded request begins is undocumented, and the API rounds a
   *mid-hour* `start` up to the next whole stamp — so anchoring to `now` at 15:30
   returns 16:00 and drops the hour under way, while `start = 15:00` is honoured
-  exactly. The lookback is margin on top of that. `_process` drops whatever
+  exactly (re-measured on `nwp-v2-1h-1km` 2026-11-01; a `start` before the
+  run's t0 comes back at t0). The lookback is margin on top of that. `_process` drops whatever
   precedes the cutoff.
 - Interval parameters are read one step on rather than re-stamped, so the row
   keeps HA's convention that `datetime` is the *start* of the forecast period.
@@ -183,8 +182,6 @@ forever. See the README FAQ and [../tech/ARCHITECTURE.md](../tech/ARCHITECTURE.m
   the clock-dependent parts of `_process` re-run.
 
 ## Known Risks
-- Negative accumulation deltas at model-run boundaries clamp to 0; a genuine
-  spike straddling a run boundary is therefore under-reported for that hour.
 - A transient AROME failure still raises `UpdateFailed` and takes the entities
   unavailable even when a usable run is held in the cache. Serving it would
   match the ensemble's degradation, but it would also change the documented
@@ -193,9 +190,12 @@ forever. See the README FAQ and [../tech/ARCHITECTURE.md](../tech/ARCHITECTURE.m
   derived from a superseded run inside the fallback bound is indistinguishable
   from a current one.
 - Any new AROME parameter has to be classified as instantaneous or
-  interval-ending before it is wired in; the metadata endpoint's `desc` field
-  states which ("in the last forecast intervall"). Getting it wrong shifts that
-  field by an hour, silently.
+  interval-ending before it is wired in. The metadata's wording is a hint, not
+  proof — `pt` is described as "in the last forecast interval" yet has a value
+  at t0, and `ssrd` carries no such wording yet is `null` there — so classify
+  by requesting from the run's t0 and checking index 0
+  (`scripts/explore_api.py` does this). Getting it wrong shifts that field by
+  an hour, silently.
 
 ## Extension Guidelines
 - To expose a new forecast field, add it to `HourlyForecast`, populate it in

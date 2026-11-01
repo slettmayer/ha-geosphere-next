@@ -32,7 +32,7 @@ it publishes and the external dataset API it consumes.
   `sensor` entities, all grouped under one HA `SERVICE` device
   (`entity.py: device_info`). Current-condition sensors are backed by the current
   coordinator; five optional air-quality sensors by the air-quality coordinator.
-  Some sensors are disabled-by-default diagnostics (CAPE, CIN, raw `pt` code,
+  Some sensors are disabled-by-default diagnostics (CAPE, raw `pt` code,
   raw `sy` symbol code). The `precipitating` binary sensor reports whether
   precipitation is falling now, and the `precipitation_kind` sensor what is
   falling, both backed by the current coordinator. Five forecast-outlook entities — `wind_gust_max_1h`,
@@ -53,7 +53,7 @@ it publishes and the external dataset API it consumes.
 | Doc | Covers |
 |-----|--------|
 | [DATASETS.md](DATASETS.md) | The six GeoSphere datasets: resolution, cadence, parameters |
-| [FORECAST.md](FORECAST.md) | AROME hourly forecast, accumulation differencing, stepped precipitation probability |
+| [FORECAST.md](FORECAST.md) | AROME hourly forecast, interval-parameter stamping, stepped precipitation probability |
 | [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md) | The INCA → nowcast → AROME merge and fallback chain |
 | [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md) | HA condition strings derived from physical parameters |
 | [AIR-QUALITY.md](AIR-QUALITY.md) | Optional WRF-Chem pollutants and the daily European AQI |
@@ -61,7 +61,7 @@ it publishes and the external dataset API it consumes.
 ### Core concept catalog
 | Concept | One-liner | Detail |
 |---------|-----------|--------|
-| **AROME forecast** | Deterministic 2.5 km NWP model; primary forecast + current fallback | [DATASETS.md](DATASETS.md) |
+| **AROME forecast** | The code's name for the deterministic 1 km forecast (`nwp-v2-1h-1km`, the C-LAEF AlpeAdria control run); primary forecast + current fallback | [DATASETS.md](DATASETS.md) |
 | **C-LAEF ensemble** | Probabilistic model; source of the precipitation percentiles | [FORECAST.md](FORECAST.md) |
 | **INCA analysis** | 1 km observation-anchored hourly analysis; preferred current source | [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md) |
 | **INCA nowcast** | 1 km 15-min product; precipitation type/rate and gusts | [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md) |
@@ -72,18 +72,17 @@ it publishes and the external dataset API it consumes.
 
 ### Terminology glossary
 - **p10 / p50 / p90** — C-LAEF ensemble precipitation percentiles per hour
-  (kg m⁻²); the only ensemble output published (no member counts).
+  (`tp_p10` … `tp_p90`, kg m⁻²); the only ensemble output used, and no member
+  counts are published.
 - **Stepped precipitation probability** — derived value in {0, 30, 70, 95}%, the
   midpoint of the range implied by which percentile first exceeds 0.1 mm.
 - **Snow limit (`snowlmt`)** — AROME-forecast altitude (m) of the rain/snow
   transition.
 - **CAPE** — Convective Available Potential Energy (J/kg); thunder/lightning
   signal (threshold 1000 J/kg).
-- **CIN** — Convective inhibition (J/kg); AROME publishes it as a negative
-  value (0.0 = uncapped), gating the thunder decision (`cin > -50` J/kg).
 - **European Air Quality Index** — EEA 1–6 scale (1 very good … 6 very poor).
-- **`rr_acc` / `snow_acc`** — run-accumulated AROME totals; hourly values via
-  differencing.
+- **`tp` / `sf`** — AROME precipitation / snowfall per hour (kg m⁻² = mm),
+  each covering the hour *ending* at its stamp.
 - **`pt` (precipitation type)** — nowcast code: 1 rain, 3 freezing rain, 5 snow,
   7 rain and snow, 255 none. Confirmed by GeoSphere, not in `/metadata`.
 - **`sy` (weather symbol)** — GeoSphere's undocumented symbol code; exposed only

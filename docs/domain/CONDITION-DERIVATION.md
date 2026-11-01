@@ -26,8 +26,8 @@ the module import-free.
 
 ### `derive_condition` (per forecast hour)
 
-Inputs: hourly precipitation, snow, cloud cover (`tcc` %), CAPE, CIN, gust
-speed, `night`. Precedence:
+Inputs: hourly precipitation, snow, cloud cover (`tcc` %), CAPE, gust speed,
+`night`. Precedence:
 
 1. snow ≥ 0.1 mm and rain ≥ 0.1 mm → `snowy-rainy`
 2. snow ≥ 0.1 mm → `snowy`
@@ -39,14 +39,11 @@ speed, `night`. Precedence:
 7. cloud ≤ 12.5 % → `clear-night` (night) or `sunny`
 8. cloud ≤ 62.5 % → `partlycloudy`, else `cloudy`
 
-**Thunder** (`is_thunder`) requires CAPE ≥ 1000 J/kg **and** `cin > -50` J/kg.
-AROME publishes `cin` as negative J/kg (0.0 = uncapped, more negative = a
-stronger lid); a missing `cin` is treated as uncapped, so behaviour degrades
-to CAPE-only when the parameter is absent. The −50 J/kg boundary is not yet
-confirmed against real capped data — every value in the recorded fixture is
-weaker than it; see [DATASETS.md](DATASETS.md). The gate applies wherever the
-verdict is forecast-driven; `derive_current_condition` lets observed rain of
-convective intensity override it (see below).
+**Thunder** (`is_thunder`) is CAPE ≥ 1000 J/kg, and nothing else: the forecast
+dataset publishes no convective inhibition (see [DATASETS.md](DATASETS.md)), so
+a capped airmass with high CAPE reads as thunder too. A missing CAPE is no
+thunder. The same test applies to the forecast hours and to the current
+condition.
 
 `outlook.py` reuses `is_thunder` for the storm-outlook entities, where it
 carries a second job: an hour counts as a thunderstorm hour when its derived
@@ -56,7 +53,7 @@ exists because rules 1-2 above return `snowy` / `snowy-rainy` before thunder
 is ever considered (thundersnow) and rule 4 returns None without cloud data.
 
 Thresholds are named constants in `const.py` (`THUNDER_CAPE_JKG`,
-`CAP_CIN_JKG`, `PRECIP_MIN_MM`, `POURING_MM_PER_H`, `WINDY_GUST_MS`,
+`PRECIP_MIN_MM`, `POURING_MM_PER_H`, `WINDY_GUST_MS`,
 `CLOUDY_TCC_PCT`, `CLEAR_TCC_PCT`, `WINDY_CLOUD_TCC_PCT`).
 
 ### `derive_current_condition` (now)
@@ -78,23 +75,9 @@ beside an observed rate, or a code outside GeoSphere's table:
    source has a temperature, a storm wins over every kind, since a graupel
    or rain-and-snow shower can still be a thunderstorm. Cold pt 7 and pt 3
    lose to thunder too: they are not snow.
-   **Thunder here passes the normal gate *or* CAPE alone when the observed
-   rate is ≥ `POURING_MM_PER_H`.** The precipitation is *observed* (INCA / the
-   nowcast are anchored to measurements) while CAPE and CIN are AROME's
-   forecast for the hour, and inhibition answers "can convection get
-   started?" — a question a downpour has already settled. Letting a modelled
-   lid veto it would report a thunderstorm visibly in progress as plain
-   `rainy`.
-
-   The intensity qualifier is what keeps that narrow. `precipitating` is true
-   of drizzle, so overriding on *any* observed rain would promote high CAPE
-   under a strong lid with light stratiform rain — a real frontal pattern,
-   not a storm — to `lightning-rainy`, and contradict `derive_condition`'s
-   `rainy` for the very same hour. Below 4 mm/h the full gate applies.
-
-   The cost: a genuine storm with weaker rain than 4 mm/h still reads as
-   `rainy` while the model claims a lid. The alternative was a second,
-   lower rate constant with nothing to validate it against.
+   Thunder here is the same `is_thunder` test as above: the precipitation is
+   *observed* (INCA / the nowcast are anchored to measurements) while CAPE is
+   the forecast for the hour.
 2. fog heuristic (when `FOG_HEURISTIC_ENABLED`): RH ≥ 98 %, wind < 2 m/s,
    cloud ≥ 87.5 % → `fog`.
 3. otherwise delegate to `derive_condition` with zeroed precipitation.
@@ -120,6 +103,11 @@ The current precipitation rate comes from the nowcast `rr` (15-min bucket ×
   module pure and independently testable.
 
 ## Known Risks
+- Thunder rests on CAPE alone. High CAPE under a capping inversion — a real
+  pattern, e.g. light frontal rain beneath a lid — reads as `lightning-rainy`
+  (or `lightning` under ≥ 60 % cloud) although nothing triggers convection.
+  The storm outlook still requires forecast precipitation for its CAPE branch,
+  so dry high-CAPE afternoons do not raise it, but the derived condition can.
 - The fog heuristic is a coarse RH/wind/cloud rule (current condition only) and
   can be disabled via `FOG_HEURISTIC_ENABLED`.
 - Thresholds are tuned constants; changing one shifts classification across all

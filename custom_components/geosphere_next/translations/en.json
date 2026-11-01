@@ -3,19 +3,19 @@
     "step": {
       "user": {
         "title": "GeoSphere Austria Next",
-        "description": "Point forecast (AROME) and current conditions (INCA nowcast) from the official GeoSphere Austria Dataset API for any location — no weather station required.",
+        "description": "Point forecast (C-LAEF, 1 km) and current conditions (INCA nowcast) from the official GeoSphere Austria Dataset API for any location — no weather station required.",
         "data": {
           "name": "Name",
           "location": "Location"
         },
         "data_description": {
-          "location": "Any point inside the AROME model domain (Austria and surrounding Alpine region). Current-condition data is available inside Austria only."
+          "location": "Any point inside the forecast model domain (Austria and surrounding Alpine region). Current-condition data is available inside Austria only."
         }
       }
     },
     "error": {
       "cannot_connect": "Failed to connect to the GeoSphere API",
-      "out_of_domain": "This location is outside the GeoSphere AROME model domain"
+      "out_of_domain": "This location is outside the GeoSphere forecast model domain"
     },
     "abort": {
       "already_configured": "This location is already configured"
@@ -31,8 +31,8 @@
           "air_quality": "Air quality sensors"
         },
         "data_description": {
-          "current_interval": "How often the nowcast is polled. The AROME model itself only updates every 3 hours.",
-          "forecast_interval": "How often the AROME forecast is polled.",
+          "current_interval": "How often the nowcast is polled. The forecast model itself only updates every 3 hours.",
+          "forecast_interval": "How often the forecast is polled.",
           "air_quality": "Adds NO₂, O₃, PM10, PM2.5 and a daily European Air Quality Index from GeoSphere's WRF-Chem forecast (about 2 extra API requests per hour)."
         }
       }
@@ -58,7 +58,6 @@
       "global_radiation": { "name": "Global radiation" },
       "snow_limit": { "name": "Snow limit" },
       "cape": { "name": "CAPE" },
-      "cin": { "name": "Convective inhibition" },
       "precipitation_kind": {
         "name": "Precipitation type",
         "state": {
