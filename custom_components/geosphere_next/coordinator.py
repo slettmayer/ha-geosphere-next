@@ -645,18 +645,21 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         rr_1h_is_current = (
             rr_1h_age_s is not None and 0 <= rr_1h_age_s <= INCA_RR_MAX_AGE_SECONDS
         )
-        # Only a *wet* `RR` stands in for the nowcast. A dry one would demote
-        # a rain or thunder symbol to `cloudy`, but it describes an hour that
-        # ended up to ~90 min ago in ordinary publishing, so it cannot rule
-        # out rain that has started since; with no nowcast, "dry" is never
-        # observed and the symbol stands.
+        # Only the nowcast decides while it reports either `pt` or `rr`: a
+        # `pt` of 255 is an observed "dry" that an hour-old `RR` must not
+        # overrule. Without it, only a *wet* `RR` stands in. A dry one would
+        # demote a rain or thunder symbol to `cloudy`, but it describes an
+        # hour that ended up to ~90 min ago in ordinary publishing, so it
+        # cannot rule out rain that has started since; with no nowcast,
+        # "dry" is never observed and the symbol stands.
+        nowcast_observes = (
+            precipitation_type is not None or nowcast_rate_mm_h is not None
+        )
         rr_1h_is_wet = rr_1h_is_current and rr_1h is not None and rr_1h >= PRECIP_MIN_MM
         # `None` when nothing observes precipitation, which the condition
         # derivation tells apart from an observed "dry".
         rate_mm_h = (
-            nowcast_rate_mm_h
-            if nowcast_rate_mm_h is not None
-            else (rr_1h if rr_1h_is_wet else None)
+            nowcast_rate_mm_h if nowcast_observes else (rr_1h if rr_1h_is_wet else None)
         )
         # A single bucket can round to 0.0 in the gap between cells of an
         # active storm, reporting 0 mm/h mid-downpour and starving the

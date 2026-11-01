@@ -1178,6 +1178,35 @@ async def test_current_inca_rr_still_derives_rain(
     assert data.is_precipitating is None
 
 
+async def test_a_dry_nowcast_code_outranks_a_wet_inca_rr(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A nowcast reporting `pt` 255 decides, even with no `rr` beside it.
+
+    The INCA `RR` is current and wet, but it only stands in when the nowcast
+    observes nothing. Here the nowcast says "no precipitation", so the rain
+    symbol is demoted to `cloudy` rather than shown as rain.
+    """
+    nowcast = load_fixture("nowcast.json")
+    parameters = nowcast["features"][0]["properties"]["parameters"]
+    parameters["rr"]["data"] = [None for _ in parameters["rr"]["data"]]
+    assert set(parameters["pt"]["data"]) == {255.0}
+    aioclient_mock.get(AROME_URL, json=stormy_arome(indexes=(4,), symbol=8))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=nowcast)
+    aioclient_mock.get(INCA_URL, json=_wet_inca())
+    freezer.move_to("2026-07-15T16:25:00+00:00")
+    await _setup(hass, mock_config_entry)
+
+    data = mock_config_entry.runtime_data.current.data
+    assert data.precipitation_1h == 2.4
+    assert data.is_precipitating is False
+    assert data.condition == "cloudy"
+
+
 @pytest.mark.parametrize(
     "clock",
     [
