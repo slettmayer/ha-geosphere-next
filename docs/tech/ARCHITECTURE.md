@@ -29,7 +29,7 @@ condition.py  pure derivation + met. math       (homeassistant-free)
 outlook.py    forecast-window scans (gust/storm) (homeassistant-free)
 const.py      datasets, parameters, thresholds  (single source of truth)
    │
-coordinator.py  fetch / cache / difference / merge  → model dataclasses
+coordinator.py  fetch / cache / process / merge  → model dataclasses
    │
 entity.py / sensor.py / binary_sensor.py / weather.py  HA platform surface
 config_flow.py  onboarding + options

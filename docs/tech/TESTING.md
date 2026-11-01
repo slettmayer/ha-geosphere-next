@@ -40,8 +40,8 @@ Document the test framework, fixtures, patterns, and commands for the test suite
 - Pure functions (`condition.py`) use `@pytest.mark.parametrize` table-driven
   cases; coordinator/integration tests arrange via a `_setup(hass, entry)` helper
   and assert against `coordinator.data`. `pytest.approx` for floats.
-- Test comments tie assertions back to fixture values (e.g. the exact
-  `rr_acc[1] - rr_acc[0]` differencing math).
+- Test comments tie assertions back to fixture values (e.g. which stamp an
+  interval-ending `tp` or `10fg` value is read from).
 
 ### Fixtures and mocking (`tests/conftest.py`)
 - `mock_config_entry` — a `MockConfigEntry` with lat/lon and `has_nowcast=True`.
@@ -50,18 +50,27 @@ Document the test framework, fixtures, patterns, and commands for the test suite
 - `auto_enable_custom_integrations` — autouse fixture enabling custom-integration
   loading.
 - `load_fixture(name)` — reads `tests/fixtures/*.json`.
-- `stormy_arome(...)` — a *synthetic* copy of `arome.json` with CAPE/CIN (and
-  optionally `tcc`) patched into chosen hours. The recording peaks at 528 J/kg
-  CAPE, so the thunder `on` paths would otherwise be untestable; patching the
-  recorded payload keeps every other field real.
+- `stormy_arome(...)` — a *synthetic* copy of `arome.json` with CAPE (and
+  optionally `tcc` and the hour's `tp`) patched into chosen hours. The
+  recording peaks at 29 J/kg CAPE, so the thunder `on` paths would otherwise be
+  untestable; patching the recorded payload keeps every other field real.
 - Recorded fixtures include the happy path (`arome.json`, `ensemble.json`,
   `nowcast.json`, `inca.json`, `chem.json`, `chem_aqi.json`), metadata files, and
   edge cases (`arome_out_of_domain.json`, `nowcast_out_of_domain.json`,
   `arome_prev_run.json`).
+- The forecast fixtures (`arome*.json`, `ensemble.json`) are recorded by
+  `scripts/explore_api.py --forecast-only` from `nwp-v2-1h-1km` /
+  `ensemble-v2-1h-1km` at 46.63,14.15, requested from the run's own t0 so they
+  keep the `null` first row of every interval-ending parameter. The script then
+  shifts every stamp by one offset so that the run's `reference_time` lands on
+  2026-07-15T12:00Z, the suite's frozen timeline that `nowcast.json`,
+  `inca.json` and the chem fixtures were recorded on; values are untouched.
+  Their weather is a wet November day (CAPE ≤ 29 J/kg, cloud 75–100 %), so the
+  frozen 16:00Z row is index 4.
 
 ### What is covered
 Config-flow validation and out-of-domain handling, API error mapping, coordinator
-merging/differencing/fallback, run gating (which fetches are skipped inside a
+merging/stamping/fallback, run gating (which fetches are skipped inside a
 model's rerun cadence, and that the gate reopens every cycle once it elapses),
 sensor value extraction, weather forecast assembly, air-quality processing, and
 condition derivation.
@@ -84,8 +93,8 @@ cached branch is only observable at an earlier clock.
 - Fixtures are point-in-time snapshots; a GeoSphere response-shape change would
   need refreshed fixtures.
 - Time-frozen tests assume the fixture timestamps stay consistent with the frozen
-  clock. Outlook tests use two clocks (16:00Z on 2026-07-15 and 04:00Z the next
-  day) so the 1 h and 12 h horizons cannot be swapped unnoticed.
+  clock. Outlook tests use two clocks (16:00Z and 18:00Z on 2026-07-15) so the
+  1 h and 12 h horizons cannot be swapped unnoticed.
 - `diagnostics.py` has no test coverage, so its coordinate redaction (`TO_REDACT`
   over `entry_data` and the forecast payload) is unverified by the suite.
 
