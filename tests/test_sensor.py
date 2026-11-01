@@ -600,3 +600,47 @@ async def test_outlook_entities_agree_without_a_forecast_to_scan(
     assert sensor_entity.extra_state_attributes == {}
     assert binary_entity.is_on is None
     assert binary_entity.extra_state_attributes == {}
+
+
+async def test_outlook_sensors_scan_the_series_once_per_refresh(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_api,
+    freezer: FrozenDateTimeFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each outlook sensor scans once per refresh, value and attributes together.
+
+    Three sensors read `max_gust` / `next_thunderstorm`: the two gust maxima
+    and the next thunderstorm. An hour-boundary refresh with no data refresh
+    must therefore cost exactly three scans, not one per value and attribute.
+    """
+    calls: list[str] = []
+    real_gust, real_storm = sensor.max_gust, sensor.next_thunderstorm
+
+    def counting_gust(hourly, hours, now):
+        calls.append(f"max_gust {hours}")
+        return real_gust(hourly, hours, now)
+
+    def counting_storm(hourly, now):
+        calls.append("next_thunderstorm")
+        return real_storm(hourly, now)
+
+    monkeypatch.setattr(sensor, "max_gust", counting_gust)
+    monkeypatch.setattr(sensor, "next_thunderstorm", counting_storm)
+    freezer.move_to("2026-07-15T16:00:00+00:00")
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={CONF_FORECAST_INTERVAL: 180}
+    )
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    calls.clear()
+    freezer.move_to("2026-07-15T17:00:05+00:00")
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    assert sorted(calls) == ["max_gust 1", "max_gust 12", "next_thunderstorm"]
+    gust_12h = hass.states.get("sensor.geosphere_next_wind_gust_max_12h")
+    assert gust_12h.attributes["peak_time"] is not None
