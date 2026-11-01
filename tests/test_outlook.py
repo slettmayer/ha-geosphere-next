@@ -88,7 +88,8 @@ STORM_PAIR = {"cape_p90": 1500.0, "precipitation_p90": 0.5}
 
 def test_ensemble_is_current_within_its_age_bound() -> None:
     assert ensemble_is_current(CURRENT_RUN, NOW)
-    assert ensemble_is_current(NOW - timedelta(hours=12), NOW)
+    assert ensemble_is_current(NOW - timedelta(hours=12) + timedelta(seconds=1), NOW)
+    assert not ensemble_is_current(NOW - timedelta(hours=12), NOW)
     assert not ensemble_is_current(STALE_RUN, NOW)
     assert not ensemble_is_current(None, NOW)
 

@@ -70,11 +70,11 @@ def hour_at(hourly: list[HourlyForecast], now: datetime) -> HourlyForecast | Non
 def ensemble_is_current(reference_time: datetime | None, now: datetime) -> bool:
     """Whether an ensemble run may feed the storm signal at `now`.
 
-    Current while its `reference_time` is at most ENSEMBLE_MAX_FALLBACK_AGE
-    old. No run, or a run without a stamp, is not current.
+    Current while its `reference_time` is less than ENSEMBLE_MAX_FALLBACK_AGE
+    old, the same bound the coordinator holds a cached run to. No run, or a run without a stamp, is not current.
     """
     return (
-        reference_time is not None and now - reference_time <= ENSEMBLE_MAX_FALLBACK_AGE
+        reference_time is not None and now - reference_time < ENSEMBLE_MAX_FALLBACK_AGE
     )
 
 

@@ -114,7 +114,7 @@ binary sensor is on, `next_thunderstorm` names an hour inside its window:
 - **Ensemble** — the C-LAEF ensemble's 90th percentiles reach both
   1000 J/kg CAPE and 0.1 mm of precipitation for the hour, so at least a tenth
   of the ensemble members allow a storm the deterministic run may not show.
-  Only an ensemble run at most 12 h old counts; with none, the symbol decides
+  Only an ensemble run less than 12 h old counts; with none, the symbol decides
   alone.
 
 It leans towards false alarms on purpose: for storm blinds a needless close is
@@ -308,7 +308,7 @@ reads the forecast symbol and the ensemble directly.
 
 **What does the thunderstorm outlook do when the ensemble is down?**
 It falls back to the weather symbol alone. The ensemble only counts while its
-run is at most 12 h old — GeoSphere publishes it several hours after its
+run is less than 12 h old — GeoSphere publishes it several hours after its
 stamp, so a current run is routinely 6–9 h old — and the age is checked each
 time the outlook entities refresh (on every forecast update and at every full
 hour). The `source` attribute shows whether the ensemble played a part.

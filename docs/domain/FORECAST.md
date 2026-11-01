@@ -158,7 +158,7 @@ fires:
   stamp like the probability.
 
 **Ensemble current** is one rule in one helper, `outlook.ensemble_is_current`:
-`ForecastData.ensemble_reference_time` is at most `ENSEMBLE_MAX_FALLBACK_AGE`
+`ForecastData.ensemble_reference_time` is less than `ENSEMBLE_MAX_FALLBACK_AGE`
 (12 h) before now. No ensemble run, or one without a stamp, is not current,
 and the outlook then rests on the symbol alone. The check runs whenever the
 entities refresh, so it takes effect at the next coordinator update or hour
