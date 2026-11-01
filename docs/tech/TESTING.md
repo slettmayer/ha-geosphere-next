@@ -34,6 +34,8 @@ Document the test framework, fixtures, patterns, and commands for the test suite
   The exception is `test_air_quality.py`, which keeps the optional air-quality
   feature readable in isolation even though its sensors are declared in
   `sensor.py`.
+  `test_explore_script.py` covers `scripts/explore_api.py`: that it loads the
+  integration's `const.py` by path, without importing Home Assistant.
 - `models.py` (plain dataclasses) and `entity.py` (the shared entity base) have no
   dedicated test file — both are exercised through the platform tests.
 - Functions are `test_<behavior>` with descriptive snake_case names.

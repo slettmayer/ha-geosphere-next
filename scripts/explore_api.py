@@ -31,6 +31,7 @@ untouched, and the ensemble shifts by the same offset so the two stay aligned.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import itertools
 import json
 import urllib.error
@@ -48,16 +49,36 @@ ENSEMBLE = "timeseries/forecast/ensemble-v2-1h-1km"
 NOWCAST = "timeseries/forecast/nowcast-v1-15min-1km"
 INCA = "timeseries/historical/inca-v1-1h-1km"
 
-# Mirrors AROME_PARAMETERS / ENSEMBLE_PARAMETERS in const.py.
-NWP_PARAMS = "2t,2r,10u,10v,10fg,tcc,tp,sf,snowlmt,cape,sy"
-ENSEMBLE_PARAMS = "tp_p10,tp_p50,tp_p90,cape_p90"
 
-# GeoSphere's `sy` table: 1-5 cloud classes, 6-7 fog, 8-25 rain, sleet and
-# snow (showers included), 26-32 thunderstorms.
-SY_CLOUD = range(1, 6)
-SY_PRECIPITATION = range(8, 33)
-NOWCAST_PARAMS = "t2m,td,rh2m,rr,pt,dd,ff,fx"
-INCA_PARAMS = "T2M,TD2M,RH2M,RR,P0,GL,UU,VV"
+def _load_const():
+    """The integration's const.py, loaded by path.
+
+    Importing it as `custom_components.geosphere_next.const` would run the
+    package's `__init__`, which needs Home Assistant; const.py itself imports
+    only the standard library, so the script stays runnable without it.
+    """
+    path = (
+        Path(__file__).resolve().parent.parent
+        / "custom_components"
+        / "geosphere_next"
+        / "const.py"
+    )
+    spec = importlib.util.spec_from_file_location("geosphere_next_const", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+const = _load_const()
+
+NWP_PARAMS = ",".join(const.AROME_PARAMETERS)
+ENSEMBLE_PARAMS = ",".join(const.ENSEMBLE_PARAMETERS)
+NOWCAST_PARAMS = ",".join(const.NOWCAST_PARAMETERS)
+INCA_PARAMS = ",".join(const.INCA_PARAMETERS)
+
+SY_CLOUD = const.SY_CLEAR | const.SY_PARTLY_CLOUDY | const.SY_CLOUDY
+SY_PRECIPITATION = const.SY_PRECIPITATION
+PRECIP_MIN_MM = const.PRECIP_MIN_MM
 
 # The suite's frozen timeline: forecast runs are stamped 12:00Z on this day.
 DEFAULT_ANCHOR = "2026-07-15T12:00"
@@ -176,14 +197,18 @@ def main() -> None:
             continue
         coded += 1
         for label, j in (("tp@i-1", i - 1), ("tp@i", i), ("tp@i+1", i + 1)):
-            wet[label] += (tp_all[j] or 0.0) >= 0.1
-    print(f"  precipitation-coded stamps: {coded}; wet (tp >= 0.1) at {wet}")
+            wet[label] += (tp_all[j] or 0.0) >= PRECIP_MIN_MM
+    print(
+        f"  precipitation-coded stamps: {coded}; wet (tp >= {PRECIP_MIN_MM}) at {wet}"
+    )
     cloud_but_wet = sum(
         1
         for i in range(1, len(sy))
-        if sy[i] is not None and int(sy[i]) in SY_CLOUD and (tp_all[i] or 0.0) >= 0.1
+        if sy[i] is not None
+        and int(sy[i]) in SY_CLOUD
+        and (tp_all[i] or 0.0) >= PRECIP_MIN_MM
     )
-    print(f"  cloud-coded stamps with tp@i >= 0.1: {cloud_but_wet}")
+    print(f"  cloud-coded stamps with tp@i >= {PRECIP_MIN_MM}: {cloud_but_wet}")
 
     _, nwp_prev = fetch(
         NWP,
