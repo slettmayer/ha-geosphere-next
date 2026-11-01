@@ -51,6 +51,7 @@ from .const import (
     ENSEMBLE_MAX_FALLBACK_AGE,
     ENSEMBLE_PARAMETERS,
     ENSEMBLE_RUN_INTERVAL,
+    FORECAST_ROW_MIDPOINT,
     HOURLY_LOOKBACK_HOURS,
     INCA_LOOKBACK_HOURS,
     INCA_MAX_AGE_SECONDS,
@@ -366,7 +367,10 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                     ensemble_precipitation_p90=tp_p90_by_ts.get(ts),
                     weather_symbol=symbol,
                     condition=derive_condition_from_symbol(
-                        symbol, is_night(self.latitude, self.longitude, ts)
+                        symbol,
+                        is_night(
+                            self.latitude, self.longitude, ts + FORECAST_ROW_MIDPOINT
+                        ),
                     ),
                 )
             )

@@ -53,7 +53,8 @@ groups live in `const.py` (`SY_CLEAR` … `SY_THUNDER`):
 
 A missing code, or one outside the table, maps to `None` (unknown) — never a
 guess. The table has no night variants, so `is_night` decides between `sunny`
-and `clear-night`. HA's `windy`, `windy-variant`, `lightning` (dry thunder),
+and `clear-night` — for a forecast row at the middle of its hour, for the
+current condition at `now`. HA's `windy`, `windy-variant`, `lightning` (dry thunder),
 `hail` and `exceptional` have no code and never occur.
 
 ### `derive_condition_from_symbol` (per forecast hour)

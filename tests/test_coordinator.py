@@ -17,6 +17,7 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
 )
 
 from custom_components.geosphere_next import api
+from custom_components.geosphere_next.condition import is_night
 from custom_components.geosphere_next.const import CONF_HAS_NOWCAST, DOMAIN
 from custom_components.geosphere_next.models import ForecastData, GeoSphereResponse
 
@@ -838,6 +839,45 @@ async def test_symbol_decides_the_forecast_condition_end_to_end(
     first = mock_config_entry.runtime_data.forecast.data.hourly[0]
     assert first.weather_symbol == symbol
     assert first.condition == expected
+
+
+async def test_forecast_night_is_judged_at_the_middle_of_the_hour(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A clear hour that is mostly after sunset reads `clear-night`.
+
+    At this longitude the sun is still up at 18:00Z but down by 18:30Z, so
+    the 18:00Z row is judged at its middle, not at its start.
+    """
+    latitude, longitude = 48.22, 25.0
+    start = datetime(2026, 7, 15, 18, tzinfo=UTC)
+    assert not is_night(latitude, longitude, start)
+    assert is_night(latitude, longitude, start + timedelta(minutes=30))
+
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(
+        AROME_URL, json=stormy_arome(indexes=(6,), symbol=1, precipitation=0.0)
+    )
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="GeoSphere Next",
+        unique_id=f"{latitude:.4f}_{longitude:.4f}",
+        data={
+            CONF_LATITUDE: latitude,
+            CONF_LONGITUDE: longitude,
+            CONF_HAS_NOWCAST: True,
+        },
+    )
+    await _setup(hass, entry)
+
+    by_hour = {h.datetime: h for h in entry.runtime_data.forecast.data.hourly}
+    assert by_hour[start].weather_symbol == 1
+    assert by_hour[start].condition == "clear-night"
 
 
 async def test_forecast_symbol_describes_the_hour_it_starts(

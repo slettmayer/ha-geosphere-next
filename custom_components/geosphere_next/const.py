@@ -217,6 +217,10 @@ SY_THUNDER = frozenset(range(26, 33))
 # Codes saying precipitation falls in the hour, thunderstorms included.
 SY_PRECIPITATION = SY_RAIN | SY_POURING | SY_SLEET | SY_SNOW | SY_THUNDER
 
+# Where within a forecast row's hour day/night is judged for the clear
+# symbols: the middle, so an hour that is mostly dark reads `clear-night`.
+FORECAST_ROW_MIDPOINT = timedelta(minutes=30)
+
 # Forecast-outlook horizons (see outlook.py). The window rounds up to whole
 # hourly steps, so an N-hour horizon spans the in-progress hour plus N more.
 # The entity keys/ids keep their literal "1h"/"12h" spelling.

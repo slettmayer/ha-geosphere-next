@@ -76,7 +76,9 @@ default) so a stale forecast is distinguishable from a wrong one.
   `tp` and `sf` are per-hour amounts, not run-accumulated, so they are read
   directly. Reading the interval fields at `i` reports the hour that already
   ended: rain that has stopped, and the previous hour's gust peak.
-- **Condition**: `derive_condition_from_symbol(sy, is_night(ts))` — see
+- **Condition**: `derive_condition_from_symbol(sy, is_night(ts + 30 min))` —
+  night is judged at the middle of the row's hour (`FORECAST_ROW_MIDPOINT`),
+  so a clear hour that is mostly dark reads `clear-night` — see
   [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md). `sy` is read at `i + 1`
   because its precipitation classes follow `tp` at their own stamp, measured
   over the whole grid (see
