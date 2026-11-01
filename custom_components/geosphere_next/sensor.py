@@ -60,10 +60,15 @@ def _kmh(value: float | None) -> float | None:
 
 @dataclass(frozen=True, kw_only=True)
 class GeoSphereOutlookSensorEntityDescription(SensorEntityDescription):
-    """Forecast-outlook sensor description; value_fn also receives `now`."""
+    """Forecast-outlook sensor description.
 
-    value_fn: Callable[[ForecastData, datetime], float | datetime | None]
-    attributes_fn: Callable[[ForecastData, datetime], dict[str, object]] | None = None
+    `state_fn` returns the value and the attributes together, from one scan
+    of the series at one `now`.
+    """
+
+    state_fn: Callable[
+        [ForecastData, datetime], tuple[float | datetime | None, dict[str, object]]
+    ]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -317,6 +322,35 @@ AIR_QUALITY_SENSORS: tuple[GeoSphereAirQualitySensorEntityDescription, ...] = (
 # Consumed by __init__ to clean the entity registry when the option is off.
 AIR_QUALITY_SENSOR_KEYS = tuple(description.key for description in AIR_QUALITY_SENSORS)
 
+
+def _gust_max_state(
+    hours: int, *, with_peak_time: bool
+) -> Callable[[ForecastData, datetime], tuple[float | None, dict[str, object]]]:
+    """The peak gust over `hours` in km/h, optionally with its `peak_time`."""
+
+    def state(data: ForecastData, now: datetime) -> tuple[float | None, dict]:
+        value, peak = max_gust(data.hourly, hours, now)
+        attributes: dict[str, object] = {}
+        if with_peak_time:
+            attributes["peak_time"] = peak.isoformat() if peak else None
+        return _kmh(value), attributes
+
+    return state
+
+
+def _cape_max_state(
+    data: ForecastData, now: datetime
+) -> tuple[float | None, dict[str, object]]:
+    return max_cape(data.hourly, OUTLOOK_LONG_HORIZON_HOURS, now), {}
+
+
+def _next_thunderstorm_state(
+    data: ForecastData, now: datetime
+) -> tuple[datetime | None, dict[str, object]]:
+    start, source = next_thunderstorm(data.hourly, now, data.ensemble_reference_time)
+    return start, {"source": source}
+
+
 # These are forecast *predictions*, not measurements, so they deliberately
 # carry no `state_class`: long-term statistics over a prediction would mix
 # future values into the recorder's history of what actually happened.
@@ -331,9 +365,7 @@ OUTLOOK_SENSORS: tuple[GeoSphereOutlookSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.WIND_SPEED,
         native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
         suggested_display_precision=0,
-        value_fn=lambda data, now: _kmh(
-            max_gust(data.hourly, OUTLOOK_SHORT_HORIZON_HOURS, now)[0]
-        ),
+        state_fn=_gust_max_state(OUTLOOK_SHORT_HORIZON_HOURS, with_peak_time=False),
     ),
     GeoSphereOutlookSensorEntityDescription(
         key="wind_gust_max_12h",
@@ -341,16 +373,7 @@ OUTLOOK_SENSORS: tuple[GeoSphereOutlookSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.WIND_SPEED,
         native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
         suggested_display_precision=0,
-        value_fn=lambda data, now: _kmh(
-            max_gust(data.hourly, OUTLOOK_LONG_HORIZON_HOURS, now)[0]
-        ),
-        attributes_fn=lambda data, now: {
-            "peak_time": (
-                peak.isoformat()
-                if (peak := max_gust(data.hourly, OUTLOOK_LONG_HORIZON_HOURS, now)[1])
-                else None
-            )
-        },
+        state_fn=_gust_max_state(OUTLOOK_LONG_HORIZON_HOURS, with_peak_time=True),
     ),
     GeoSphereOutlookSensorEntityDescription(
         key="cape_max_12h",
@@ -359,18 +382,13 @@ OUTLOOK_SENSORS: tuple[GeoSphereOutlookSensorEntityDescription, ...] = (
         suggested_display_precision=0,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        value_fn=lambda data, now: max_cape(
-            data.hourly, OUTLOOK_LONG_HORIZON_HOURS, now
-        ),
+        state_fn=_cape_max_state,
     ),
     GeoSphereOutlookSensorEntityDescription(
         key="next_thunderstorm",
         translation_key="next_thunderstorm",
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda data, now: next_thunderstorm(data.hourly, now)[0],
-        attributes_fn=lambda data, now: {
-            "cape": next_thunderstorm(data.hourly, now)[1]
-        },
+        state_fn=_next_thunderstorm_state,
     ),
 )
 
@@ -532,22 +550,19 @@ class GeoSphereOutlookSensor(
 
     @callback
     def _refresh_outlook(self) -> None:
-        """Recompute state and attributes from a single sample of the clock.
-
-        Sampling `dt_util.utcnow()` once per property let a write that straddles
-        an hour boundary publish, say, a `cape` attribute belonging to a
-        different hour than the `next_thunderstorm` timestamp beside it. One
-        sample for both makes that impossible — and scans the series once
-        instead of twice.
+        """Recompute state and attributes from one scan at one sample of the clock.
 
         Within a clock hour the answer is invariant: every scan floors `now` to
         the top of the hour, and the window end (`now + hours`) only crosses a
         top-of-hour stamp when the hour itself changes. So recomputing on
         coordinator updates and at each hour boundary is equivalent to
-        recomputing on every read, without carrying a stale `now`.
+        recomputing on every read, without carrying a stale `now`. The one
+        exception is the thunderstorm outlook's ensemble age bound
+        (`outlook.ensemble_is_current`), which takes effect at the next of
+        those refreshes.
 
         `None` / `{}` when there is no forecast to scan, matching
-        `GeoSphereBinarySensor.is_on`. Unreachable while
+        `GeoSphereBinarySensor._refresh_outlook`. Unreachable while
         `async_config_entry_first_refresh` guarantees data.
         """
         data = self.coordinator.data
@@ -555,11 +570,8 @@ class GeoSphereOutlookSensor(
             self._attr_native_value = None
             self._attr_extra_state_attributes = {}
             return
-        now = dt_util.utcnow()
-        self._attr_native_value = self.entity_description.value_fn(data, now)
-        attributes_fn = self.entity_description.attributes_fn
-        self._attr_extra_state_attributes = (
-            {} if attributes_fn is None else attributes_fn(data, now)
+        self._attr_native_value, self._attr_extra_state_attributes = (
+            self.entity_description.state_fn(data, dt_util.utcnow())
         )
 
     @callback

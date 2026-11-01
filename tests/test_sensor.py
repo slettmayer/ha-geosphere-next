@@ -31,6 +31,7 @@ from .conftest import (
     NOWCAST_URL,
     load_fixture,
     stormy_arome,
+    stormy_ensemble,
     wet_nowcast,
 )
 
@@ -254,7 +255,7 @@ async def test_outlook_sensors(
     assert float(gust_12h.state) == pytest.approx(23.4, abs=0.01)
     assert gust_12h.attributes["peak_time"] == "2026-07-16T04:00:00+00:00"
 
-    # The recorded forecast never reaches the 1000 J/kg thunder threshold.
+    # The recorded forecast carries no thunderstorm symbol.
     assert hass.states.get("sensor.geosphere_next_next_thunderstorm").state == "unknown"
 
 
@@ -388,19 +389,6 @@ async def test_outlook_window_re_evaluates_on_the_hour(
     assert arome_calls() == baseline
 
 
-def _two_storm_arome() -> dict:
-    """The AROME fixture with storms at 16:00Z (CAPE 1500) and 19:00Z (2500).
-
-    `stormy_arome` wets index 4 (16:00Z); index 7 (19:00Z) gets 1 mm written
-    to `tp` at index 8, which is the rain of the hour *starting* at index 7.
-    """
-    payload = stormy_arome(indexes=(4,), cape=1500.0)
-    parameters = payload["features"][0]["properties"]["parameters"]
-    parameters["cape"]["data"][7] = 2500.0
-    parameters["tp"]["data"][8] = 1.0
-    return payload
-
-
 class _TickingClock:
     """A `dt_util` stand-in whose `utcnow()` jumps an hour on every call."""
 
@@ -414,8 +402,10 @@ class _TickingClock:
 
 
 async def _setup_two_storms(hass, mock_config_entry, aioclient_mock) -> None:
-    aioclient_mock.get(AROME_URL, json=_two_storm_arome())
-    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    # Thunderstorm symbols at 16:00Z and 19:00Z; only the second also carries
+    # the ensemble signal, so the two storms differ in `source`.
+    aioclient_mock.get(AROME_URL, json=stormy_arome(indexes=(4, 7)))
+    aioclient_mock.get(ENSEMBLE_URL, json=stormy_ensemble(indexes=(7,)))
     aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
     aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
     mock_config_entry.add_to_hass(hass)
@@ -437,7 +427,7 @@ async def test_outlook_state_and_attributes_come_from_one_clock_sample(
     """One state write must not describe two different hours.
 
     Sampling the clock separately for the state and for the attributes lets a
-    write that straddles an hour boundary publish a `cape` belonging to a
+    write that straddles an hour boundary publish a `source` belonging to a
     different storm than the published timestamp. The ticking clock makes that
     race deterministic: with two samples the state reports the 16:00Z storm
     while the attribute reports the 19:00Z one.
@@ -448,7 +438,7 @@ async def test_outlook_state_and_attributes_come_from_one_clock_sample(
     entity_id = "sensor.geosphere_next_next_thunderstorm"
     state = hass.states.get(entity_id)
     assert state.state == "2026-07-15T16:00:00+00:00"
-    assert state.attributes["cape"] == 1500.0
+    assert state.attributes["source"] == "symbol"
 
     monkeypatch.setattr(
         sensor,
@@ -461,7 +451,7 @@ async def test_outlook_state_and_attributes_come_from_one_clock_sample(
 
     state = hass.states.get(entity_id)
     assert state.state == "2026-07-15T16:00:00+00:00"
-    assert state.attributes["cape"] == 1500.0
+    assert state.attributes["source"] == "symbol"
 
 
 async def test_outlook_attributes_follow_the_state_across_the_hour(
@@ -477,7 +467,7 @@ async def test_outlook_attributes_follow_the_state_across_the_hour(
     entity_id = "sensor.geosphere_next_next_thunderstorm"
     state = hass.states.get(entity_id)
     assert state.state == "2026-07-15T16:00:00+00:00"
-    assert state.attributes["cape"] == 1500.0
+    assert state.attributes["source"] == "symbol"
 
     # The 16:00Z storm hour has elapsed; the next one is 19:00Z.
     freezer.move_to("2026-07-15T17:00:05+00:00")
@@ -486,7 +476,7 @@ async def test_outlook_attributes_follow_the_state_across_the_hour(
 
     state = hass.states.get(entity_id)
     assert state.state == "2026-07-15T19:00:00+00:00"
-    assert state.attributes["cape"] == 2500.0
+    assert state.attributes["source"] == "both"
 
 
 async def test_observation_time_sensor_exposes_the_analysis_age(
@@ -571,3 +561,77 @@ async def test_observation_time_reports_the_arome_stamp_outside_the_nowcast_grid
 
     state = hass.states.get("sensor.geosphere_next_observation_time")
     assert state.state == "2026-07-15T16:00:00+00:00"
+
+
+async def test_outlook_entities_agree_without_a_forecast_to_scan(
+    hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
+) -> None:
+    """Outlook sensor and binary sensor both blank to `None` / `{}`.
+
+    `GeoSphereOutlookSensor._refresh_outlook` documents that it matches
+    `GeoSphereBinarySensor._refresh_outlook` when the coordinator holds no
+    data; this pins that pairing.
+    """
+    freezer.move_to("2026-07-15T16:00:00+00:00")
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    sensor_entity = hass.data[DATA_INSTANCES]["sensor"].get_entity(
+        "sensor.geosphere_next_next_thunderstorm"
+    )
+    binary_entity = hass.data[DATA_INSTANCES]["binary_sensor"].get_entity(
+        "binary_sensor.geosphere_next_thunderstorm_expected_next_hour"
+    )
+    mock_config_entry.runtime_data.forecast.data = None
+    sensor_entity._refresh_outlook()
+    binary_entity._refresh_outlook()
+
+    assert sensor_entity.native_value is None
+    assert sensor_entity.extra_state_attributes == {}
+    assert binary_entity.is_on is None
+    assert binary_entity.extra_state_attributes == {}
+
+
+async def test_outlook_sensors_scan_the_series_once_per_refresh(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_api,
+    freezer: FrozenDateTimeFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each outlook sensor scans once per refresh, value and attributes together.
+
+    Three sensors read `max_gust` / `next_thunderstorm`: the two gust maxima
+    and the next thunderstorm. An hour-boundary refresh with no data refresh
+    must therefore cost exactly three scans, not one per value and attribute.
+    """
+    calls: list[str] = []
+    real_gust, real_storm = sensor.max_gust, sensor.next_thunderstorm
+
+    def counting_gust(hourly, hours, now):
+        calls.append(f"max_gust {hours}")
+        return real_gust(hourly, hours, now)
+
+    def counting_storm(hourly, now, ensemble_reference_time):
+        calls.append("next_thunderstorm")
+        return real_storm(hourly, now, ensemble_reference_time)
+
+    monkeypatch.setattr(sensor, "max_gust", counting_gust)
+    monkeypatch.setattr(sensor, "next_thunderstorm", counting_storm)
+    freezer.move_to("2026-07-15T16:00:00+00:00")
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={CONF_FORECAST_INTERVAL: 180}
+    )
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    calls.clear()
+    freezer.move_to("2026-07-15T17:00:05+00:00")
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    assert sorted(calls) == ["max_gust 1", "max_gust 12", "next_thunderstorm"]
+    gust_12h = hass.states.get("sensor.geosphere_next_wind_gust_max_12h")
+    assert gust_12h.attributes["peak_time"] is not None

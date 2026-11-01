@@ -12,7 +12,7 @@ coordinate:
 | Data | Dataset | Resolution |
 |---|---|---|
 | Hourly forecast (+60 h) | Deterministic forecast `nwp-v2-1h-1km` (the C-LAEF AlpeAdria control run) | 1 km, model runs every 3 h |
-| Precipitation probability (per forecast hour) | C-LAEF ensemble `ensemble-v2-1h-1km` | 1 km, model runs every 3 h |
+| Precipitation-probability estimate (per forecast hour), ensemble thunderstorm signal | C-LAEF ensemble `ensemble-v2-1h-1km` | 1 km, model runs every 3 h |
 | Current temperature, humidity, dew point, wind, MSL pressure, global radiation, 1 h precipitation | INCA analysis `inca-v1-1h-1km` | 1 km, hourly (observation-anchored) |
 | Current precipitation type/rate, wind gusts; fallback for the INCA fields | INCA nowcast `nowcast-v1-15min-1km` | 1 km, 15 min |
 | Air quality (optional): NO₂, O₃, PM10, PM2.5 (+73 h hourly) | WRF-Chem `chem-v2-1h-3km` | 3 km, model runs daily |
@@ -35,7 +35,7 @@ forecast. It exposes no daily forecast (hourly-only — see the FAQ).
 
 | Attribute | Description | Source |
 |---|---|---|
-| `state` (condition) | HA weather condition (`sunny`, `cloudy`, `rainy`, …), derived from physical parameters — see [below](#how-the-weather-condition-is-derived) | INCA → nowcast → forecast |
+| `state` (condition) | HA weather condition (`sunny`, `cloudy`, `rainy`, …): GeoSphere's own weather symbol for the hour, with observations deciding what is falling now — see [below](#how-the-weather-condition-is-derived) | nowcast / INCA → forecast symbol |
 | `temperature` | Current air temperature | INCA analysis |
 | `apparent_temperature` | "Feels like" temperature | INCA analysis |
 | `dew_point` | Current dew point | INCA analysis |
@@ -47,10 +47,12 @@ forecast. It exposes no daily forecast (hourly-only — see the FAQ).
 | `cloud_coverage` | Cloud cover (%) | forecast |
 
 The hourly forecast is read with the `weather.get_forecasts` service (`type:
-hourly`). Each of the ~60 forecast hours carries: `datetime`, `condition`,
+hourly`). Each of the ~60 forecast hours carries: `datetime`, `condition`
+(GeoSphere's weather symbol for that hour, mapped to HA's conditions),
 `temperature`, `dew_point`, `humidity`, `precipitation`,
-`precipitation_probability` (a stepped 0 / 30 / 70 / 95 % estimate from the
-C-LAEF ensemble — see the FAQ), `wind_speed`, `wind_bearing`,
+`precipitation_probability` (a stepped 0 / 30 / 70 / 95 % **estimate this
+integration derives** from the C-LAEF ensemble percentiles — GeoSphere
+publishes no probability; see the FAQ), `wind_speed`, `wind_bearing`,
 `wind_gust_speed`, and `cloud_coverage`. All forecast values come from the
 deterministic forecast except the probability (C-LAEF ensemble).
 
@@ -73,7 +75,7 @@ forecast interval — and re-pushed to any live subscribers at every full hour.
 | `cloud_coverage` | Fraction of sky covered by cloud | % |
 | `precipitation_1h` (Precipitation, last hour) | Rain/snow accumulated over the last hour, from INCA's hourly `RR`. `unknown` when INCA has none: the 15-min nowcast serves one model run clamped to its own start, so its buckets cover a fraction of an hour and summing them reported a quarter-hour as a full one | mm |
 | `precipitating` (binary sensor, `moisture`) | On while precipitation is falling now — from the nowcast `pt` code or its instantaneous rate ≥ 0.1 mm/h. `unknown`, never `off`, whenever the nowcast is unavailable (outside the Austrian grid, or a failed fetch): INCA's hourly `RR` is an accumulation, not evidence about *now*, so there is nothing left to answer with and a "dry" would be invented | — |
-| `condition` | The derived HA condition as a plain text sensor | — |
+| `condition` | The weather entity's current condition as a plain text sensor | — |
 | `precipitation_kind` (Precipitation type) | What is falling now, decoded from the nowcast `pt` code: `rain`, `freezing_rain`, `snow`, `rain_and_snow` or `no_precipitation` ([GeoSphere's code table](https://github.com/Geosphere-Austria/dataset-api-docs/issues/71#issuecomment-6125846140)). `unknown` for a code outside that table, for `255` while the measured rate says it is precipitating, or when the nowcast is unavailable | — |
 | `global_radiation` | Downward shortwave (solar) irradiance | W/m² |
 | `snow_limit` | Altitude of the rain/snow line | m |
@@ -93,30 +95,42 @@ Enable these per-entity in Home Assistant if you want them.
 
 | Sensor | Description | Unit |
 |---|---|---|
-| `cape` | Convective Available Potential Energy — thunderstorm-potential indicator used in the condition derivation | J/kg |
+| `cape` | Convective Available Potential Energy of the forecast hour covering now — a thunderstorm-potential indicator, informational only (neither the condition nor the storm outlook reads it) | J/kg |
 | `precipitation_type` (Precipitation type code) | Raw GeoSphere precipitation-type code (diagnostic): 1 rain, 3 freezing rain, 5 snow, 7 rain and snow, 255 no precipitation. The decoded `precipitation_kind` sensor is usually what you want; this one shows a code outside that table, which that sensor reports as `unknown` | — |
-| `weather_symbol` | Raw GeoSphere weather-symbol code (diagnostic; the HA condition is derived independently — see the FAQ) | — |
+| `weather_symbol` | GeoSphere weather-symbol code (1–32) of the forecast hour covering now — the code the condition is mapped from (diagnostic) | — |
 
 ### Storm outlook (enabled by default, except `cape_max_12h`)
 
-Forecast-derived signals scanned from the hourly forecast series — pure window
-scans, deliberately threshold-free: what counts as "too windy" or "storm
-risk" is your automation's policy, not this integration's.
+Forecast-derived signals scanned from the hourly forecast series. The gust
+maxima are deliberately threshold-free: what counts as "too windy" is your
+automation's policy, not this integration's.
 
-"Thunder expected" for an hour means either its derived condition is
-`lightning` / `lightning-rainy`, or the raw thunder predicate holds (CAPE ≥
-1000 J/kg) **and** that hour is forecast to produce ≥
-0.1 mm of precipitation. The second branch catches thundersnow and hours with
-missing cloud data, which the condition string alone reports as calm; the
-precipitation requirement keeps dry high-CAPE summer afternoons out.
+Thunder has two signals, and both thunder entities apply the same per-hour
+test — an hour with either signal is a thunderstorm hour, so whenever the
+binary sensor is on, `next_thunderstorm` names an hour inside its window:
+
+- **Symbol** — GeoSphere's own weather symbol for the hour is a thunderstorm
+  code (26–32, thunder with rain, sleet or snow).
+- **Ensemble** — the C-LAEF ensemble's 90th percentiles reach both
+  1000 J/kg CAPE and 0.1 mm of precipitation for the hour, so at least a tenth
+  of the ensemble members allow a storm the deterministic run may not show.
+  Only an ensemble run less than 12 h old counts; with none, the symbol decides
+  alone.
+
+It leans towards false alarms on purpose: for storm blinds a needless close is
+cheap and a missed storm is not. Both entities carry a `source` attribute
+saying which signal fired — `symbol`, `ensemble` or `both` (`None` when
+none did) — so you can tell why they turned on, or ignore the ensemble branch
+in your own automation. The binary sensor judges it across its window,
+`next_thunderstorm` for the hour it names. It is their only attribute.
 
 | Sensor | Description | Unit |
 |---|---|---|
 | `wind_gust_max_1h` | Peak forecast wind gust over the 1-hour horizon (see the rounding note below) | km/h |
 | `wind_gust_max_12h` | Peak forecast wind gust over the 12-hour horizon; carries a `peak_time` attribute | km/h |
-| `cape_max_12h` | Peak CAPE over the 12-hour horizon (diagnostic, disabled by default) | J/kg |
-| `next_thunderstorm` | Timestamp of the first forecast hour with thunder expected (`unknown` if none in the ~57 h horizon); carries a `cape` attribute for that hour | — |
-| `thunderstorm_expected_1h` (binary sensor; entity id: `thunderstorm_expected_next_hour`) | On when any hour in the 1-hour horizon has thunder expected; `unknown` when the window holds no usable forecast hour | — |
+| `cape_max_12h` | Peak CAPE over the 12-hour horizon (diagnostic, disabled by default; informational only) | J/kg |
+| `next_thunderstorm` | Start of the first forecast hour with a thunderstorm symbol or the ensemble storm signal (`unknown` if none in the ~57 h horizon); `source` attribute names which fired in that hour | — |
+| `thunderstorm_expected_1h` (binary sensor; entity id: `thunderstorm_expected_next_hour`) | On when any hour in the 1-hour horizon has a thunderstorm symbol or the ensemble storm signal; `source` attribute names which. `unknown` only when the forecast has no hour in the window; an hour with a missing or unknown symbol counts as no storm unless the ensemble says otherwise | — |
 
 Gust maxima are natively km/h, matching the current-condition wind sensors.
 The three numeric sensors carry no `state_class`: they are predictions, so
@@ -233,15 +247,46 @@ not exactly match, the nearest monitoring station.
 
 ## How the weather condition is derived
 
-GeoSphere's own weather-symbol code table is undocumented, so the HA condition
-is derived from physical parameters (cloud cover, precipitation and snow
-amounts, CAPE, wind gusts, solar elevation) — the same approach open-meteo
-uses for this model. The raw symbol is still exposed as a diagnostic sensor.
+Every forecast hour takes GeoSphere's own weather symbol (`sy`), using the
+[code table GeoSphere published](https://github.com/Geosphere-Austria/dataset-api-docs/issues/30#issuecomment-2042539848):
+
+| Symbol | Condition |
+|---|---|
+| clear, fair (1–2) | `sunny`, or `clear-night` at night |
+| cloudy (3) | `partlycloudy` |
+| mostly cloudy, overcast (4–5) | `cloudy` |
+| ground fog, high fog (6–7) | `fog` |
+| light / moderate rain, rain showers (8, 9, 17, 18) | `rainy` |
+| heavy rain, heavy rain showers (10, 19) | `pouring` |
+| sleet, sleet showers (11–13, 20–22) | `snowy-rainy` |
+| snow, snow showers (14–16, 23–25) | `snowy` |
+| thunderstorms of any kind (26–32) | `lightning-rainy` |
+
+A missing or unknown code shows `unknown` rather than a guess. The table has
+no `windy` codes, so `windy` and `windy-variant` never appear.
+
+The **current** condition comes from a model run that is often 3–6 hours old,
+so observations decide what is falling now. When the nowcast (or a recent INCA
+analysis) observes precipitation, its kind — rain, snow, sleet — decides the
+condition, and a thunderstorm symbol for the hour turns it into
+`lightning-rainy` (except observed snow at or below 1 °C, which stays `snowy`).
+When the nowcast says it is dry, the hour's symbol applies, but a rain, snow
+or thunder symbol shows `cloudy`, because the model expects precipitation
+that is not falling. Where the nowcast is unavailable (outside Austria, or
+when its fetch fails), only observed rain from the hourly INCA analysis can
+override the symbol; otherwise the symbol applies unchanged.
+
+GeoSphere confirmed the table for the previous forecast dataset; that the
+current `nwp-v2` dataset uses the same table is measured, not published. All
+observed classes match — but no fog code appeared anywhere in the domain when
+it was checked, so if `nwp-v2` never emits one, **`fog` will not appear**.
+Details in [docs/domain/CONDITION-DERIVATION.md](docs/domain/CONDITION-DERIVATION.md).
 
 ## FAQ
 
 **Why does the precipitation probability only show 0 / 30 / 70 / 95 %?**
-The forecast itself is a *deterministic* run — each run produces a single outcome,
+Because it is an estimate this integration derives, not a number GeoSphere
+publishes. The forecast itself is a *deterministic* run — each run produces a single outcome,
 not an ensemble of scenarios, so it has no probability of its own. The
 probability comes from GeoSphere's C-LAEF *ensemble* dataset instead, which
 publishes only three precipitation percentiles per hour (p10 / p50 / p90),
@@ -252,6 +297,21 @@ percentile is wet, 10–50 % do. The integration reports the midpoint of the
 implied range — 95, 70, 30, or 0 % — which is coarser than the smooth-looking
 percentages other providers show, but every step is genuinely ensemble-backed
 rather than interpolated.
+
+**Why does the weather entity say `cloudy` when this hour's forecast says rain?**
+The forecast row shows GeoSphere's symbol for the hour, from a model run that
+is often several hours old. The current condition checks it against what is
+actually observed: if the nowcast sees nothing falling, a rain or thunder
+symbol becomes `cloudy`. The reverse holds too — observed rain shows `rainy`
+even under a dry symbol. The thunderstorm outlook is not affected by this; it
+reads the forecast symbol and the ensemble directly.
+
+**What does the thunderstorm outlook do when the ensemble is down?**
+It falls back to the weather symbol alone. The ensemble only counts while its
+run is less than 12 h old — GeoSphere publishes it several hours after its
+stamp, so a current run is routinely 6–9 h old — and the age is checked each
+time the outlook entities refresh (on every forecast update and at every full
+hour). The `source` attribute shows whether the ensemble played a part.
 
 **Why does the current temperature disagree with the forecast for this hour?**
 Current thermodynamic values come from the INCA hourly analysis, which is

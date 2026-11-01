@@ -27,7 +27,7 @@ Standard Home Assistant integration skeleton, all code flat in
 `custom_components/geosphere_next/`. Internal layering: `api.py` (HTTP + GeoJSON
 parsing) and `models.py` (dataclasses) form a `homeassistant`-free core;
 `coordinator.py` fetches, caches, processes, and merges datasets into models;
-`condition.py` derives HA conditions from physical parameters and `outlook.py`
+`condition.py` maps GeoSphere's weather symbol to HA conditions and `outlook.py`
 scans the forecast series for storm/gust outlooks (both pure);
 `const.py` catalogs datasets, parameters, and thresholds; `sensor.py` /
 `weather.py` / `entity.py` are the HA platform surface; `config_flow.py` handles
@@ -45,7 +45,7 @@ configured lat/lon. See [ARCHITECTURE.md](docs/tech/ARCHITECTURE.md).
 - Keep `api.py`, `models.py`, `condition.py`, and `outlook.py` free of `homeassistant` imports (future PyPI extraction + testability).
 - All datasets, parameters, and thresholds live in `const.py` — never inline literals.
 - Classes use the `GeoSphere*` prefix; private helpers are `_`-prefixed; derived logic is `derive_*`.
-- Sensors are declared as entity descriptions with a `value_fn`, read by one generic entity class per group (`GeoSphereSensor` / `GeoSphereAirQualitySensor`).
+- Sensors are declared as entity descriptions with a `value_fn`, read by one generic entity class per group (`GeoSphereSensor` / `GeoSphereAirQualitySensor`); the forecast-outlook descriptions use a `state_fn` returning state and attributes from one scan.
 - Primary dataset failure raises `UpdateFailed`; secondary datasets (ensemble, AQI) degrade with a warning.
 - Ruff-enforced: 4 spaces, double quotes, line length 88, rule set `E,W,F,I,UP,B,SIM,C4,RUF`. See [CONVENTIONS.md](docs/tech/CONVENTIONS.md).
 
@@ -54,15 +54,17 @@ Samples GeoSphere Austria's gridded datasets (deterministic 1 km forecast —
 `nwp-v2-1h-1km`, named AROME in the code — C-LAEF ensemble,
 INCA analysis/nowcast, WRF-Chem) at any coordinate and maps them to an HA weather
 entity plus sensors. Current conditions merge INCA → nowcast → AROME with an
-explicit per-field fallback chain; precipitation probability is a stepped value
-derived from ensemble percentiles; the condition is derived from physical
-parameters, not GeoSphere's proprietary symbol code. See
+explicit per-field fallback chain; precipitation probability is a stepped
+estimate derived from ensemble percentiles; the condition is GeoSphere's own
+weather symbol (`sy`), with observations deciding what falls now; the thunder
+outlook combines that symbol with the ensemble. See
 [docs/domain/OVERVIEW.md](docs/domain/OVERVIEW.md).
 
 ## Structural Risks
 - `condition.py` duplicates HA `ATTR_CONDITION_*` string literals (to stay import-free) — could drift if HA renames a condition.
 - The current coordinator holds a direct reference to the forecast coordinator (intentional coupling) — preserve it when refactoring.
 - Dataset resource IDs are versioned; `hacs/action@main` and hassfest `@master` are floating CI refs.
+- The `sy` code table is published for `nwp-v1` only and assumed for `nwp-v2` (measured evidence in [DATASETS.md](docs/domain/DATASETS.md#the-sy-code-table-on-nwp-v2)); fog codes 6–7 were never observed.
 
 ## Detailed Guides
 - [Technical Context](docs/tech/README.md) -- architecture, tech stack, conventions, testing, infrastructure

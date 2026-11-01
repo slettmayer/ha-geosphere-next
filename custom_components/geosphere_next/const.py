@@ -29,8 +29,10 @@ DATASET_CHEM_AQI = ("forecast", "chem_aqi-v1-1d-3km")
 #   * instantaneous at the stamp: 2t, 2r, 10u/10v, tcc (%), cape, snowlmt;
 #   * the interval ending at the stamp: 10fg (peak gust), tp and sf (per-hour
 #     amounts, kg m-2, not run-accumulated).
-# `sy` is null at t0 too, yet its cloud classes bin on `tcc` at its own stamp,
-# so it is read at the stamp like the instantaneous fields.
+# `sy` is null at t0 too. Its precipitation classes follow `tp` at the same
+# stamp, so it describes the interval ending there and is read one stamp on,
+# like `tp`; its cloud classes bin `tcc` at that later stamp -- see
+# `_process` and the SY_* groups below.
 AROME_PARAMETERS = (
     "2t",
     "2r",
@@ -44,13 +46,17 @@ AROME_PARAMETERS = (
     "cape",
     "sy",
 )
-# C-LAEF ensemble precipitation percentiles (per-hour amounts, kg m-2; the
-# API exposes only p10/p50/p90 — no member counts or true probabilities).
-# Like the deterministic interval parameters these cover the period *ending*
-# at their stamp ("in the last forecast interval"), so a percentile is keyed
-# to the preceding stamp to describe the hour a forecast row is stamped for.
-# The cadence is read from the series rather than assumed -- see `_process`.
-ENSEMBLE_PARAMETERS = ("tp_p10", "tp_p50", "tp_p90")
+# C-LAEF ensemble percentiles. The API exposes only p10/p50/p90 -- no member
+# counts or true probabilities.
+#   * tp_p10/p50/p90: per-hour precipitation amounts (kg m-2). Like the
+#     deterministic interval parameters these cover the period *ending* at
+#     their stamp ("in the last forecast interval"), so a percentile is keyed
+#     to the preceding stamp to describe the hour a forecast row is stamped
+#     for. The cadence is read from the series rather than assumed -- see
+#     `_process`.
+#   * cape_p90 (J/kg): instantaneous, like the deterministic `cape` -- it has
+#     a value at the run's t0 -- so it is read at its own stamp.
+ENSEMBLE_PARAMETERS = ("tp_p10", "tp_p50", "tp_p90", "cape_p90")
 NOWCAST_PARAMETERS = ("t2m", "td", "rh2m", "rr", "pt", "dd", "ff", "fx")
 INCA_PARAMETERS = ("T2M", "TD2M", "RH2M", "RR", "P0", "GL", "UU", "VV")
 # WRF-Chem surface concentrations (µg/m³) and the daily European AQI (1-6).
@@ -125,11 +131,12 @@ INCA_LOOKBACK_HOURS = 3
 # routinely up to ~90 min old (see `_merge`, which says the same of
 # `observed_at`). A bound at or below that would reject the best data the
 # source has for part of every publish cycle, flapping the condition between
-# `rainy` and cloud-derived once an hour through steady rain — worse than the
-# staleness it set out to fix. Two hours is comfortably past the normal worst
-# case: by then INCA should have published two newer analyses, so a slice this
-# old means refreshes are failing and `_async_get_inca` is serving a cached
-# one indefinitely. That is the unbounded case this exists for.
+# `rainy` and the dry, symbol-derived condition once an hour through steady
+# rain — worse than the staleness it set out to fix. Two hours is comfortably
+# past the normal worst case: by then INCA should have published two newer
+# analyses, so a slice this old means refreshes are failing and
+# `_async_get_inca` is serving a cached one indefinitely. That is the
+# unbounded case this exists for.
 INCA_RR_MAX_AGE_SECONDS = 2 * 60 * 60
 
 # Model rerun cadences, used to gate re-fetches (see `_run_is_current`). A run
@@ -152,7 +159,9 @@ AROME_RUN_INTERVAL = timedelta(hours=3)
 ENSEMBLE_RUN_INTERVAL = timedelta(hours=3)
 
 # How old the held C-LAEF run may get while its endpoint keeps failing, before
-# the precipitation probability is dropped rather than derived from it. Serving
+# the precipitation probability is dropped rather than derived from it. The
+# thunderstorm outlook reads the ensemble only while its run is this young
+# (`outlook.ensemble_is_current`). Serving
 # a superseded run through a brief outage is worth more than a blank field;
 # serving one indefinitely is not, because nothing on display says which run a
 # probability came from. The bound has to cover one whole missed rerun on top
@@ -162,31 +171,61 @@ ENSEMBLE_RUN_INTERVAL = timedelta(hours=3)
 # is the lag plus two cadences, with margin.
 ENSEMBLE_MAX_FALLBACK_AGE = timedelta(hours=12)
 
-# Stepped precipitation probability from the ensemble tp percentiles: a
-# percentile above PRECIP_MIN_MM bounds the fraction of wet ensemble members
-# (p10 wet -> >=90 %, p50 wet -> >=50 %, p90 wet -> >=10 %); the displayed
-# value is the midpoint of the implied range.
+# Stepped precipitation probability, an estimate derived here from the
+# ensemble tp percentiles -- GeoSphere publishes no probability. A percentile
+# above PRECIP_MIN_MM bounds the fraction of wet ensemble members (p10 wet ->
+# >=90 %, p50 wet -> >=50 %, p90 wet -> >=10 %); the displayed value is the
+# midpoint of the implied range.
 POP_P10_WET_PCT = 95
 POP_P50_WET_PCT = 70
 POP_P90_WET_PCT = 30
 POP_DRY_PCT = 0
 
-# Condition-derivation thresholds (see condition.py)
-THUNDER_CAPE_JKG = 1000.0
+# Observed-precipitation thresholds for the current condition (see
+# condition.py), and the wet-hour floor shared with the probability.
 PRECIP_MIN_MM = 0.1
-POURING_MM_PER_H = 4.0
-WINDY_GUST_MS = 15.0
-CLOUDY_TCC_PCT = 62.5
-CLEAR_TCC_PCT = 12.5
-WINDY_CLOUD_TCC_PCT = 60.0
-# Fog heuristic (current condition only); disable by setting to False.
-FOG_HEURISTIC_ENABLED = True
-FOG_MIN_RH_PCT = 98.0
-FOG_MAX_WIND_MS = 2.0
-FOG_MIN_TCC_PCT = 87.5
+# GeoSphere's heavy-rain codes (10, 19) start at 5 mm in the hour, so observed
+# rain turns `pouring` where the forecast symbol does.
+POURING_MM_PER_H = 5.0
 # Rain/snow split when the nowcast `pt` code names no kind (absent, 255
 # beside an observed rate, or outside PRECIPITATION_TYPES).
 SNOW_MAX_T2M_C = 1.0
+# Ensemble thunderstorm signal (see outlook.py): an hour whose C-LAEF 90th
+# percentiles reach this CAPE and PRECIP_MIN_MM of precipitation.
+THUNDER_CAPE_JKG = 1000.0
+# Values of the thunderstorm outlook's `source` attribute: which signal fired.
+THUNDER_SOURCE_SYMBOL = "symbol"
+THUNDER_SOURCE_ENSEMBLE = "ensemble"
+THUNDER_SOURCE_BOTH = "both"
+
+# GeoSphere's `sy` weather-symbol code table, published in German in
+# https://github.com/Geosphere-Austria/dataset-api-docs/issues/30#issuecomment-2042539848
+# (confirmed there for nwp-v1 and assumed for nwp-v2, see DATASETS.md).
+# Codes are grouped by the Home Assistant condition they map to; the HA
+# strings themselves live in condition.py. 1-2 map to `sunny`, or
+# `clear-night` at night.
+SY_CLEAR = frozenset({1, 2})  # Wolkenlos, Heiter
+SY_PARTLY_CLOUDY = frozenset({3})  # Wolkig
+SY_CLOUDY = frozenset({4, 5})  # Stark bewölkt, Bedeckt
+SY_FOG = frozenset({6, 7})  # Bodennebel, Hochnebel
+# Leichter / Mäßiger Regen, Regenschauer
+SY_RAIN = frozenset({8, 9, 17, 18})
+# Starker Regen, Starker Regenschauer
+SY_POURING = frozenset({10, 19})
+# Schneeregen, Schneeregenschauer
+SY_SLEET = frozenset({11, 12, 13, 20, 21, 22})
+# Schneefall, Schneeschauer
+SY_SNOW = frozenset({14, 15, 16, 23, 24, 25})
+# Gewitter, Starkes Gewitter, either with Schneeregen or Schneefall
+SY_THUNDER = frozenset(range(26, 33))
+# Codes saying precipitation falls in the hour, thunderstorms included.
+SY_PRECIPITATION = SY_RAIN | SY_POURING | SY_SLEET | SY_SNOW | SY_THUNDER
+# Every published code.
+SY_CODES = SY_CLEAR | SY_PARTLY_CLOUDY | SY_CLOUDY | SY_FOG | SY_PRECIPITATION
+
+# Where within a forecast row's hour day/night is judged for the clear
+# symbols: the middle, so an hour that is mostly dark reads `clear-night`.
+FORECAST_ROW_MIDPOINT = timedelta(minutes=30)
 
 # Forecast-outlook horizons (see outlook.py). The window rounds up to whole
 # hourly steps, so an N-hour horizon spans the in-progress hour plus N more.

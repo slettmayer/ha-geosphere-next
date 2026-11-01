@@ -2,8 +2,12 @@
 
 Scans the processed AROME hourly series for the facts a storm-warning
 automation needs: peak gusts within a horizon, and when thunder is next
-expected. Deliberately threshold-free — what counts as "too windy" is the
-consumer's policy, not this integration's.
+expected. Gusts are deliberately threshold-free — what counts as "too windy"
+is the consumer's policy, not this integration's.
+
+A thunderstorm hour is one whose weather symbol is a thunderstorm code, or
+whose current C-LAEF ensemble run allows a storm. Either suffices: storm
+blinds act on it, and a false alarm costs less than a miss.
 
 Gust values are returned in m/s, matching `HourlyForecast`; entities convert
 to km/h at their own boundary.
@@ -13,13 +17,16 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from .condition import is_thunder
-from .const import PRECIP_MIN_MM
+from .condition import is_thunder_symbol
+from .const import (
+    ENSEMBLE_MAX_FALLBACK_AGE,
+    PRECIP_MIN_MM,
+    THUNDER_CAPE_JKG,
+    THUNDER_SOURCE_BOTH,
+    THUNDER_SOURCE_ENSEMBLE,
+    THUNDER_SOURCE_SYMBOL,
+)
 from .models import HourlyForecast
-
-# A condition string starting with this prefix means the derivation decided
-# thunder is likely ("lightning" and "lightning-rainy").
-_LIGHTNING_PREFIX = "lightning"
 
 
 def _window(
@@ -60,36 +67,45 @@ def hour_at(hourly: list[HourlyForecast], now: datetime) -> HourlyForecast | Non
     return None
 
 
-def _is_lightning(hour: HourlyForecast) -> bool:
-    """True when the hour reads as a thunderstorm hour.
+def ensemble_is_current(reference_time: datetime | None, now: datetime) -> bool:
+    """Whether an ensemble run may feed the storm signal at `now`.
 
-    Two branches, because the derived condition alone misses real storms:
-
-    a) the derived condition starts with "lightning" — the model's own
-       judgement that convection is occurring, and the primary signal; or
-    b) the raw CAPE thunder predicate holds *and* the hour is forecast to
-       produce precipitation. `derive_condition` returns `snowy` /
-       `snowy-rainy` before it ever looks at thunder (thundersnow) and returns
-       `None` when cloud cover is missing, so those hours would otherwise read
-       as "no storm".
-
-    Branch (b) deliberately requires precipitation: dry convective CAPE under
-    low cloud is a routine Vienna summer afternoon and must not raise a storm
-    signal.
+    Current while its `reference_time` is less than ENSEMBLE_MAX_FALLBACK_AGE
+    old, the same bound the coordinator holds a cached run to. No run, or a run without a stamp, is not current.
     """
-    if hour.condition is not None and hour.condition.startswith(_LIGHTNING_PREFIX):
-        return True
-    precipitation = hour.precipitation or 0.0
-    return is_thunder(hour.cape) and precipitation >= PRECIP_MIN_MM
+    return (
+        reference_time is not None and now - reference_time < ENSEMBLE_MAX_FALLBACK_AGE
+    )
 
 
-def _is_decidable(hour: HourlyForecast) -> bool:
-    """True when the hour carries enough data to judge thunder either way.
+def _storm_signals(hour: HourlyForecast, ensemble: bool) -> tuple[bool, bool]:
+    """Which signals call the hour a thunderstorm: (symbol, ensemble).
 
-    An hour with neither a derived condition nor CAPE says nothing about
-    thunder — "no storm" would be a guess, not an answer.
+    The symbol fires on GeoSphere's thunderstorm codes. The ensemble fires,
+    if `ensemble` says its run is current, when its 90th percentiles reach
+    THUNDER_CAPE_JKG of CAPE and PRECIP_MIN_MM of precipitation in the hour;
+    CAPE alone is a routine dry summer afternoon.
     """
-    return hour.condition is not None or hour.cape is not None
+    cape = hour.ensemble_cape_p90
+    precipitation = hour.ensemble_precipitation_p90
+    return is_thunder_symbol(hour.weather_symbol), (
+        ensemble
+        and cape is not None
+        and cape >= THUNDER_CAPE_JKG
+        and precipitation is not None
+        and precipitation >= PRECIP_MIN_MM
+    )
+
+
+def _source(symbol: bool, ensemble: bool) -> str | None:
+    """The `source` value naming which signals fired, `None` for neither."""
+    if symbol and ensemble:
+        return THUNDER_SOURCE_BOTH
+    if symbol:
+        return THUNDER_SOURCE_SYMBOL
+    if ensemble:
+        return THUNDER_SOURCE_ENSEMBLE
+    return None
 
 
 def max_gust(
@@ -120,41 +136,46 @@ def max_cape(hourly: list[HourlyForecast], hours: int, now: datetime) -> float |
 
 
 def next_thunderstorm(
-    hourly: list[HourlyForecast], now: datetime
-) -> tuple[datetime | None, float | None]:
-    """First hour with thunder expected, and that hour's CAPE.
+    hourly: list[HourlyForecast],
+    now: datetime,
+    ensemble_reference_time: datetime | None,
+) -> tuple[datetime | None, str | None]:
+    """Start of the first thunderstorm hour, and which signal fired in it.
 
-    Scans the full horizon rather than a window — "no storm for two days" and
-    "storm in 40 hours" are both useful answers.
-
-    The scan starts at the top of the *current* hour, so when the storm hour is
-    the one already under way the returned timestamp is in the past — by up to
-    59 minutes. That is intentional: it means "storm in progress". Downstream
-    lead-time math must treat a non-positive lead time as "now", e.g.
-    `max(0, (next_thunderstorm - now) minutes)`, rather than assuming the
-    timestamp is always in the future.
+    Scans the full horizon from the top of the current hour, so a storm in
+    the hour under way returns a timestamp up to 59 minutes in the past: it
+    means "storm in progress", and lead-time math must clamp at zero.
     """
+    ensemble = ensemble_is_current(ensemble_reference_time, now)
     start = now.replace(minute=0, second=0, microsecond=0)
     for hour in hourly:
         if hour.datetime < start:
             continue
-        if _is_lightning(hour):
-            return hour.datetime, hour.cape
+        source = _source(*_storm_signals(hour, ensemble))
+        if source is not None:
+            return hour.datetime, source
     return None, None
 
 
 def thunderstorm_outlook(
-    hourly: list[HourlyForecast], hours: int, now: datetime
-) -> bool | None:
-    """Tri-state thunderstorm outlook for the horizon.
+    hourly: list[HourlyForecast],
+    hours: int,
+    now: datetime,
+    ensemble_reference_time: datetime | None,
+) -> tuple[bool | None, str | None]:
+    """Whether any hour in the window is a thunderstorm hour, and which signal.
 
-    `True` / `False` when the window holds hours that can be judged, and
-    `None` when it holds none at all or none that are decidable — so an entity
-    can report "unknown" instead of a confident "off" on a data gap.
+    The source is judged across the whole window. `None` (unknown) only when
+    the forecast has no hour in the window; an hour whose symbol is missing
+    or outside GeoSphere's table counts as no storm unless the ensemble says
+    otherwise.
     """
     window = _window(hourly, hours, now)
-    if any(_is_lightning(hour) for hour in window):
-        return True
-    if not any(_is_decidable(hour) for hour in window):
-        return None
-    return False
+    if not window:
+        return None, None
+    ensemble = ensemble_is_current(ensemble_reference_time, now)
+    signals = [_storm_signals(hour, ensemble) for hour in window]
+    source = _source(
+        any(symbol for symbol, _ in signals), any(ens for _, ens in signals)
+    )
+    return source is not None, source

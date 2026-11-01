@@ -43,7 +43,7 @@ class GeoSphereResponse:
 
 @dataclass(slots=True)
 class HourlyForecast:
-    """One processed AROME forecast hour. Units: °C, %, mm, m/s, °, hPa, J/kg."""
+    """One processed AROME forecast hour. Units: °C, %, mm, m/s, °, hPa, J/kg, m."""
 
     datetime: datetime
     temperature: float | None
@@ -55,10 +55,18 @@ class HourlyForecast:
     wind_gust_speed: float | None
     cloud_coverage: float | None
     cape: float | None
+    snow_limit: float | None = None
     dew_point: float | None = None
+    # GeoSphere's `sy` code for the hour, and the HA condition mapped from it.
+    weather_symbol: int | None = None
     condition: str | None = None
-    # Stepped estimate from the C-LAEF ensemble tp percentiles (0/30/70/95).
+    # Stepped estimate derived from the C-LAEF ensemble tp percentiles
+    # (0/30/70/95); GeoSphere publishes no probability.
     precipitation_probability: int | None = None
+    # C-LAEF 90th percentiles behind the ensemble thunderstorm signal: CAPE
+    # at the row's stamp (J/kg), precipitation over the row's hour (mm).
+    ensemble_cape_p90: float | None = None
+    ensemble_precipitation_p90: float | None = None
 
 
 @dataclass(slots=True)
@@ -71,8 +79,8 @@ class ForecastData:
     hourly: list[HourlyForecast] = field(default_factory=list)
     # "Step 0" snapshot for current-state fallbacks (first future-most hour).
     current: HourlyForecast | None = None
-    snow_limit: float | None = None
-    weather_symbol: int | None = None
+    # The C-LAEF run behind the rows' ensemble values; `None` without one.
+    ensemble_reference_time: datetime | None = None
 
 
 @dataclass(slots=True)

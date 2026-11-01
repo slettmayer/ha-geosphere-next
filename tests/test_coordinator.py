@@ -2,19 +2,24 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from freezegun import freeze_time
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE
 from homeassistant.core import HomeAssistant
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
 )
 
 from custom_components.geosphere_next import api
-from custom_components.geosphere_next.models import GeoSphereResponse
+from custom_components.geosphere_next.condition import is_night
+from custom_components.geosphere_next.const import CONF_HAS_NOWCAST, DOMAIN
+from custom_components.geosphere_next.models import ForecastData, GeoSphereResponse
 
 from .conftest import (
     AROME_URL,
@@ -98,14 +103,18 @@ async def test_forecast_processing(
     assert first.wind_gust_speed == 1.7
     # `tcc` is published in percent and passed through unscaled.
     assert first.cloud_coverage == 100.0
+    # `sy` covers the interval ending at its stamp, like `tp`, so the hour
+    # beginning 16:00Z reads the 17:00Z code: 5 (Bedeckt).
+    assert first.weather_symbol == 5
     assert first.condition == "cloudy"
     # Magnus from 2t 4.8 / 2r 80.89.
     assert first.dew_point == pytest.approx(1.8)
-    # Snow limit and weather symbol are read off the same row that becomes
-    # `current` -- 16:00Z here, not the series' first stamp (where `sy` is
-    # null).
-    assert data.snow_limit == pytest.approx(854.1)
-    assert data.weather_symbol == 5
+    # `snowlmt` is instantaneous, read at the row's own stamp. The snow limit
+    # and the weather symbol live on the rows only; the current coordinator
+    # picks them from the hour covering now.
+    assert first.snow_limit == pytest.approx(854.1)
+    assert "weather_symbol" not in {f.name for f in fields(ForecastData)}
+    assert "snow_limit" not in {f.name for f in fields(ForecastData)}
     assert data.current is first
 
     # Stepped probability from the ensemble tp percentiles, read one stamp on
@@ -119,6 +128,34 @@ async def test_forecast_processing(
         30,
         30,
     ]
+
+
+async def test_ensemble_storm_percentiles_describe_the_row_they_sit_on(
+    hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
+) -> None:
+    """`cape_p90` is read at its own stamp, `tp_p90` one stamp on.
+
+    Requested from the run's t0, `cape_p90` has a value at index 0 and is
+    instantaneous, like `cape`; `tp_p90` is null there and covers the
+    interval ending at its stamp, like `tp`. The 16:00Z row therefore carries
+    the 16:00Z `cape_p90` (11.2) and the 17:00Z `tp_p90` (0.001).
+    """
+    freezer.move_to(FROZEN_NOW)
+    await _setup(hass, mock_config_entry)
+    data = mock_config_entry.runtime_data.forecast.data
+    first = data.hourly[0]
+
+    # The run's stamp travels along, for the outlook's age bound.
+    assert data.ensemble_reference_time == datetime(2026, 7, 15, 12, tzinfo=UTC)
+    assert first.ensemble_cape_p90 == pytest.approx(11.2)
+    assert first.ensemble_precipitation_p90 == pytest.approx(0.001)
+    ensemble_urls = [
+        str(call[1])
+        for call in mock_api.mock_calls
+        if "ensemble-v2-1h-1km" in str(call[1])
+    ]
+    assert ensemble_urls
+    assert all("cape_p90" in url for url in ensemble_urls)
 
 
 async def test_forecast_interval_fields_describe_the_hour_they_start(
@@ -236,6 +273,7 @@ async def test_ensemble_failure_omits_probability(
     data = mock_config_entry.runtime_data.forecast.data
     assert len(data.hourly) == 56
     assert all(hour.precipitation_probability is None for hour in data.hourly)
+    assert data.ensemble_reference_time is None
 
 
 def _forecast_calls(mock_api: AiohttpClientMocker) -> tuple[int, int]:
@@ -754,6 +792,7 @@ async def test_forecast_parameters_are_requested_and_populated(
         "precipitation",
         "snow",
         "cape",
+        "weather_symbol",
         "condition",
         "precipitation_probability",
     ):
@@ -763,40 +802,214 @@ async def test_forecast_parameters_are_requested_and_populated(
         str(call[1]) for call in mock_api.mock_calls if "nwp-v2-1h-1km" in str(call[1])
     ]
     assert arome_urls
-    for name in ("2t", "2r", "10u", "10v", "10fg", "tcc", "tp", "sf", "cape"):
+    for name in ("2t", "2r", "10u", "10v", "10fg", "tcc", "tp", "sf", "cape", "sy"):
         assert all(name in url for url in arome_urls), name
 
 
 @pytest.mark.parametrize(
-    ("cape", "expected"),
+    ("symbol", "expected"),
     [
-        # Ample CAPE plus rain derives a thunderstorm...
-        (1500.0, "lightning-rainy"),
-        # ...and CAPE short of THUNDER_CAPE_JKG keeps it plain rain.
-        (900.0, "rainy"),
+        (26, "lightning-rainy"),
+        (19, "pouring"),
+        (23, "snowy"),
+        (20, "snowy-rainy"),
+        (6, "fog"),
+        (3, "partlycloudy"),
+        (1, "sunny"),
     ],
 )
-async def test_cape_decides_thunder_end_to_end(
+async def test_symbol_decides_the_forecast_condition_end_to_end(
     hass: HomeAssistant,
     mock_config_entry,
     aioclient_mock: AiohttpClientMocker,
     freezer: FrozenDateTimeFactory,
-    cape: float,
+    symbol: int,
     expected: str,
 ) -> None:
-    """End-to-end proof that the thunder test is wired, not just unit-tested.
+    """End-to-end proof that the symbol mapping is wired, not just unit-tested.
 
-    `stormy_arome` wets hour 4 of the fixture (16:00Z) so the derivation can
-    reach `lightning-rainy`; only its CAPE varies across the cases.
+    `stormy_arome` writes `symbol` to the code of the 16:00Z hour (index 5).
+    16:00Z is daytime in Vienna in July, so code 1 is `sunny`.
     """
     freezer.move_to(FROZEN_NOW)
-    aioclient_mock.get(AROME_URL, json=stormy_arome(indexes=(4,), cape=cape))
+    aioclient_mock.get(
+        AROME_URL, json=stormy_arome(indexes=(4,), symbol=symbol, cape=0.0)
+    )
     aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
     aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
     aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
     await _setup(hass, mock_config_entry)
 
-    assert mock_config_entry.runtime_data.forecast.data.hourly[0].condition == expected
+    first = mock_config_entry.runtime_data.forecast.data.hourly[0]
+    assert first.weather_symbol == symbol
+    assert first.condition == expected
+
+
+async def test_forecast_night_is_judged_at_the_middle_of_the_hour(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A clear hour that is mostly after sunset reads `clear-night`.
+
+    At this longitude the sun is still up at 18:00Z but down by 18:30Z, so
+    the 18:00Z row is judged at its middle, not at its start.
+    """
+    latitude, longitude = 48.22, 25.0
+    start = datetime(2026, 7, 15, 18, tzinfo=UTC)
+    assert not is_night(latitude, longitude, start)
+    assert is_night(latitude, longitude, start + timedelta(minutes=30))
+
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(
+        AROME_URL, json=stormy_arome(indexes=(6,), symbol=1, precipitation=0.0)
+    )
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="GeoSphere Next",
+        unique_id=f"{latitude:.4f}_{longitude:.4f}",
+        data={
+            CONF_LATITUDE: latitude,
+            CONF_LONGITUDE: longitude,
+            CONF_HAS_NOWCAST: True,
+        },
+    )
+    await _setup(hass, entry)
+
+    by_hour = {h.datetime: h for h in entry.runtime_data.forecast.data.hourly}
+    assert by_hour[start].weather_symbol == 1
+    assert by_hour[start].condition == "clear-night"
+
+
+async def test_an_unknown_symbol_is_unknown_and_reported_once(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A code outside the table reads `None` and warns once, not every update."""
+    payload = load_fixture("arome.json")
+    sy = payload["features"][0]["properties"]["parameters"]["sy"]["data"]
+    # The 16:00Z and 17:00Z rows, the same unpublished code twice.
+    sy[5] = 40.0
+    sy[6] = 40.0
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=payload)
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await _setup(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data.forecast
+    await coordinator.async_refresh()
+
+    assert coordinator.data.hourly[0].weather_symbol == 40
+    assert coordinator.data.hourly[0].condition is None
+    warnings = [
+        record
+        for record in caplog.records
+        if "weather-symbol code 40" in record.getMessage()
+    ]
+    assert len(warnings) == 1
+
+
+async def test_forecast_symbol_describes_the_hour_it_starts(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A row reads the symbol stamped one hour on, as it reads `tp`.
+
+    Measured against the live nwp-v2 grid: every precipitation class is wet
+    in `tp` at its own stamp, i.e. it describes the interval *ending* there.
+    A thunderstorm code stamped 17:00Z is therefore the storm of the hour
+    beginning 16:00Z, and one stamped 16:00Z belongs to the hour that has
+    already ended. Reading it at the row's own stamp would show the storm an
+    hour late and keep it an hour after it has passed.
+    """
+    payload = load_fixture("arome.json")
+    sy = payload["features"][0]["properties"]["parameters"]["sy"]["data"]
+    # 16:00Z: the hour 15:00-16:00, already over at the frozen clock.
+    sy[4] = 26.0
+    # 18:00Z: the hour 17:00-18:00.
+    sy[6] = 28.0
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=payload)
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await _setup(hass, mock_config_entry)
+
+    hourly = mock_config_entry.runtime_data.forecast.data.hourly
+    conditions = {hour.datetime.hour: hour.condition for hour in hourly[:3]}
+    assert conditions == {16: "cloudy", 17: "lightning-rainy", 18: "cloudy"}
+
+
+async def test_current_condition_reads_the_symbol_of_the_hour(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Observations decide what falls; the hour's symbol the rest.
+
+    A thunderstorm symbol for the in-progress hour under a dry nowcast is
+    `cloudy` -- the model expects a storm nobody observes -- while the same
+    symbol over observed rain is a thunderstorm. The `weather_symbol` sensor
+    reports the code that was read.
+    """
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=stormy_arome(indexes=(4,), symbol=27))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await _setup(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data.current
+
+    assert coordinator.data.weather_symbol == 27
+    assert coordinator.data.is_precipitating is False
+    assert coordinator.data.condition == "cloudy"
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(AROME_URL, json=stormy_arome(indexes=(4,), symbol=27))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=wet_nowcast(rate_mm=0.5))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await coordinator.async_refresh()
+
+    assert coordinator.data.is_precipitating is True
+    assert coordinator.data.condition == "lightning-rainy"
+
+
+async def test_current_condition_outside_the_nowcast_grid_is_the_symbol(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """With no nowcast and no INCA, nothing observes precipitation.
+
+    The hour's rain symbol therefore stands as `rainy` rather than being
+    read as a dry sky under a wrong forecast.
+    """
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=stormy_arome(indexes=(4,), symbol=9))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="GeoSphere Next",
+        unique_id="47.0000_9.0000",
+        data={CONF_LATITUDE: 47.0, CONF_LONGITUDE: 9.0, CONF_HAS_NOWCAST: False},
+    )
+    await _setup(hass, entry)
+
+    data = entry.runtime_data.current.data
+    assert data.is_precipitating is None
+    assert data.weather_symbol == 9
+    assert data.condition == "rainy"
 
 
 async def test_current_arome_fields_follow_the_clock(
@@ -809,8 +1022,8 @@ async def test_current_arome_fields_follow_the_clock(
 
     The current coordinator runs every 15 min while the forecast one can be
     180 min apart, so reading the "step 0" snapshot captured at fetch time
-    would leave cloud cover and CAPE — and with them the derived condition —
-    up to 3 h stale.
+    would leave cloud cover, CAPE and the snow limit — and with them the
+    derived condition — up to 3 h stale.
     """
     freezer.move_to(FROZEN_NOW)
     await _setup(hass, mock_config_entry)
@@ -820,17 +1033,29 @@ async def test_current_arome_fields_follow_the_clock(
         return sum("nwp-v2-1h-1km" in str(call[1]) for call in mock_api.mock_calls)
 
     baseline = arome_calls()
-    # Fixture hour 16:00Z: tcc 100 %, cape 2.8.
+    # Fixture hour 16:00Z: tcc 100 %, cape 2.8, snow limit 854.1 m, symbol 5
+    # (read at 17:00Z).
     assert coordinator.data.cloud_coverage == 100.0
     assert coordinator.data.cape == pytest.approx(2.8)
+    assert coordinator.data.snow_limit == pytest.approx(854.1)
+    assert coordinator.data.weather_symbol == 5
 
     # Three hours on, without refetching the forecast: hour 19:00Z carries
-    # tcc 97 %, cape 7.3.
+    # tcc 97 %, cape 7.3, snow limit 903.3 m.
     freezer.move_to("2026-07-15T19:30:00+00:00")
     await coordinator.async_refresh()
     assert arome_calls() == baseline
     assert coordinator.data.cloud_coverage == 97.0
     assert coordinator.data.cape == pytest.approx(7.3)
+    assert coordinator.data.snow_limit == pytest.approx(903.3)
+
+    # And the symbol: the hour 20:00Z reads code 8 (light rain, stamped
+    # 21:00Z), which the dry nowcast turns into `cloudy`.
+    freezer.move_to("2026-07-15T20:30:00+00:00")
+    await coordinator.async_refresh()
+    assert arome_calls() == baseline
+    assert coordinator.data.weather_symbol == 8
+    assert coordinator.data.condition == "cloudy"
 
 
 async def test_current_falls_back_when_the_forecast_aged_out(
@@ -954,6 +1179,71 @@ async def test_current_inca_rr_still_derives_rain(
     assert data.condition == "rainy"
     # Still `None`: the rate gate feeds the condition, never the binary sensor.
     assert data.is_precipitating is None
+
+
+async def test_a_dry_nowcast_code_outranks_a_wet_inca_rr(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A nowcast reporting `pt` 255 decides, even with no `rr` beside it.
+
+    The INCA `RR` is current and wet, but it only stands in when the nowcast
+    observes nothing. Here the nowcast says "no precipitation", so the rain
+    symbol is demoted to `cloudy` rather than shown as rain.
+    """
+    nowcast = load_fixture("nowcast.json")
+    parameters = nowcast["features"][0]["properties"]["parameters"]
+    parameters["rr"]["data"] = [None for _ in parameters["rr"]["data"]]
+    assert set(parameters["pt"]["data"]) == {255.0}
+    aioclient_mock.get(AROME_URL, json=stormy_arome(indexes=(4,), symbol=8))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=nowcast)
+    aioclient_mock.get(INCA_URL, json=_wet_inca())
+    freezer.move_to("2026-07-15T16:25:00+00:00")
+    await _setup(hass, mock_config_entry)
+
+    data = mock_config_entry.runtime_data.current.data
+    assert data.precipitation_1h == 2.4
+    assert data.is_precipitating is False
+    assert data.condition == "cloudy"
+
+
+@pytest.mark.parametrize(
+    "clock",
+    [
+        # 10 and 40 min after the 15:00Z analysis, then 70 and 100 min after
+        # it: the condition must not flip as the analysis ages or lands.
+        "2026-07-15T15:10:00+00:00",
+        "2026-07-15T15:40:00+00:00",
+        "2026-07-15T16:10:00+00:00",
+        "2026-07-15T16:40:00+00:00",
+    ],
+)
+async def test_a_dry_inca_rr_never_demotes_the_symbol(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+    clock: str,
+) -> None:
+    """With the nowcast down, a dry `RR` is not "observed dry".
+
+    It analyses an hour that ended up to ~90 min ago, so it cannot rule out
+    rain that has started since; the rain symbol stands at every clock.
+    """
+    aioclient_mock.get(AROME_URL, json=stormy_arome(indexes=(3, 4), symbol=8))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, exc=TimeoutError)
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    freezer.move_to(clock)
+    await _setup(hass, mock_config_entry)
+
+    data = mock_config_entry.runtime_data.current.data
+    assert data.weather_symbol == 8
+    assert data.precipitation_1h == 0.0
+    assert data.condition == "rainy"
 
 
 async def test_precipitation_1h_is_unknown_without_inca(

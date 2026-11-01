@@ -1,9 +1,10 @@
 """Condition derivation — pure functions, fully testable.
 
-GeoSphere's `sy` weather symbol uses an undocumented proprietary code table,
-so (like open-meteo) the HA condition is derived from physical parameters
-instead. Condition strings equal Home Assistant's ATTR_CONDITION_* values;
-literals are used to keep this module free of homeassistant imports.
+The forecast condition is GeoSphere's own weather symbol (`sy`) mapped onto
+Home Assistant's conditions; the current condition lets observations decide
+whether and what is falling and takes the rest from that symbol. Condition
+strings equal Home Assistant's ATTR_CONDITION_* values; literals are used to
+keep this module free of homeassistant imports.
 """
 
 from __future__ import annotations
@@ -15,12 +16,6 @@ from astral import Observer
 from astral.sun import elevation as solar_elevation
 
 from .const import (
-    CLEAR_TCC_PCT,
-    CLOUDY_TCC_PCT,
-    FOG_HEURISTIC_ENABLED,
-    FOG_MAX_WIND_MS,
-    FOG_MIN_RH_PCT,
-    FOG_MIN_TCC_PCT,
     POURING_MM_PER_H,
     PRECIP_MIN_MM,
     PRECIPITATION_TYPES,
@@ -29,10 +24,29 @@ from .const import (
     PT_RAIN_AND_SNOW,
     PT_SNOW,
     SNOW_MAX_T2M_C,
-    THUNDER_CAPE_JKG,
-    WINDY_CLOUD_TCC_PCT,
-    WINDY_GUST_MS,
+    SY_CLEAR,
+    SY_CLOUDY,
+    SY_FOG,
+    SY_PARTLY_CLOUDY,
+    SY_POURING,
+    SY_PRECIPITATION,
+    SY_RAIN,
+    SY_SLEET,
+    SY_SNOW,
+    SY_THUNDER,
 )
+
+# Every `sy` code but the clear ones, which depend on the time of day.
+_SYMBOL_CONDITIONS: dict[int, str] = {
+    **dict.fromkeys(SY_PARTLY_CLOUDY, "partlycloudy"),
+    **dict.fromkeys(SY_CLOUDY, "cloudy"),
+    **dict.fromkeys(SY_FOG, "fog"),
+    **dict.fromkeys(SY_RAIN, "rainy"),
+    **dict.fromkeys(SY_POURING, "pouring"),
+    **dict.fromkeys(SY_SLEET, "snowy-rainy"),
+    **dict.fromkeys(SY_SNOW, "snowy"),
+    **dict.fromkeys(SY_THUNDER, "lightning-rainy"),
+}
 
 
 def wind_from_components(
@@ -75,55 +89,23 @@ def dew_point_from_t_rh(
     return round(b * gamma / (a - gamma), 1)
 
 
-def is_thunder(cape: float | None) -> bool:
-    """True when CAPE alone is sufficient for thunder.
+def derive_condition_from_symbol(symbol: int | None, night: bool) -> str | None:
+    """The HA condition for a GeoSphere `sy` code (per forecast hour).
 
-    The forecast dataset publishes no convective inhibition, so the decision
-    rests on CAPE only: a capped airmass with high CAPE reads as thunder too.
+    A missing code, or one outside GeoSphere's table, is `None` -- unknown,
+    never a guess. The table has no night variants, so the clear codes take
+    `night` to tell `sunny` from `clear-night`.
     """
-    return cape is not None and cape >= THUNDER_CAPE_JKG
-
-
-def derive_condition(
-    precipitation: float | None,
-    snow: float | None,
-    cloud_coverage: float | None,
-    cape: float | None,
-    gust_speed: float | None,
-    night: bool,
-) -> str | None:
-    """Derive an HA condition from physical parameters (per forecast hour).
-
-    precipitation/snow in mm per hour, cloud_coverage in %, cape in J/kg,
-    gust_speed in m/s.
-    """
-    precip = precipitation or 0.0
-    snowfall = snow or 0.0
-    rain = max(precip - snowfall, 0.0)
-    tcc = cloud_coverage
-    thunder = is_thunder(cape)
-
-    if snowfall >= PRECIP_MIN_MM and rain >= PRECIP_MIN_MM:
-        return "snowy-rainy"
-    if snowfall >= PRECIP_MIN_MM:
-        return "snowy"
-    if precip >= PRECIP_MIN_MM:
-        if thunder:
-            return "lightning-rainy"
-        if precip >= POURING_MM_PER_H:
-            return "pouring"
-        return "rainy"
-    if tcc is None:
+    if symbol is None:
         return None
-    if thunder and tcc >= WINDY_CLOUD_TCC_PCT:
-        return "lightning"
-    if gust_speed is not None and gust_speed >= WINDY_GUST_MS:
-        return "windy-variant" if tcc >= WINDY_CLOUD_TCC_PCT else "windy"
-    if tcc <= CLEAR_TCC_PCT:
+    if symbol in SY_CLEAR:
         return "clear-night" if night else "sunny"
-    if tcc <= CLOUDY_TCC_PCT:
-        return "partlycloudy"
-    return "cloudy"
+    return _SYMBOL_CONDITIONS.get(symbol)
+
+
+def is_thunder_symbol(symbol: int | None) -> bool:
+    """True when a `sy` code is one of GeoSphere's thunderstorm codes."""
+    return symbol in SY_THUNDER
 
 
 def is_precipitating(
@@ -149,9 +131,8 @@ def is_precipitating(
     Sole definition of "precipitating" for the integration: both
     `derive_current_condition` and `GeoSphereCurrentCoordinator._merge` (which
     stores the result as `CurrentConditions.is_precipitating`) call this
-    rather than restating the comparison. A caller that must decide either way
-    (the condition derivation) passes a rate defaulted to 0.0 and so never
-    sees `None`.
+    rather than restating the comparison. The condition derivation reads
+    `None` as "nothing observed" and leaves the verdict to the forecast.
     """
     if precipitation_type is not None and precipitation_type != PT_NO_PRECIPITATION:
         return True
@@ -187,45 +168,53 @@ def derive_current_condition(
     precipitation_type: int | None,
     precipitation_rate_mm_h: float | None,
     temperature: float | None,
-    humidity: float | None,
-    wind_speed: float | None,
-    cloud_coverage: float | None,
-    cape: float | None,
-    gust_speed: float | None,
+    symbol: int | None,
     night: bool,
 ) -> str | None:
-    """Current condition: nowcast precipitation type overrides cloud logic.
+    """Current condition: observations decide what falls, the symbol the rest.
 
-    The nowcast `pt` code decides the kind: snow, rain and snow, or freezing
-    rain (HA has no condition for it; `snowy-rainy` is the closest) win over
-    temperature, which cannot tell wet snow above freezing from rain. Only
-    when the code names no kind — absent, 255 beside an observed rate, or a
-    code outside GeoSphere's table — does temperature split rain from snow.
-    At or below SNOW_MAX_T2M_C snow (pt 5, or no kind) outranks thunder;
-    above it, or with no temperature at all, thunder outranks every kind.
-    Thunder also outranks the mixed kinds (pt 7, pt 3) when cold, where the
-    pre-code temperature rule called any cold precipitation snow.
+    `symbol` is the `sy` code of the forecast hour covering now, from a model
+    run that is routinely 3-6 h old, so it does not get to say whether it is
+    precipitating. The observed path does: the nowcast `pt` code decides the
+    kind -- snow, rain and snow, or freezing rain (HA has no condition for
+    it; `snowy-rainy` is the closest) win over temperature, which cannot tell
+    wet snow above freezing from rain. Only when the code names no kind --
+    absent, 255 beside an observed rate, or a code outside GeoSphere's table
+    -- does temperature split rain from snow.
 
-    Note which evidence is which. Precipitation here is *observed* — INCA and
-    the nowcast are anchored to measurements — while CAPE comes from the
-    forecast for the hour, through the same `is_thunder` test that
-    `derive_condition` applies.
+    Thunder is the one thing observations here cannot see, so it comes from
+    the symbol, and only while precipitation is observed. At or below
+    SNOW_MAX_T2M_C observed snow (pt 5, or no kind) outranks a thunder symbol:
+    HA's `lightning-rainy` depicts rain, and the run that forecast the storm
+    may have expected a warmer airmass than the one now snowing. Above it, or
+    with no temperature at all, thunder outranks every kind; it also
+    outranks the mixed kinds (pt 7, pt 3) when cold, since they are not snow.
+
+    Dry by observation, the symbol's own mapping applies -- except that a
+    precipitation or thunder code becomes `cloudy`: the model expects
+    precipitation that is not falling, under what is then an overcast sky.
+    With no observation at all — a `None` rate and no `pt` code: outside the
+    nowcast grid, or the nowcast down with no current wet INCA `RR` (a dry
+    one is never passed as an observation) — the symbol is the only evidence
+    and its mapping applies unchanged.
     """
+    observed = is_precipitating(precipitation_type, precipitation_rate_mm_h)
+    if observed is None:
+        return derive_condition_from_symbol(symbol, night)
     rate = precipitation_rate_mm_h or 0.0
-    if is_precipitating(precipitation_type, rate):
+    if observed:
         # `None` when the code names no kind; never "no_precipitation" here,
         # since 255 only reaches this branch beside a wet rate.
         kind = derive_precipitation_type(precipitation_type, rate)
         cold = temperature is not None and temperature <= SNOW_MAX_T2M_C
-        # Snow outranks thunder only at or below SNOW_MAX_T2M_C, as it did
-        # under the temperature rule: thundersnow is rare and still snow.
-        # Unknown temperature is not cold, again as under that rule.
+        # Observed snow outranks a thunder symbol only at or below
+        # SNOW_MAX_T2M_C: thundersnow is rare and still snow. Unknown
+        # temperature is not cold.
         if cold and kind in (None, PRECIPITATION_TYPES[PT_SNOW]):
             return "snowy"
-        thunder = is_thunder(cape)
         # Above it, thunder outranks every kind: it is the hazard people act
         # on, and a graupel or rain-and-snow shower can still be a storm.
-        if thunder:
+        if is_thunder_symbol(symbol):
             return "lightning-rainy"
         if kind == PRECIPITATION_TYPES[PT_SNOW]:
             return "snowy"
@@ -238,15 +227,6 @@ def derive_current_condition(
             return "pouring"
         return "rainy"
 
-    if (
-        FOG_HEURISTIC_ENABLED
-        and humidity is not None
-        and humidity >= FOG_MIN_RH_PCT
-        and wind_speed is not None
-        and wind_speed < FOG_MAX_WIND_MS
-        and cloud_coverage is not None
-        and cloud_coverage >= FOG_MIN_TCC_PCT
-    ):
-        return "fog"
-
-    return derive_condition(0.0, 0.0, cloud_coverage, cape, gust_speed, night)
+    if symbol in SY_PRECIPITATION:
+        return "cloudy"
+    return derive_condition_from_symbol(symbol, night)

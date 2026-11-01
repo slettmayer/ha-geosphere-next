@@ -3,16 +3,17 @@
 ## Purpose
 Document how the forecast coordinator turns the deterministic point forecast
 (called AROME in the code) and the C-LAEF ensemble into the hourly forecast,
-including the stamping of interval parameters and the stepped precipitation
-probability.
+including the stamping of interval parameters, the stepped precipitation
+probability, and the thunderstorm outlook scanned from it.
 
 ## Responsibilities
 - Explain AROME hourly processing: time window, wind decomposition, dew point.
 - Explain how interval-ending parameters (precipitation, snow, gust) are read.
 - Explain the stepped precipitation probability derived from ensemble percentiles.
+- Explain the storm-outlook entities (`outlook.py`).
 
 ## Non-Responsibilities
-- The condition string per hour — see [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md).
+- The `sy` → condition mapping — see [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md).
 - Current-conditions merging — see [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md).
 - Dataset definitions — see [DATASETS.md](DATASETS.md).
 
@@ -22,8 +23,9 @@ probability.
 runs at the forecast interval (default 30 min). Each cycle resolves AROME
 (required) and the C-LAEF ensemble (optional) — from cache when neither can
 have been rerun yet, see [Run gating](#run-gating) — then `_process` builds a
-list of `HourlyForecast` entries plus a `current` step-0 snapshot, `snow_limit`,
-and the raw `weather_symbol`. The current-conditions coordinator picks its AROME
+list of `HourlyForecast` entries (each carrying its `weather_symbol` and
+`snow_limit`) plus a `current` step-0 snapshot and the ensemble run's
+`ensemble_reference_time`. The current-conditions coordinator picks its AROME
 hour out of `hourly` by the clock and only falls back to `current` when the
 series no longer covers now — see [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md).
 
@@ -65,8 +67,8 @@ default) so a stale forecast is distinguishable from a wrong one.
 
   | Stamping | Parameters | Read at |
   |----------|------------|---------|
-  | Instantaneous at the stamp | `2t`, `2r`, `10u`/`10v`, `tcc`, `cape`, `snowlmt`, `sy` | `i` |
-  | The interval **ending** at the stamp | `10fg`, `tp`, `sf` | `i + 1` |
+  | Instantaneous at the stamp | `2t`, `2r`, `10u`/`10v`, `tcc`, `cape`, `snowlmt` | `i` |
+  | The interval **ending** at the stamp | `10fg`, `tp`, `sf`, `sy` | `i + 1` |
 
   The metadata says so in words — `10fg` is the "maximum 10 metre wind gust
   **in the last forecast interval**", `tp` the "total amount of liquid and
@@ -75,8 +77,19 @@ default) so a stale forecast is distinguishable from a wrong one.
   `tp` and `sf` are per-hour amounts, not run-accumulated, so they are read
   directly. Reading the interval fields at `i` reports the hour that already
   ended: rain that has stopped, and the previous hour's gust peak.
-  `sy` is also `null` at t0, but its cloud classes follow `tcc` at its own
-  stamp, so it is read there — see [DATASETS.md](DATASETS.md).
+- **Condition**: `derive_condition_from_symbol(sy, is_night(ts + 30 min))` —
+  night is judged at the middle of the row's hour (`FORECAST_ROW_MIDPOINT`),
+  so a clear hour that is mostly dark reads `clear-night` — see
+  [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md). `sy` is read at `i + 1`
+  because its precipitation classes follow `tp` at their own stamp, measured
+  over the whole grid (see
+  [DATASETS.md](DATASETS.md#the-sy-code-table-on-nwp-v2)): only there does the
+  row's condition agree with the row's own precipitation amount. Read at `i`,
+  a row would show rain for the hour after it stopped and none for the hour it
+  started. The cost is the cloud classes, which bin `tcc` at that later stamp
+  — the sky at the *end* of the row's hour, while the row's `cloud_coverage`
+  is the sky at its start. The code is kept on the row as `weather_symbol`,
+  and the current coordinator reads it from the row covering now.
 - **Wind**: `wind_from_components(10u, 10v)` converts u/v components to (speed
   m/s, meteorological bearing °) — see
   [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md). The gust `10fg` is
@@ -86,12 +99,15 @@ default) so a stale forecast is distinguishable from a wrong one.
 - **Cloud**: `tcc` is published in percent and passed through unchanged.
 
 This rule is verified in `tests/test_coordinator.py`
-(`test_forecast_interval_fields_describe_the_hour_they_start`).
+(`test_forecast_interval_fields_describe_the_hour_they_start`,
+`test_forecast_symbol_describes_the_hour_it_starts`).
 
 ### Stepped precipitation probability
 
-The C-LAEF ensemble publishes only `tp_p10` / `tp_p50` / `tp_p90` percentiles
-per hour — no member counts, so no true wet-fraction. `_precipitation_probability`
+GeoSphere publishes no precipitation probability. The value on each row is an
+**estimate this integration derives** from the C-LAEF ensemble, which
+publishes only `tp_p10` / `tp_p50` / `tp_p90` percentiles per hour — no member
+counts, so no true wet-fraction. `_precipitation_probability`
 maps the wettest percentile above `PRECIP_MIN_MM` (0.1 mm) to the midpoint of the
 range it implies:
 
@@ -124,13 +140,60 @@ than the smooth percentages other providers show but are each ensemble-backed
 rather than interpolated (see the README FAQ). Thresholds and the percentages
 live in `const.py` (`POP_P10_WET_PCT` etc.).
 
+### Thunderstorm outlook
+
+`outlook.py` scans the processed rows; the entities re-evaluate on every hour
+boundary as well as on coordinator updates, computing state and `source` from
+one scan per refresh. An hour is a **thunderstorm hour** when either signal
+fires:
+
+- **Symbol**: the row's `sy` is a thunderstorm code (26–32), GeoSphere's own
+  verdict for the deterministic run.
+- **Ensemble**: the ensemble is current, and the row's `ensemble_cape_p90` ≥
+  `THUNDER_CAPE_JKG` (1000 J/kg) **and** its `ensemble_precipitation_p90` ≥
+  `PRECIP_MIN_MM` (0.1 mm). So at least a tenth of the C-LAEF members reach
+  that CAPE, and at least a tenth that much precipitation — not necessarily
+  the same members. `cape_p90` is instantaneous and read at the row's own
+  stamp, like `cape`; `tp_p90` covers the row's hour, keyed to the preceding
+  stamp like the probability.
+
+**Ensemble current** is one rule in one helper, `outlook.ensemble_is_current`:
+`ForecastData.ensemble_reference_time` is less than `ENSEMBLE_MAX_FALLBACK_AGE`
+(12 h) before now. No ensemble run, or one without a stamp, is not current,
+and the outlook then rests on the symbol alone. The check runs whenever the
+entities refresh, so it takes effect at the next coordinator update or hour
+boundary — no extra timer.
+
+The entities:
+
+- `thunderstorm_expected_next_hour` (key `thunderstorm_expected_1h`): on when
+  any row in the window (the in-progress hour plus the next) is a
+  thunderstorm hour. `unknown` only when no forecast row falls in the window;
+  a row whose symbol is missing or outside GeoSphere's table is no storm
+  unless the ensemble says so — a symbol gap is rare, and treating it as
+  unknown would blank the entity a storm-blind automation reads.
+- `next_thunderstorm`: the start of the first thunderstorm hour from the
+  in-progress hour on — the same per-row test, so whenever the binary sensor
+  is on, this names a row inside its window.
+- Both expose one attribute, `source`: `symbol`, `ensemble` or `both`, or
+  `None` when nothing fired. The binary sensor judges it across its window,
+  `next_thunderstorm` for its own row.
+- `cape_max_12h`: peak deterministic CAPE over 12 h, a plain diagnostic that
+  decides nothing.
+
+Measured 2026-11-01, GeoSphere's thunder codes fire at a median CAPE of
+~160 J/kg and never reached 1000 J/kg anywhere in the domain, so in practice
+the symbol is the season-round signal and the ensemble adds high-CAPE summer
+situations the deterministic run does not convect on.
+
 ### Partial-failure isolation
 
 AROME failure raises `UpdateFailed` (rate-limit errors propagate `retry_after`).
 Ensemble failure is caught, logged at warning level, and only omits the
-precipitation probability — it never takes the forecast down. Once a run has
-been cached, a failed ensemble *re*-fetch degrades to that run rather than to
-nothing: the percentiles are matched to AROME by timestamp, so a superseded run
+precipitation probability and the ensemble storm signal — it never takes the
+forecast down; without an ensemble run the outlook rests on the symbol alone.
+Once a run has been cached, a failed ensemble *re*-fetch degrades to that run
+rather than to nothing: the percentiles are matched to AROME by timestamp, so a superseded run
 still has a value for every hour it covers, and hours it has run past simply
 report no probability.
 
@@ -141,6 +204,9 @@ same answer, and nothing on display says which run a probability came from —
 the `model_run` sensor reports AROME's stamp, not C-LAEF's. Past the bound the
 cache is dropped and the probability disappears, which is visible rather than
 quietly wrong.
+
+The thunderstorm outlook applies the same 12 h bound to run age on its own,
+when it is read (see [Thunderstorm outlook](#thunderstorm-outlook)).
 
 An AROME response is committed to the cache only after `_process` accepts it.
 A run that parses but yields no usable hours would otherwise be pinned by the
@@ -156,7 +222,7 @@ forever. See the README FAQ and [../tech/ARCHITECTURE.md](../tech/ARCHITECTURE.m
 ## Dependencies
 - AROME and C-LAEF ensemble datasets — see [DATASETS.md](DATASETS.md).
 - `condition.py` helpers (`wind_from_components`, `dew_point_from_t_rh`,
-  `derive_condition`, `is_night`).
+  `derive_condition_from_symbol`, `is_thunder_symbol`, `is_night`).
 
 ## Design Decisions
 - Stepped, ensemble-backed probability over smooth interpolation is a deliberate
@@ -182,6 +248,11 @@ forever. See the README FAQ and [../tech/ARCHITECTURE.md](../tech/ARCHITECTURE.m
   the clock-dependent parts of `_process` re-run.
 
 ## Known Risks
+- A row's condition (from `sy` at the end of its hour) and its
+  `cloud_coverage` (from `tcc` at the start) can disagree by a cloud class.
+- The ensemble storm signal pairs two independent 90th percentiles, so it can
+  fire when no single member has both the CAPE and the precipitation — a
+  deliberate lean towards false alarms.
 - A transient AROME failure still raises `UpdateFailed` and takes the entities
   unavailable even when a usable run is held in the cache. Serving it would
   match the ensemble's degradation, but it would also change the documented

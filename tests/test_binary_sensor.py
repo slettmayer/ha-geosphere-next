@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
+import pytest
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE
 from homeassistant.core import HomeAssistant
@@ -13,6 +16,7 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
 )
 
+from custom_components.geosphere_next import binary_sensor
 from custom_components.geosphere_next.const import (
     CONF_FORECAST_INTERVAL,
     CONF_HAS_NOWCAST,
@@ -28,18 +32,23 @@ from .conftest import (
     mock_response,
     response_sequence,
     stormy_arome,
+    stormy_ensemble,
     wet_nowcast,
 )
 
 FROZEN_NOW = "2026-07-15T16:00:00+00:00"
 ENTITY_ID = "binary_sensor.geosphere_next_thunderstorm_expected_next_hour"
 PRECIPITATING_ENTITY_ID = "binary_sensor.geosphere_next_precipitating"
+NEXT_STORM_ENTITY_ID = "sensor.geosphere_next_next_thunderstorm"
+STANDARD_ATTRIBUTES = {"attribution", "device_class", "friendly_name", "icon"}
 
 
-def _mock_api_with(aioclient_mock: AiohttpClientMocker, arome: dict) -> None:
-    """Serve a patched AROME payload alongside the recorded companions."""
+def _mock_api_with(
+    aioclient_mock: AiohttpClientMocker, arome: dict, ensemble: dict | None = None
+) -> None:
+    """Serve patched forecast payloads alongside the recorded companions."""
     aioclient_mock.get(AROME_URL, json=arome)
-    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=ensemble or load_fixture("ensemble.json"))
     aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
     aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
 
@@ -47,7 +56,7 @@ def _mock_api_with(aioclient_mock: AiohttpClientMocker, arome: dict) -> None:
 async def test_thunderstorm_expected_is_off_for_a_calm_forecast(
     hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
 ) -> None:
-    """The recorded fixture never reaches the thunder threshold."""
+    """The recorded fixture carries no thunderstorm symbol."""
     freezer.move_to(FROZEN_NOW)
     mock_config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
@@ -56,6 +65,7 @@ async def test_thunderstorm_expected_is_off_for_a_calm_forecast(
     state = hass.states.get(ENTITY_ID)
     assert state is not None
     assert state.state == "off"
+    assert state.attributes["source"] is None
 
 
 async def test_thunderstorm_expected_is_on_for_a_stormy_forecast(
@@ -64,10 +74,9 @@ async def test_thunderstorm_expected_is_on_for_a_stormy_forecast(
     aioclient_mock: AiohttpClientMocker,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """The `on` path: CAPE above the threshold, and rain.
+    """The `on` path: a thunderstorm symbol in the in-progress hour.
 
-    `stormy_arome` wets hour 4 of the fixture (16:00Z, the in-progress hour),
-    so raising its CAPE makes it `lightning-rainy`.
+    `stormy_arome` puts one on hour 4 of the fixture (16:00Z).
     """
     freezer.move_to(FROZEN_NOW)
     _mock_api_with(aioclient_mock, stormy_arome(indexes=(4,)))
@@ -75,7 +84,123 @@ async def test_thunderstorm_expected_is_on_for_a_stormy_forecast(
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
 
-    assert hass.states.get(ENTITY_ID).state == "on"
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == "on"
+    assert state.attributes["source"] == "symbol"
+    next_storm = hass.states.get(NEXT_STORM_ENTITY_ID)
+    assert next_storm.state == "2026-07-15T16:00:00+00:00"
+    assert next_storm.attributes["source"] == "symbol"
+    # `source` is the only attribute either entity adds.
+    for entity in (state, next_storm):
+        assert set(entity.attributes) - STANDARD_ATTRIBUTES == {"source"}
+
+
+async def test_thunderstorm_expected_is_on_from_the_ensemble_alone(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """No thunderstorm symbol, but the ensemble's 90th percentiles allow one.
+
+    `stormy_ensemble` sets cape_p90 at 17:00Z and tp_p90 for the hour it
+    starts -- inside the 16:00Z window -- while the deterministic run stays
+    calm. `next_thunderstorm` applies the same signals, so it names that hour
+    and the same source.
+    """
+    freezer.move_to(FROZEN_NOW)
+    _mock_api_with(
+        aioclient_mock, load_fixture("arome.json"), stormy_ensemble(indexes=(5,))
+    )
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == "on"
+    assert state.attributes["source"] == "ensemble"
+    next_storm = hass.states.get(NEXT_STORM_ENTITY_ID)
+    assert next_storm.state == "2026-07-15T17:00:00+00:00"
+    assert next_storm.attributes["source"] == "ensemble"
+
+
+async def test_thunderstorm_expected_names_both_signals(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    freezer.move_to(FROZEN_NOW)
+    _mock_api_with(
+        aioclient_mock, stormy_arome(indexes=(4,)), stormy_ensemble(indexes=(4,))
+    )
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == "on"
+    assert state.attributes["source"] == "both"
+
+
+async def test_thunderstorm_expected_is_unknown_without_data_to_judge(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Unknown once no forecast hour covers the window, not a confident off.
+
+    The run is cut after 17:00Z, so its only row is 16:00Z. At 17:00Z, with no
+    forecast refresh due, the window holds no row at all.
+    """
+    arome = load_fixture("arome.json")
+    arome["timestamps"] = arome["timestamps"][:6]
+    for parameter in arome["features"][0]["properties"]["parameters"].values():
+        parameter["data"] = parameter["data"][:6]
+    freezer.move_to(FROZEN_NOW)
+    _mock_api_with(aioclient_mock, arome)
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={CONF_FORECAST_INTERVAL: 180}
+    )
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY_ID).state == "off"
+
+    freezer.move_to("2026-07-15T17:00:05+00:00")
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == "unknown"
+    assert state.attributes["source"] is None
+
+
+async def test_a_symbol_without_its_table_entry_reads_off(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Rows without a known symbol and without an ensemble are no storm."""
+    arome = load_fixture("arome.json")
+    sy = arome["features"][0]["properties"]["parameters"]["sy"]["data"]
+    # The 16:00Z and 17:00Z rows read the 17:00Z and 18:00Z codes.
+    sy[5] = None
+    sy[6] = 99.0
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=arome)
+    aioclient_mock.get(ENSEMBLE_URL, status=400)
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == "off"
+    assert state.attributes["source"] is None
 
 
 async def test_thunderstorm_expected_re_evaluates_on_the_hour(
@@ -90,10 +215,7 @@ async def test_thunderstorm_expected_re_evaluates_on_the_hour(
     inside the 17:00Z one (17:00-18:00).
     """
     freezer.move_to(FROZEN_NOW)
-    # Dry hour, so the condition needs full cloud to read as `lightning`.
-    _mock_api_with(
-        aioclient_mock, stormy_arome(indexes=(6,), cloud=100.0, precipitation=0.0)
-    )
+    _mock_api_with(aioclient_mock, stormy_arome(indexes=(6,)))
     mock_config_entry.add_to_hass(hass)
     # The longest allowed forecast interval: no data refresh within the hour.
     hass.config_entries.async_update_entry(
@@ -109,6 +231,73 @@ async def test_thunderstorm_expected_re_evaluates_on_the_hour(
     await hass.async_block_till_done()
 
     assert hass.states.get(ENTITY_ID).state == "on"
+
+
+async def test_thunderstorm_expected_scans_the_series_once_per_refresh(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """State and `source` come from one outlook scan, not one each.
+
+    Two scans could straddle an hour boundary and publish an `on` from one
+    window beside a `source` from another.
+    """
+    calls: list[datetime] = []
+    real = binary_sensor.thunderstorm_outlook
+
+    def counting(hourly, hours, now, ensemble_reference_time):
+        calls.append(now)
+        return real(hourly, hours, now, ensemble_reference_time)
+
+    monkeypatch.setattr(binary_sensor, "thunderstorm_outlook", counting)
+    freezer.move_to(FROZEN_NOW)
+    _mock_api_with(aioclient_mock, stormy_arome(indexes=(4,)))
+    mock_config_entry.add_to_hass(hass)
+    # No data refresh within the hour: only the hour boundary re-evaluates.
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={CONF_FORECAST_INTERVAL: 180}
+    )
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert calls
+
+    calls.clear()
+    freezer.move_to("2026-07-15T17:00:05+00:00")
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    assert len(calls) == 1
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == "off"
+    assert state.attributes["source"] is None
+
+
+async def test_an_ensemble_run_13_hours_old_is_ignored(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Even freshly fetched, a run past ENSEMBLE_MAX_FALLBACK_AGE is ignored.
+
+    Both fixtures are stamped 12:00Z; at 01:00Z the next day the ensemble's
+    storm signal for that hour must not count.
+    """
+    freezer.move_to("2026-07-16T01:00:00+00:00")
+    _mock_api_with(
+        aioclient_mock, load_fixture("arome.json"), stormy_ensemble(indexes=(13,))
+    )
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == "off"
+    assert state.attributes["source"] is None
+    assert hass.states.get(NEXT_STORM_ENTITY_ID).state == "unknown"
 
 
 async def test_precipitating_is_off_for_a_dry_analysis(

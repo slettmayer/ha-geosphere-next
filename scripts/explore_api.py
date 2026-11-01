@@ -11,8 +11,11 @@ Writes recorded responses to tests/fixtures/ and prints findings for:
        parameter that is null at index 0 covers the interval ENDING at its
        stamp; one with a value there is instantaneous
   F-2  tcc scale (0-1 vs 0-100)
-  F-3  `sy` cloud classes against `tcc` at the same and the previous stamp
-  F-4  ensemble tp percentiles: per-hour or run-accumulated
+  F-3  `sy` against what it encodes: cloud classes against `tcc`, and the
+       precipitation classes against `tp`, each at the same and the
+       neighbouring stamps
+  F-4  ensemble percentiles: tp per-hour or run-accumulated, and the
+       stamping of every percentile (cape_p90 included)
   F-5  `start` anchoring: unbounded, on-the-hour, mid-hour and before-t0
   F-6  out-of-domain error shape (Berlin)
   N-1  nowcast/INCA samples and metadata (skipped with --forecast-only)
@@ -28,6 +31,7 @@ untouched, and the ensemble shifts by the same offset so the two stay aligned.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import itertools
 import json
 import urllib.error
@@ -45,11 +49,36 @@ ENSEMBLE = "timeseries/forecast/ensemble-v2-1h-1km"
 NOWCAST = "timeseries/forecast/nowcast-v1-15min-1km"
 INCA = "timeseries/historical/inca-v1-1h-1km"
 
-# Mirrors AROME_PARAMETERS / ENSEMBLE_PARAMETERS in const.py.
-NWP_PARAMS = "2t,2r,10u,10v,10fg,tcc,tp,sf,snowlmt,cape,sy"
-ENSEMBLE_PARAMS = "tp_p10,tp_p50,tp_p90"
-NOWCAST_PARAMS = "t2m,td,rh2m,rr,pt,dd,ff,fx"
-INCA_PARAMS = "T2M,TD2M,RH2M,RR,P0,GL,UU,VV"
+
+def _load_const():
+    """The integration's const.py, loaded by path.
+
+    Importing it as `custom_components.geosphere_next.const` would run the
+    package's `__init__`, which needs Home Assistant; const.py itself imports
+    only the standard library, so the script stays runnable without it.
+    """
+    path = (
+        Path(__file__).resolve().parent.parent
+        / "custom_components"
+        / "geosphere_next"
+        / "const.py"
+    )
+    spec = importlib.util.spec_from_file_location("geosphere_next_const", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+const = _load_const()
+
+NWP_PARAMS = ",".join(const.AROME_PARAMETERS)
+ENSEMBLE_PARAMS = ",".join(const.ENSEMBLE_PARAMETERS)
+NOWCAST_PARAMS = ",".join(const.NOWCAST_PARAMETERS)
+INCA_PARAMS = ",".join(const.INCA_PARAMETERS)
+
+SY_CLOUD = const.SY_CLEAR | const.SY_PARTLY_CLOUDY | const.SY_CLOUDY
+SY_PRECIPITATION = const.SY_PRECIPITATION
+PRECIP_MIN_MM = const.PRECIP_MIN_MM
 
 # The suite's frozen timeline: forecast runs are stamped 12:00Z on this day.
 DEFAULT_ANCHOR = "2026-07-15T12:00"
@@ -109,9 +138,9 @@ def classify(body: dict) -> None:
     for name, param in params_of(body).items():
         kind = "interval-ending" if param["data"][0] is None else "instantaneous"
         if name == "sy":
-            # Null at t0 like the interval fields, but its cloud classes follow
-            # `tcc` at its own stamp (F-3), so it is read there.
-            kind += " (null at t0; read at its own stamp, see F-3)"
+            # Its precipitation classes cover the interval ending at the
+            # stamp, its cloud classes bin `tcc` at the stamp itself (F-3).
+            kind += " (cloud classes at the stamp, precipitation before it; F-3)"
         print(f"  {name:8} {param['unit']:15} index0={param['data'][0]!s:8} {kind}")
 
 
@@ -146,10 +175,10 @@ def main() -> None:
     tcc = [v for v in series(nwp, "tcc") if v is not None]
     print(f"tcc min={min(tcc)} max={max(tcc)}")
 
-    print("\n=== F-3: sy cloud classes vs tcc ===")
+    print("\n=== F-3: sy against tcc and tp ===")
     same: dict[int, list[float]] = defaultdict(list)
     prev: dict[int, list[float]] = defaultdict(list)
-    sy, tcc_all = series(nwp, "sy"), series(nwp, "tcc")
+    sy, tcc_all, tp_all = series(nwp, "sy"), series(nwp, "tcc"), series(nwp, "tp")
     for i in range(1, len(sy)):
         if sy[i] is not None:
             same[int(sy[i])].append(tcc_all[i])
@@ -159,6 +188,27 @@ def main() -> None:
             f"  sy {code:3}: tcc@i {min(same[code])}..{max(same[code])}  "
             f"tcc@i-1 {min(prev[code])}..{max(prev[code])}"
         )
+    # A precipitation class follows the `tp` it is wet with in every case; the
+    # neighbouring stamps show which interval that is.
+    wet = {"tp@i-1": 0, "tp@i": 0, "tp@i+1": 0}
+    coded = 0
+    for i in range(1, len(sy) - 1):
+        if sy[i] is None or int(sy[i]) not in SY_PRECIPITATION:
+            continue
+        coded += 1
+        for label, j in (("tp@i-1", i - 1), ("tp@i", i), ("tp@i+1", i + 1)):
+            wet[label] += (tp_all[j] or 0.0) >= PRECIP_MIN_MM
+    print(
+        f"  precipitation-coded stamps: {coded}; wet (tp >= {PRECIP_MIN_MM}) at {wet}"
+    )
+    cloud_but_wet = sum(
+        1
+        for i in range(1, len(sy))
+        if sy[i] is not None
+        and int(sy[i]) in SY_CLOUD
+        and (tp_all[i] or 0.0) >= PRECIP_MIN_MM
+    )
+    print(f"  cloud-coded stamps with tp@i >= {PRECIP_MIN_MM}: {cloud_but_wet}")
 
     _, nwp_prev = fetch(
         NWP,
