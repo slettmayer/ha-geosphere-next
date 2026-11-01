@@ -83,7 +83,9 @@ dry, or nothing observed (`None`):
    `snowy` if T ≤ 1 °C and the kind is pt 5 or none, else `lightning-rainy`
    when the hour's symbol is 26–32, else `snowy` (pt 5), else `snowy-rainy`
    (pt 7 rain and snow, or pt 3 freezing rain, which HA has no condition for),
-   else `pouring` (≥ 4 mm/h) or `rainy`. pt 1 is rain at any temperature, and
+   else `pouring` (≥ 5 mm/h, where GeoSphere's heavy-rain codes 10/19 start,
+   so the current condition and the forecast flip at the same intensity) or
+   `rainy`. pt 1 is rain at any temperature, and
    no kind is rain above 1 °C or with no temperature. The symbol's own kind
    (rain, sleet, snow) is never used here.
 2. **Observed dry**: the symbol's mapping, except that a precipitation or

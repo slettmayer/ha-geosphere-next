@@ -243,6 +243,16 @@ def test_derive_precipitation_type(
     assert derive_precipitation_type(code, rate) == expected
 
 
+@pytest.mark.parametrize(
+    ("rate", "expected"), [(4.9, "rainy"), (5.0, "pouring"), (12.0, "pouring")]
+)
+def test_current_condition_pours_where_the_heavy_rain_symbols_start(
+    rate: float, expected: str
+) -> None:
+    """Observed rain turns `pouring` at 5 mm/h, the floor of codes 10 and 19."""
+    assert _current(1, 12.0, rate, symbol=8) == expected
+
+
 def test_current_condition_light_rain_under_a_thunder_symbol_is_a_storm() -> None:
     """Observed rain plus a thunder symbol is a storm, whatever the rate."""
     assert _current(1, 18.0, 0.4, symbol=26) == "lightning-rainy"

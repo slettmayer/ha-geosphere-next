@@ -182,7 +182,9 @@ POP_DRY_PCT = 0
 # Observed-precipitation thresholds for the current condition (see
 # condition.py), and the wet-hour floor shared with the probability.
 PRECIP_MIN_MM = 0.1
-POURING_MM_PER_H = 4.0
+# GeoSphere's heavy-rain codes (10, 19) start at 5 mm in the hour, so observed
+# rain turns `pouring` where the forecast symbol does.
+POURING_MM_PER_H = 5.0
 # Rain/snow split when the nowcast `pt` code names no kind (absent, 255
 # beside an observed rate, or outside PRECIPITATION_TYPES).
 SNOW_MAX_T2M_C = 1.0
