@@ -268,11 +268,11 @@ so observations decide what is falling now. When the nowcast (or a recent INCA
 analysis) observes precipitation, its kind — rain, snow, sleet — decides the
 condition, and a thunderstorm symbol for the hour turns it into
 `lightning-rainy` (except observed snow at or below 1 °C, which stays `snowy`).
-When a fresh observation says it is dry — the nowcast, or an INCA analysis of
-the hour that just ended — the hour's symbol applies, but a rain, snow or
-thunder symbol shows `cloudy`, because the model expects precipitation that
-is not falling. Where nothing fresh observes precipitation (outside Austria,
-or with the nowcast down), the symbol applies unchanged.
+When the nowcast says it is dry, the hour's symbol applies, but a rain, snow
+or thunder symbol shows `cloudy`, because the model expects precipitation
+that is not falling. Where the nowcast is unavailable (outside Austria, or
+when its fetch fails), only observed rain from the hourly INCA analysis can
+override the symbol; otherwise the symbol applies unchanged.
 
 GeoSphere confirmed the table for the previous forecast dataset; that the
 current `nwp-v2` dataset uses the same table is measured, not published. All

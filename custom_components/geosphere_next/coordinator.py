@@ -57,7 +57,6 @@ from .const import (
     INCA_LOOKBACK_HOURS,
     INCA_MAX_AGE_SECONDS,
     INCA_PARAMETERS,
-    INCA_RR_DRY_MAX_AGE_SECONDS,
     INCA_RR_MAX_AGE_SECONDS,
     NOWCAST_BUCKETS_PER_HOUR,
     NOWCAST_LOOKBACK,
@@ -693,20 +692,18 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         rr_1h_is_current = (
             rr_1h_age_s is not None and 0 <= rr_1h_age_s <= INCA_RR_MAX_AGE_SECONDS
         )
-        # A wet `RR` counts while current; a dry one only while it covers the
-        # hour that just ended -- an older "dry" may predate rain that has
-        # started since, and would demote a rain symbol to `cloudy`. See
-        # INCA_RR_DRY_MAX_AGE_SECONDS.
+        # Only a *wet* `RR` stands in for the nowcast. A dry one would demote
+        # a rain or thunder symbol to `cloudy`, but it describes an hour that
+        # ended up to ~90 min ago in ordinary publishing, so it cannot rule
+        # out rain that has started since; with no nowcast, "dry" is never
+        # observed and the symbol stands.
         rr_1h_is_wet = rr_1h_is_current and rr_1h is not None and rr_1h >= PRECIP_MIN_MM
-        rr_1h_is_fresh = (
-            rr_1h_age_s is not None and 0 <= rr_1h_age_s < INCA_RR_DRY_MAX_AGE_SECONDS
-        )
         # `None` when nothing observes precipitation, which the condition
         # derivation tells apart from an observed "dry".
         rate_mm_h = (
             nowcast_rate_mm_h
             if nowcast_rate_mm_h is not None
-            else (rr_1h if rr_1h_is_wet or rr_1h_is_fresh else None)
+            else (rr_1h if rr_1h_is_wet else None)
         )
         # A single bucket can round to 0.0 in the gap between cells of an
         # active storm, reporting 0 mm/h mid-downpour and starving the

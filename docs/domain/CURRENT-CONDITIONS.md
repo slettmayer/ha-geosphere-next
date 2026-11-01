@@ -104,13 +104,12 @@ value. The order encodes which source is trusted most for each field:
   `INCA_RR_MAX_AGE_SECONDS` (2 h). `inca_latest` returns the newest value at
   any age and the cached slice is served on indefinitely while refreshes
   fail, so an ungated read derived `rainy` under a clear sky from rain that
-  had stopped hours earlier, and held there. A *dry* `RR` has a tighter bound,
-  `INCA_RR_DRY_MAX_AGE_SECONDS` (1 h, i.e. it covers the hour that just
-  ended): a dry reading demotes a rain or thunder symbol to `cloudy`, and a
-  dry hour that ended longer ago may predate rain that has started since.
-  INCA publishes ~30 min after the hour, so that holds for roughly the second
-  half of each hour. With neither source, the rate is `None` — nothing
-  observed — rather than 0.0, and the symbol stands. The 2 h bound marks a slice that has
+  had stopped hours earlier, and held there. Only a *wet* `RR` (≥ 0.1 mm)
+  stands in: a dry one would demote a rain or thunder symbol to `cloudy`,
+  but it analyses an hour that ended up to ~90 min ago and cannot rule out
+  rain that has started since, so only the nowcast can say "dry". With
+  neither, the rate is `None` — nothing observed — rather than 0.0, and the
+  symbol stands. The 2 h bound marks a slice that has
   **stopped updating**, not ordinary lag — INCA's freshest `RR` is routinely
   up to ~90 min old (same publish cycle that makes `observed_at` trail by
   ~90 min), and a tighter bound would reject the best data the source has for

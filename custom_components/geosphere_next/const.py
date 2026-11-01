@@ -138,16 +138,6 @@ INCA_LOOKBACK_HOURS = 3
 # `_async_get_inca` is serving a cached one indefinitely. That is the
 # unbounded case this exists for.
 INCA_RR_MAX_AGE_SECONDS = 2 * 60 * 60
-# How old INCA's hourly `RR` may be to count as an observed *dry* hour, which
-# demotes a rain or thunder symbol to `cloudy`. Wet evidence keeps the longer
-# bound above; dry evidence has to be fresh, because overriding the forecast
-# with "nothing is falling" on a measurement of an hour that ended up to two
-# hours ago hides rain that may have started since. Under an hour means the
-# analysed hour is the one that just ended (`RR` covers the hour ending at
-# its stamp, and stamps sit on the hour). INCA publishes ~30 min after the
-# hour, so this holds for roughly the second half of each hour; otherwise,
-# with no nowcast, nothing counts as observed and the symbol stands.
-INCA_RR_DRY_MAX_AGE_SECONDS = 60 * 60
 
 # Model rerun cadences, used to gate re-fetches (see `_run_is_current`). A run
 # cannot be superseded before its cadence has elapsed, so until then a re-fetch
