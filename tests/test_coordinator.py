@@ -109,12 +109,12 @@ async def test_forecast_processing(
     assert first.condition == "cloudy"
     # Magnus from 2t 4.8 / 2r 80.89.
     assert first.dew_point == pytest.approx(1.8)
-    # The snow limit is read off the same row that becomes `current` --
-    # 16:00Z here, not the series' first stamp. The weather symbol lives on
-    # the rows only; the current coordinator picks it from the hour covering
-    # now.
-    assert data.snow_limit == pytest.approx(854.1)
+    # `snowlmt` is instantaneous, read at the row's own stamp. The snow limit
+    # and the weather symbol live on the rows only; the current coordinator
+    # picks them from the hour covering now.
+    assert first.snow_limit == pytest.approx(854.1)
     assert "weather_symbol" not in {f.name for f in fields(ForecastData)}
+    assert "snow_limit" not in {f.name for f in fields(ForecastData)}
     assert data.current is first
 
     # Stepped probability from the ensemble tp percentiles, read one stamp on
@@ -1022,8 +1022,8 @@ async def test_current_arome_fields_follow_the_clock(
 
     The current coordinator runs every 15 min while the forecast one can be
     180 min apart, so reading the "step 0" snapshot captured at fetch time
-    would leave cloud cover and CAPE — and with them the derived condition —
-    up to 3 h stale.
+    would leave cloud cover, CAPE and the snow limit — and with them the
+    derived condition — up to 3 h stale.
     """
     freezer.move_to(FROZEN_NOW)
     await _setup(hass, mock_config_entry)
@@ -1033,18 +1033,21 @@ async def test_current_arome_fields_follow_the_clock(
         return sum("nwp-v2-1h-1km" in str(call[1]) for call in mock_api.mock_calls)
 
     baseline = arome_calls()
-    # Fixture hour 16:00Z: tcc 100 %, cape 2.8, symbol 5 (read at 17:00Z).
+    # Fixture hour 16:00Z: tcc 100 %, cape 2.8, snow limit 854.1 m, symbol 5
+    # (read at 17:00Z).
     assert coordinator.data.cloud_coverage == 100.0
     assert coordinator.data.cape == pytest.approx(2.8)
+    assert coordinator.data.snow_limit == pytest.approx(854.1)
     assert coordinator.data.weather_symbol == 5
 
     # Three hours on, without refetching the forecast: hour 19:00Z carries
-    # tcc 97 %, cape 7.3.
+    # tcc 97 %, cape 7.3, snow limit 903.3 m.
     freezer.move_to("2026-07-15T19:30:00+00:00")
     await coordinator.async_refresh()
     assert arome_calls() == baseline
     assert coordinator.data.cloud_coverage == 97.0
     assert coordinator.data.cape == pytest.approx(7.3)
+    assert coordinator.data.snow_limit == pytest.approx(903.3)
 
     # And the symbol: the hour 20:00Z reads code 8 (light rain, stamped
     # 21:00Z), which the dry nowcast turns into `cloudy`.

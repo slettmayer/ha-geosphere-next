@@ -274,10 +274,6 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
     ) -> ForecastData:
         now = dt_util.utcnow()
         hourly: list[HourlyForecast] = []
-        # Read off the row that becomes `hourly[0]`, below, so it describes
-        # the same hour as `current` by construction rather than by a second
-        # index kept in step with it.
-        snow_limit: float | None = None
 
         # Ensemble hours align with AROME's whole-hour stamps (both 1 h grids,
         # matched by exact timestamp); missing hours yield no probability.
@@ -340,8 +336,6 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
             if ts < cutoff:
                 continue
             nxt = i + 1
-            if not hourly:
-                snow_limit = response.value_at("snowlmt", i)
             wind_speed, wind_bearing = wind_from_components(
                 response.value_at("10u", i), response.value_at("10v", i)
             )
@@ -377,6 +371,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                     wind_gust_speed=gust_speed,
                     cloud_coverage=cloud,
                     cape=cape,
+                    snow_limit=response.value_at("snowlmt", i),
                     dew_point=dew_point_from_t_rh(temperature, humidity),
                     precipitation_probability=pop_by_ts.get(ts),
                     ensemble_cape_p90=cape_p90_by_ts.get(ts),
@@ -400,7 +395,6 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
             grid_longitude=response.grid_longitude,
             hourly=hourly,
             current=hourly[0],
-            snow_limit=snow_limit,
             ensemble_reference_time=ensemble.reference_time if ensemble else None,
         )
 
@@ -505,11 +499,11 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         # forecast fetch: this coordinator runs every 15 min by default while
         # the forecast one can be up to 180 min apart. The step-0 snapshot —
         # the hour that was in progress when the forecast was last fetched —
-        # can therefore be hours old. Cloud cover, CAPE and the weather symbol
-        # have no other source, and the symbol feeds the derived condition, so
-        # the reported condition would go stale with it. Pick the hour covering `now`
-        # instead, degrading to that snapshot only when the series no longer
-        # covers now at all.
+        # can therefore be hours old. Cloud cover, CAPE, the snow limit and the
+        # weather symbol have no other source, and the symbol feeds the derived
+        # condition, so the reported condition would go stale with it. Pick the
+        # hour covering `now` instead, degrading to that snapshot only when the
+        # series no longer covers now at all.
         arome: HourlyForecast | None = None
         if forecast_data is not None:
             arome = hour_at(forecast_data.hourly, now) or forecast_data.current
@@ -746,7 +740,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
             is_precipitating=is_precipitating(precipitation_type, nowcast_rate_mm_h),
             cloud_coverage=cloud,
             global_radiation=inca_latest("GL")[0],
-            snow_limit=forecast_data.snow_limit if forecast_data else None,
+            snow_limit=arome.snow_limit if arome else None,
             cape=cape,
             weather_symbol=symbol,
             condition=derive_current_condition(

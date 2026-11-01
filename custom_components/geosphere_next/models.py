@@ -43,7 +43,7 @@ class GeoSphereResponse:
 
 @dataclass(slots=True)
 class HourlyForecast:
-    """One processed AROME forecast hour. Units: °C, %, mm, m/s, °, hPa, J/kg."""
+    """One processed AROME forecast hour. Units: °C, %, mm, m/s, °, hPa, J/kg, m."""
 
     datetime: datetime
     temperature: float | None
@@ -55,6 +55,7 @@ class HourlyForecast:
     wind_gust_speed: float | None
     cloud_coverage: float | None
     cape: float | None
+    snow_limit: float | None = None
     dew_point: float | None = None
     # GeoSphere's `sy` code for the hour, and the HA condition mapped from it.
     weather_symbol: int | None = None
@@ -78,7 +79,6 @@ class ForecastData:
     hourly: list[HourlyForecast] = field(default_factory=list)
     # "Step 0" snapshot for current-state fallbacks (first future-most hour).
     current: HourlyForecast | None = None
-    snow_limit: float | None = None
     # The C-LAEF run behind the rows' ensemble values; `None` without one.
     ensemble_reference_time: datetime | None = None
 
