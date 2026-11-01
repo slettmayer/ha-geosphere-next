@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from .condition import is_thunder_symbol
 from .const import (
     PRECIP_MIN_MM,
+    SY_CODES,
     THUNDER_CAPE_JKG,
     THUNDER_SOURCE_BOTH,
     THUNDER_SOURCE_ENSEMBLE,
@@ -104,11 +105,12 @@ def _source(symbol: bool, ensemble: bool) -> str | None:
 def _is_decidable(hour: HourlyForecast) -> bool:
     """True when the hour carries enough data to judge thunder either way.
 
-    Either signal suffices: a weather symbol, or both ensemble percentiles.
+    Either signal suffices: a weather symbol from GeoSphere's table, or both
+    ensemble percentiles. A code outside the table is unreadable, not calm.
     An hour with neither says nothing about thunder — "no storm" would be a
     guess, not an answer.
     """
-    return hour.weather_symbol is not None or (
+    return hour.weather_symbol in SY_CODES or (
         hour.ensemble_cape_p90 is not None
         and hour.ensemble_precipitation_p90 is not None
     )

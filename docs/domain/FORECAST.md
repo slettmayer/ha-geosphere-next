@@ -159,7 +159,8 @@ The entities:
   any row in the window (the in-progress hour plus the next) fires either
   signal. The `source` attribute names which: `symbol`, `ensemble` or
   `symbol_and_ensemble`, judged across the window; `None` when off. A row is
-  decidable with a symbol or a complete ensemble pair; a window with no
+  decidable with a symbol from GeoSphere's table (a code outside it counts as
+  unreadable, not calm) or a complete ensemble pair; a window with no
   decidable row reports `unknown`, never a confident `off`. Built for storm
   blinds, where a false alarm costs a closed blind and a miss costs the blind,
   so either signal suffices.

@@ -128,7 +128,7 @@ for the hour it names.
 | `wind_gust_max_12h` | Peak forecast wind gust over the 12-hour horizon; carries a `peak_time` attribute | km/h |
 | `cape_max_12h` | Peak CAPE over the 12-hour horizon (diagnostic, disabled by default; informational only) | J/kg |
 | `next_thunderstorm` | Start of the first forecast hour with a thunderstorm symbol or the ensemble storm signal (`unknown` if none in the ~57 h horizon); carries `cape` and `source` attributes for that hour | — |
-| `thunderstorm_expected_1h` (binary sensor; entity id: `thunderstorm_expected_next_hour`) | On when any hour in the 1-hour horizon has a thunderstorm symbol or the ensemble storm signal; `source` attribute names which. `unknown` when the window holds no hour with a symbol or ensemble data | — |
+| `thunderstorm_expected_1h` (binary sensor; entity id: `thunderstorm_expected_next_hour`) | On when any hour in the 1-hour horizon has a thunderstorm symbol or the ensemble storm signal; `source` attribute names which. `unknown` when the window holds no hour with a known symbol or ensemble data | — |
 
 Gust maxima are natively km/h, matching the current-condition wind sensors.
 The three numeric sensors carry no `state_class`: they are predictions, so

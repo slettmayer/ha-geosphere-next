@@ -239,6 +239,20 @@ def test_thunderstorm_outlook_is_unknown_without_usable_hours() -> None:
     assert thunderstorm_outlook([_hour(6, symbol=1)], 1, NOW) == (None, None)
 
 
+def test_an_unknown_symbol_is_not_a_confident_no_storm() -> None:
+    """A code outside the table cannot be read, so it decides nothing."""
+    assert thunderstorm_outlook([_hour(0, symbol=33)], 1, NOW) == (None, None)
+    assert thunderstorm_outlook([_hour(0, symbol=0), _hour(1, symbol=99)], 1, NOW) == (
+        None,
+        None,
+    )
+    # The ensemble path still decides on its own.
+    calm = [_hour(0, symbol=33, cape_p90=20.0, precipitation_p90=0.0)]
+    assert thunderstorm_outlook(calm, 1, NOW) == (False, None)
+    stormy = [_hour(0, symbol=33, cape_p90=1500.0, precipitation_p90=0.5)]
+    assert thunderstorm_outlook(stormy, 1, NOW) == (True, "ensemble")
+
+
 def test_thunderstorm_outlook_distinguishes_no_storm_from_no_data() -> None:
     hourly = [_hour(0, symbol=5), _hour(5, symbol=26)]
     assert thunderstorm_outlook(hourly, 1, NOW) == (False, None)
