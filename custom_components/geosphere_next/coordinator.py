@@ -356,7 +356,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                 self._unknown_sy_codes.add(symbol)
                 _LOGGER.warning(
                     "Forecast reported weather-symbol code %s, which is not in "
-                    "GeoSphere's published table; its hours read as unknown",
+                    "GeoSphere's published table; its hours' condition reads unknown",
                     symbol,
                 )
             hourly.append(
