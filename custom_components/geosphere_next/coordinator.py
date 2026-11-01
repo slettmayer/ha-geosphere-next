@@ -68,6 +68,7 @@ from .const import (
     PRECIPITATION_TYPES,
     PT_NO_PRECIPITATION,
     RATE_LOOKBACK,
+    SY_CODES,
 )
 from .models import (
     AirQualityData,
@@ -166,6 +167,9 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         self.longitude: float = config_entry.data[CONF_LONGITUDE]
         self._arome: GeoSphereResponse | None = None
         self._ensemble: GeoSphereResponse | None = None
+        # `sy` codes outside GeoSphere's table already reported, so a new one
+        # warns once rather than on every update for as long as it is served.
+        self._unknown_sy_codes: set[int] = set()
 
     async def _async_update_data(self) -> ForecastData:
         # Both responses may come from cache (see `_run_is_current`), but
@@ -349,6 +353,17 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
             humidity = response.value_at("2r", i)
             raw_symbol = response.value_at("sy", nxt)
             symbol = int(raw_symbol) if raw_symbol is not None else None
+            if (
+                symbol is not None
+                and symbol not in SY_CODES
+                and symbol not in self._unknown_sy_codes
+            ):
+                self._unknown_sy_codes.add(symbol)
+                _LOGGER.warning(
+                    "Forecast reported weather-symbol code %s, which is not in "
+                    "GeoSphere's published table; its hours read as unknown",
+                    symbol,
+                )
             hourly.append(
                 HourlyForecast(
                     datetime=ts,

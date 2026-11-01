@@ -52,7 +52,8 @@ groups live in `const.py` (`SY_CLEAR` … `SY_THUNDER`):
 | 31, 32 | (Starkes) Gewitter mit Schneefall | `lightning-rainy` |
 
 A missing code, or one outside the table, maps to `None` (unknown) — never a
-guess. The table has no night variants, so `is_night` decides between `sunny`
+guess. The forecast coordinator logs one warning per code outside the table,
+as the current coordinator does for unknown `pt` codes. The table has no night variants, so `is_night` decides between `sunny`
 and `clear-night` — for a forecast row at the middle of its hour, for the
 current condition at `now`. HA's `windy`, `windy-variant`, `lightning` (dry thunder),
 `hail` and `exceptional` have no code and never occur.

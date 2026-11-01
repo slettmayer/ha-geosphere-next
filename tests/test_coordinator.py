@@ -880,6 +880,38 @@ async def test_forecast_night_is_judged_at_the_middle_of_the_hour(
     assert by_hour[start].condition == "clear-night"
 
 
+async def test_an_unknown_symbol_is_unknown_and_reported_once(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A code outside the table reads `None` and warns once, not every update."""
+    payload = load_fixture("arome.json")
+    sy = payload["features"][0]["properties"]["parameters"]["sy"]["data"]
+    # The 16:00Z and 17:00Z rows, the same unpublished code twice.
+    sy[5] = 40.0
+    sy[6] = 40.0
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=payload)
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await _setup(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data.forecast
+    await coordinator.async_refresh()
+
+    assert coordinator.data.hourly[0].weather_symbol == 40
+    assert coordinator.data.hourly[0].condition is None
+    warnings = [
+        record
+        for record in caplog.records
+        if "weather-symbol code 40" in record.getMessage()
+    ]
+    assert len(warnings) == 1
+
+
 async def test_forecast_symbol_describes_the_hour_it_starts(
     hass: HomeAssistant,
     mock_config_entry,

@@ -218,6 +218,8 @@ SY_SNOW = frozenset({14, 15, 16, 23, 24, 25})
 SY_THUNDER = frozenset(range(26, 33))
 # Codes saying precipitation falls in the hour, thunderstorms included.
 SY_PRECIPITATION = SY_RAIN | SY_POURING | SY_SLEET | SY_SNOW | SY_THUNDER
+# Every published code.
+SY_CODES = SY_CLEAR | SY_PARTLY_CLOUDY | SY_CLOUDY | SY_FOG | SY_PRECIPITATION
 
 # Where within a forecast row's hour day/night is judged for the clear
 # symbols: the middle, so an hour that is mostly dark reads `clear-night`.
