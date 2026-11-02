@@ -10,6 +10,7 @@ from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
@@ -375,6 +376,34 @@ async def test_ensemble_fallback_is_bounded(
     assert all(
         hour.precipitation_probability is None for hour in coordinator.data.hourly
     )
+
+
+async def test_forecast_rate_limit_passes_retry_after_to_the_coordinator(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A 429 on AROME fails the update with the server's `Retry-After`.
+
+    `UpdateFailed(retry_after=...)` is what makes the coordinator wait as long
+    as the API asked instead of retrying on its own interval.
+    """
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await _setup(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data.forecast
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(AROME_URL, status=429, headers={"Retry-After": "120"})
+    await coordinator.async_refresh()
+
+    assert not coordinator.last_update_success
+    assert isinstance(coordinator.last_exception, UpdateFailed)
+    assert coordinator.last_exception.retry_after == 120.0
 
 
 async def test_current_merge(

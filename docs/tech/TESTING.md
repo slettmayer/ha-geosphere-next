@@ -63,8 +63,7 @@ Document the test framework, fixtures, patterns, and commands for the test suite
   `cape_p90`.
 - Recorded fixtures include the happy path (`arome.json`, `ensemble.json`,
   `nowcast.json`, `inca.json`, `chem.json`, `chem_aqi.json`), metadata files, and
-  edge cases (`arome_out_of_domain.json`, `nowcast_out_of_domain.json`,
-  `arome_prev_run.json`).
+  edge cases (`arome_out_of_domain.json`, `nowcast_out_of_domain.json`).
 - The forecast fixtures (`arome*.json`, `ensemble.json`) are recorded by
   `scripts/explore_api.py --forecast-only` from `nwp-v2-1h-1km` /
   `ensemble-v2-1h-1km` at 46.63,14.15, requested from the run's own t0 so they

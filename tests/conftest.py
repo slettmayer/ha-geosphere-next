@@ -97,7 +97,7 @@ def stormy_arome(
     storm hour starting at `index` gets `symbol` (a thunderstorm code by
     default) and `precipitation` (mm) written to `index + 1`. `cape` is
     instantaneous and goes to `index` itself; nothing derives thunder from it,
-    but the `next_thunderstorm` sensor reports it.
+    but the `cape` and `cape_max_12h` sensors report it.
     """
     payload = load_fixture("arome.json")
     parameters = payload["features"][0]["properties"]["parameters"]
