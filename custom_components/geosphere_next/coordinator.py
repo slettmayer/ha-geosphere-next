@@ -479,8 +479,7 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         )
         # INCA (observation-anchored hourly analysis) beats the 15-min nowcast
         # for thermodynamic fields and wind: the nowcast extrapolates from an
-        # analysis ~2 h behind, lagging diurnal ramps by up to ~2 °C (verified
-        # 2026-07-16 against TAWES station observations).
+        # analysis ~2 h behind, lagging diurnal ramps by up to ~2 °C.
         inca_t2m, inca_t2m_at = inca_latest("T2M")
         temperature = chain(
             inca_t2m,
@@ -497,13 +496,9 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         symbol = arome.weather_symbol
 
         p0, _ = inca_latest("P0")
-        # INCA `RR` is the only source for the hourly accumulation. Summing
-        # nowcast buckets was tried and removed: the API serves a single run,
-        # clamped to its own t0 ~25-35 min back, so the sum covered 15-45 min
-        # and was published as an hour. Reconstructing a true hour needs the
-        # t0 bucket of four consecutive runs (`forecast_offset=0..3`), four
-        # requests per location per update against an endpoint that already
-        # fails often enough to matter. `unknown` is the honest answer here.
+        # INCA `RR` is the only source for the hourly accumulation: the
+        # nowcast serves a single run clamped to its own t0, so its buckets
+        # never cover a whole hour.
         rr_1h, rr_1h_time = inca_latest("RR")
 
         pt_raw = now_value("pt")
@@ -523,60 +518,23 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         # `None`, not 0.0, when the nowcast observed nothing: `is_precipitating`
         # has to tell "no precipitation" apart from "no observation", which it
         # cannot do once the absence has been defaulted away.
-        #
-        # INCA's hourly `RR` is deliberately NOT a fallback here, though it is
-        # one for `rate_mm_h` below. "Is it precipitating right now" is an
-        # instantaneous question and `RR` is an accumulation over the hour it
-        # is stamped for, so it answers a different one. `inca_latest` returns
-        # the newest non-None value at any age and `_async_get_inca` serves a
-        # cached slice for up to INCA_MAX_AGE_SECONDS -- indefinitely while
-        # refreshes keep failing -- so reading it here reported rain that had
-        # already stopped: 2.4 mm falling in the hour to 15:00 still read
-        # "wet" at 16:50. On a `moisture` entity, which is what gets wired to
-        # closing an awning, that is a wrong answer with consequences. With no
-        # instantaneous source the honest answer is `None`.
         nowcast_rate_mm_h = (
             nowcast_rr * NOWCAST_BUCKETS_PER_HOUR if nowcast_rr is not None else None
         )
-        # The condition has to name *something*, so unlike `is_precipitating`
-        # it does fall back to `RR` -- but not to a slice that has stopped
-        # updating. `inca_latest` returns the newest non-None value at any age
-        # and `_async_get_inca` serves a cached slice indefinitely while
-        # refreshes fail, so an ungated read derived `rainy` under a clear sky
-        # from rain that had stopped hours ago, and held there. Past
-        # INCA_RR_MAX_AGE_SECONDS it no longer counts as an observation, and
-        # with no nowcast either the condition is the weather symbol's alone.
-        # The bound is deliberately well
-        # past INCA's own ~90 min worst-case lag so ordinary publishing never
-        # trips it -- see the constant.
-        #
-        # `precipitation_1h` keeps reporting the accumulation regardless: it
-        # is a real measurement of a past hour. Note it is NOT dated by
-        # `observation_time`, which anchors to whichever source supplied the
-        # temperature (see below) and can therefore be newer than the `RR`
-        # stamp -- the two are read from the same slice but not the same row.
-        # Bounded at BOTH ends. A bare `age <= INCA_RR_MAX_AGE_SECONDS` is
-        # also satisfied by a NEGATIVE age, so a future-stamped `RR` would
-        # read as the freshest reading there is and derive `pouring` from an
-        # hour that has not happened yet. `_async_get_inca` requests
-        # `end=now`, so the API does not hand one back today, and the cached
-        # slice only ages further as `now` advances -- but nothing in this
-        # method's signature enforces that, and `observation_time` below
-        # already clamps every rung to `now` on exactly this principle: an
-        # observation can never be in the future.
+        # INCA's hourly `RR` is an accumulation, not an observation of *now*:
+        # it never feeds `is_precipitating` or the peak below. It stands in for
+        # the condition's rate only while the nowcast reports neither `pt` nor
+        # `rr` (a `pt` of 255 is an observed "dry" it must not overrule), only
+        # when it is wet, and only while it is younger than
+        # INCA_RR_MAX_AGE_SECONDS -- see docs/domain/CURRENT-CONDITIONS.md.
+        # The age is bounded at both ends: an observation is never in the
+        # future.
         rr_1h_age_s = (
             (now - rr_1h_time).total_seconds() if rr_1h_time is not None else None
         )
         rr_1h_is_current = (
             rr_1h_age_s is not None and 0 <= rr_1h_age_s <= INCA_RR_MAX_AGE_SECONDS
         )
-        # Only the nowcast decides while it reports either `pt` or `rr`: a
-        # `pt` of 255 is an observed "dry" that an hour-old `RR` must not
-        # overrule. Without it, only a *wet* `RR` stands in. A dry one would
-        # demote a rain or thunder symbol to `cloudy`, but it describes an
-        # hour that ended up to ~90 min ago in ordinary publishing, so it
-        # cannot rule out rain that has started since; with no nowcast,
-        # "dry" is never observed and the symbol stands.
         nowcast_observes = (
             precipitation_type is not None or nowcast_rate_mm_h is not None
         )
@@ -591,12 +549,6 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         # `pouring` branch of `condition.derive_current_condition`. So once the
         # nowcast's own `pt` code says it is precipitating, take the peak
         # across the last RATE_LOOKBACK rather than the matched bucket alone.
-        #
-        # INCA's hourly `RR` is deliberately not used here. It is a total over
-        # the whole past hour, so substituting it for an instantaneous rate
-        # reports rain that has already stopped: 6 mm falling in the first 20
-        # minutes and ending, with drizzle keeping `pt` non-zero, would read
-        # as 6 mm/h and derive `pouring` from a drizzling sky.
         if (
             nowcast is not None
             and precipitation_type is not None

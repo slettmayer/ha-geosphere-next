@@ -87,9 +87,7 @@ AIR_QUALITY_INTERVAL_MINUTES = 60
 # What actually protects it is the *anchor*, not this margin. Where an
 # unbounded request begins is the server's choice and is not documented, so
 # `start` has to be named. The API honours a `start` that lands exactly on a
-# stamp and rounds a mid-hour one *up* to the next (measured 2026-11-01:
-# `start = 07:00` came back at 07:00, `start = 07:30` at 08:00) -- so
-# `start = now` at 15:30 would come back at 16:00 and the in-progress hour
+# stamp and rounds a mid-hour one *up* to the next -- so `start = now` at 15:30 would come back at 16:00 and the in-progress hour
 # would be gone. Anchoring to the top of the hour is therefore load-bearing;
 # this lookback is slack on top of it. A `start` before the run's t0 comes
 # back at t0. `_process` drops whatever precedes the cutoff.
@@ -98,18 +96,15 @@ HOURLY_LOOKBACK_HOURS = 1
 # How far back the current precipitation rate may look for a wet 15-min
 # nowcast bucket. A single bucket can round to 0.0 in the gap between cells of
 # an active storm, so the rate takes the peak across this window rather than
-# the matched bucket alone. Deliberately short: INCA's hourly `RR` would be
-# the obvious wider source, but it is a *total* over the past hour, and using
-# it as an instantaneous rate keeps a shower that ended 40 min ago driving the
-# condition. Anything inside this window is still falling.
+# the matched bucket alone. Deliberately short, so anything inside it is still
+# falling; INCA's hourly `RR` is not a wider source here (see
+# docs/domain/CURRENT-CONDITIONS.md).
 RATE_LOOKBACK = timedelta(minutes=30)
 
 # How far back the nowcast request reaches, anchored to a bucket boundary.
 # Without a `start` the endpoint begins at the bucket covering `now`, so the
-# series carries exactly one stamp at or before it -- measured 2026-09-11 at
-# all three configured locations, 11 buckets each, ten of them in the future.
-# That silently disabled the `RATE_LOOKBACK` peak, which needs more than the
-# matched bucket to mean anything. Like `HOURLY_LOOKBACK_HOURS` the anchor is
+# series carries only one stamp at or before it, which leaves the
+# `RATE_LOOKBACK` peak nothing to widen. Like `HOURLY_LOOKBACK_HOURS` the anchor is
 # what matters: the API rounds a mid-interval `start` *up* to the next stamp,
 # so it is floored to the 15-min grid before this is subtracted. One bucket of
 # slack past `RATE_LOOKBACK`; the API clamps to the newest run's own t0
@@ -126,21 +121,10 @@ INCA_MAX_AGE_SECONDS = 55 * 60
 # INCA analyses trail real time by <1 h; query a window of the last 3 hours.
 INCA_LOOKBACK_HOURS = 3
 # How old INCA's hourly `RR` may get before the condition derivation stops
-# treating it as evidence about *now* (seconds). Only that derivation consults
-# it; the `precipitating` binary sensor never does.
-#
-# This bound catches a slice that has stopped updating, NOT ordinary lag. INCA
-# publishes ~30 min after the hour it analyses and the previous slice is
-# served until the next appears, so the freshest `RR` in existence is
-# routinely up to ~90 min old (see `_merge`, which says the same of
-# `observed_at`). A bound at or below that would reject the best data the
-# source has for part of every publish cycle, flapping the condition between
-# `rainy` and the dry, symbol-derived condition once an hour through steady
-# rain — worse than the staleness it set out to fix. Two hours is comfortably
-# past the normal worst case: by then INCA should have published two newer
-# analyses, so a slice this old means refreshes are failing and
-# `_async_get_inca` is serving a cached one indefinitely. That is the
-# unbounded case this exists for.
+# counting it as observed rain (seconds). It catches a slice that has stopped
+# updating, not ordinary lag: INCA's freshest `RR` is routinely up to ~90 min
+# old, so the bound sits well past that -- see
+# docs/domain/CURRENT-CONDITIONS.md.
 INCA_RR_MAX_AGE_SECONDS = 2 * 60 * 60
 
 # How old the held C-LAEF run may get while its endpoint keeps failing, before

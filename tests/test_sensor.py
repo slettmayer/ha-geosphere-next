@@ -511,9 +511,9 @@ async def test_observation_time_follows_the_temperature_not_precipitation(
 ) -> None:
     """An INCA slice with temperature but no RR must not claim to be current.
 
-    `observed_at` used to come from the RR series alone, so a analysis whose
-    precipitation was absent reported `now` while the temperature on display
-    was an hour old.
+    `observed_at` follows the temperature, so an analysis whose precipitation
+    is absent must not report `now` while the temperature on display is an
+    hour old.
     """
     freezer.move_to(FROZEN_NOW)
     inca = load_fixture("inca.json")

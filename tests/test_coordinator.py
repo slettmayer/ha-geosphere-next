@@ -1103,9 +1103,8 @@ async def test_precipitation_1h_is_unknown_without_inca(
 ) -> None:
     """No INCA `RR`, no hourly accumulation -- the nowcast cannot stand in.
 
-    Summing the nowcast's own buckets was tried and removed. The endpoint
-    serves a single run clamped to its own t0, which sits ~25-35 min back, so
-    the sum covered a fraction of an hour and was published as a full one.
+    The nowcast endpoint serves a single run clamped to its own t0, so a sum
+    of its buckets covers only a fraction of an hour.
     The instantaneous fields are unaffected: they read the matched bucket.
     """
     freezer.move_to(FROZEN_NOW)

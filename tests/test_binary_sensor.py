@@ -410,16 +410,15 @@ async def test_precipitating_is_unknown_when_the_nowcast_fetch_fails(
     aioclient_mock: AiohttpClientMocker,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """A stale INCA `RR` must not hold this on — regression guard.
+    """A stale INCA `RR` must not hold this on.
 
     INCA's hourly `RR` is an accumulation over the hour it is stamped for, so
     it cannot answer "is it precipitating right now". `inca_latest` returns
     the newest non-None value at any age and `_async_get_inca` serves its
-    cached slice for up to `INCA_MAX_AGE_SECONDS`, so reading `RR` here used
-    to report rain that had already stopped: the 2.4 mm below fell in the
-    hour to 15:00Z and the entity still read `on` at 16:50Z, holding
-    indefinitely while INCA refreshes kept failing. With the nowcast down
-    there is no instantaneous observation left, so the honest answer is
+    cached slice for up to `INCA_MAX_AGE_SECONDS`, so reading `RR` here would
+    report rain that has already stopped: the 2.4 mm below fell in the hour
+    to 15:00Z, and the entity must not read `on` at 16:50Z. With the nowcast
+    down there is no instantaneous observation left, so the answer is
     `unknown`.
     """
     inca = load_fixture("inca.json")
@@ -454,11 +453,9 @@ async def test_precipitating_survives_a_retried_nowcast_fault(
 
     The counterpart to `test_precipitating_is_unknown_when_the_nowcast_fetch_fails`:
     `unknown` is the honest answer once the nowcast is *gone*, but a single
-    502 is not that. GeoSphere serves one often enough that these entities
-    used to blank for a whole poll interval (15 min by default) per fault --
-    11 of them in five days of one installation's log. With the retry inside
-    `GeoSphereApiClient` the coordinator never sees the fault, so the state
-    machine is never told anything about it and the entity holds its reading.
+    502 is not that. With the retry inside `GeoSphereApiClient` the
+    coordinator never sees the fault, so the entity holds its reading instead
+    of blanking for a whole poll interval.
     """
     freezer.move_to(FROZEN_NOW)
     aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
