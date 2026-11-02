@@ -391,10 +391,6 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
                 _LOGGER.warning("Nowcast update failed, falling back: %s", err)
 
         inca = await self._async_get_inca()
-
-        arome = self._forecast.data.current if self._forecast.data else None
-        if nowcast is None and inca is None and arome is None:
-            raise UpdateFailed("No GeoSphere data source available")
         return self._merge(nowcast, inca)
 
     async def _async_get_inca(self) -> GeoSphereResponse | None:
@@ -441,10 +437,10 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         # weather symbol have no other source, and the symbol feeds the derived
         # condition, so the reported condition would go stale with it. Pick the
         # hour covering `now` instead, degrading to that snapshot only when the
-        # series no longer covers now at all.
-        arome: HourlyForecast | None = None
-        if forecast_data is not None:
-            arome = hour_at(forecast_data.hourly, now) or forecast_data.current
+        # series no longer covers now at all. The forecast coordinator's first
+        # refresh succeeds before this coordinator exists, so a forecast is
+        # always held.
+        arome = hour_at(forecast_data.hourly, now) or forecast_data.current
 
         # Index of the nowcast bucket nearest `now`. Resolved once and reused by
         # every nowcast field below and by `observed_at`: the bucket cannot
@@ -488,20 +484,16 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         temperature = chain(
             inca_t2m,
             now_value("t2m"),
-            arome.temperature if arome else None,
+            arome.temperature,
         )
         humidity = chain(
             inca_latest("RH2M")[0],
             now_value("rh2m"),
-            arome.humidity if arome else None,
+            arome.humidity,
         )
-        wind_speed = chain(
-            inca_wind_speed, now_value("ff"), arome.wind_speed if arome else None
-        )
-        gust = chain(now_value("fx"), arome.wind_gust_speed if arome else None)
-        cloud = chain(arome.cloud_coverage if arome else None)
-        cape = arome.cape if arome else None
-        symbol = arome.weather_symbol if arome else None
+        wind_speed = chain(inca_wind_speed, now_value("ff"), arome.wind_speed)
+        gust = chain(now_value("fx"), arome.wind_gust_speed)
+        symbol = arome.weather_symbol
 
         p0, _ = inca_latest("P0")
         # INCA `RR` is the only source for the hourly accumulation. Summing
@@ -651,10 +643,8 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
             observed_at = inca_t2m_at
         elif nowcast_t2m_index is not None:
             observed_at = min(nowcast.timestamps[nowcast_t2m_index], now)
-        elif arome is not None:
-            observed_at = min(arome.datetime, now)
         else:
-            observed_at = now
+            observed_at = min(arome.datetime, now)
 
         return CurrentConditions(
             observed_at=observed_at,
@@ -669,17 +659,17 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
             wind_bearing=chain(
                 inca_wind_bearing,
                 now_value("dd"),
-                arome.wind_bearing if arome else None,
+                arome.wind_bearing,
             ),
             wind_gust_speed=gust,
             precipitation_1h=rr_1h,
             precipitation_type=precipitation_type,
             precipitation_kind=derive_precipitation_type(precipitation_type, rate_mm_h),
             is_precipitating=is_precipitating(precipitation_type, nowcast_rate_mm_h),
-            cloud_coverage=cloud,
+            cloud_coverage=arome.cloud_coverage,
             global_radiation=inca_latest("GL")[0],
-            snow_limit=arome.snow_limit if arome else None,
-            cape=cape,
+            snow_limit=arome.snow_limit,
+            cape=arome.cape,
             weather_symbol=symbol,
             condition=derive_current_condition(
                 precipitation_type=precipitation_type,
