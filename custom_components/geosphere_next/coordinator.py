@@ -197,7 +197,8 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
             )
         except GeoSphereApiError as err:
             _LOGGER.warning(
-                "Ensemble update failed, omitting precipitation probability: %s", err
+                "Ensemble update failed, keeping the last run while under 12 h old: %s",
+                err,
             )
         else:
             return self._ensemble

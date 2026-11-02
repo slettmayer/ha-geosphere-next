@@ -87,10 +87,11 @@ AIR_QUALITY_INTERVAL_MINUTES = 60
 # What actually protects it is the *anchor*, not this margin. Where an
 # unbounded request begins is the server's choice and is not documented, so
 # `start` has to be named. The API honours a `start` that lands exactly on a
-# stamp and rounds a mid-hour one *up* to the next -- so `start = now` at 15:30 would come back at 16:00 and the in-progress hour
-# would be gone. Anchoring to the top of the hour is therefore load-bearing;
-# this lookback is slack on top of it. A `start` before the run's t0 comes
-# back at t0. `_process` drops whatever precedes the cutoff.
+# stamp and rounds a mid-hour one *up* to the next -- so `start = now` at
+# 15:30 would come back at 16:00 and the in-progress hour would be gone.
+# Anchoring to the top of the hour is therefore load-bearing; this lookback
+# is slack on top of it. A `start` before the run's t0 comes back at t0.
+# `_process` drops whatever precedes the cutoff.
 HOURLY_LOOKBACK_HOURS = 1
 
 # How far back the current precipitation rate may look for a wet 15-min

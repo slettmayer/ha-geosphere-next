@@ -3,7 +3,7 @@
 ## 0.16.1
 
 - Chore: internal simplification after a code review. Nothing changes for users except that each forecast request asks GeoSphere for one parameter less: `sf` (snowfall) was requested but never shown anywhere
-- Chore: the forecast no longer tries to skip requests until a model run could have been replaced. GeoSphere publishes runs more than 3 h after their stamp, so that check never skipped a request; the request count is unchanged
+- Chore: the forecast no longer tries to skip requests until a model run could have been replaced. GeoSphere was measured publishing runs more than 3 h after their stamp, so that check skipped no request there; at worst this costs two requests per update while a run is fresh
 - Chore: removed unreachable branches, dead code, an unused test fixture and the stale `uv.lock`; comments no longer carry change history. Added a test for the rate-limit path of the forecast
 - Change: the options dialog's note that the forecast model only updates every 3 hours now sits under the forecast interval instead of the current-conditions interval
 
