@@ -36,7 +36,6 @@ def _hour(
         temperature=None,
         humidity=None,
         precipitation=precipitation,
-        snow=None,
         wind_speed=None,
         wind_bearing=None,
         wind_gust_speed=gust,

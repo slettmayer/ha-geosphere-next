@@ -27,8 +27,8 @@ DATASET_CHEM_AQI = ("forecast", "chem_aqi-v1-1d-3km")
 # index 0 of a request that starts at the run's t0 (null there means the value
 # covers the interval *ending* at its stamp) -- see `_process`:
 #   * instantaneous at the stamp: 2t, 2r, 10u/10v, tcc (%), cape, snowlmt;
-#   * the interval ending at the stamp: 10fg (peak gust), tp and sf (per-hour
-#     amounts, kg m-2, not run-accumulated).
+#   * the interval ending at the stamp: 10fg (peak gust) and tp (per-hour
+#     amount, kg m-2, not run-accumulated).
 # `sy` is null at t0 too. Its precipitation classes follow `tp` at the same
 # stamp, so it describes the interval ending there and is read one stamp on,
 # like `tp`; its cloud classes bin `tcc` at that later stamp -- see
@@ -41,7 +41,6 @@ AROME_PARAMETERS = (
     "10fg",
     "tcc",
     "tp",
-    "sf",
     "snowlmt",
     "cape",
     "sy",

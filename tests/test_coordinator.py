@@ -162,7 +162,7 @@ async def test_forecast_interval_fields_describe_the_hour_they_start(
 ) -> None:
     """Precipitation and gusts belong to the hour beginning at the stamp.
 
-    `tp`, `sf` and `10fg` are published "in the last forecast interval" -- they
+    `tp` and `10fg` are published "in the last forecast interval" -- they
     are null at the run's t0 -- so each describes the interval *ending* at its
     stamp. A row stamped T covers T..T+1h, so its interval fields have to be
     read one step later. Getting this wrong reports rain that already stopped
@@ -640,7 +640,6 @@ async def test_forecast_parameters_are_requested_and_populated(
         "wind_gust_speed",
         "cloud_coverage",
         "precipitation",
-        "snow",
         "cape",
         "weather_symbol",
         "condition",
@@ -652,7 +651,7 @@ async def test_forecast_parameters_are_requested_and_populated(
         str(call[1]) for call in mock_api.mock_calls if "nwp-v2-1h-1km" in str(call[1])
     ]
     assert arome_urls
-    for name in ("2t", "2r", "10u", "10v", "10fg", "tcc", "tp", "sf", "cape", "sy"):
+    for name in ("2t", "2r", "10u", "10v", "10fg", "tcc", "tp", "cape", "sy"):
         assert all(name in url for url in arome_urls), name
 
 

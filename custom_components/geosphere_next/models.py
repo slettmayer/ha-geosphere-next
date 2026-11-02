@@ -49,7 +49,6 @@ class HourlyForecast:
     temperature: float | None
     humidity: float | None
     precipitation: float | None
-    snow: float | None
     wind_speed: float | None
     wind_bearing: float | None
     wind_gust_speed: float | None

@@ -53,13 +53,13 @@ default) so a stale forecast is distinguishable from a wrong one.
   | Stamping | Parameters | Read at |
   |----------|------------|---------|
   | Instantaneous at the stamp | `2t`, `2r`, `10u`/`10v`, `tcc`, `cape`, `snowlmt` | `i` |
-  | The interval **ending** at the stamp | `10fg`, `tp`, `sf`, `sy` | `i + 1` |
+  | The interval **ending** at the stamp | `10fg`, `tp`, `sy` | `i + 1` |
 
   The metadata says so in words — `10fg` is the "maximum 10 metre wind gust
   **in the last forecast interval**", `tp` the "total amount of liquid and
   solid precipitation **in the last forecast interval**" — and the data
-  confirms it: requested from the run's t0, all three are `null` at index 0.
-  `tp` and `sf` are per-hour amounts, not run-accumulated, so they are read
+  confirms it: requested from the run's t0, both are `null` at index 0.
+  `tp` is a per-hour amount, not run-accumulated, so it is read
   directly. Reading the interval fields at `i` reports the hour that already
   ended: rain that has stopped, and the previous hour's gust peak.
 - **Condition**: `derive_condition_from_symbol(sy, is_night(ts + 30 min))` —

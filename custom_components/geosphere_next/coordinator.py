@@ -258,8 +258,8 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         # Assistant's forecast convention. The dataset mixes two stampings (see
         # AROME_PARAMETERS for how each was classified):
         #   * instantaneous AT the stamp: 2t, 2r, 10u/10v, tcc, cape, snowlmt;
-        #   * the interval ENDING at the stamp: 10fg, tp and sf ("... in the
-        #     last forecast interval"), each already a per-hour value.
+        #   * the interval ENDING at the stamp: 10fg and tp ("... in the last
+        #     forecast interval"), each already a per-hour value.
         # The interval fields covering the hour that *starts* at `ts` therefore
         # live one step later, at `nxt`. Reading them at `i` would report the
         # hour that already ended — rain that has stopped, the previous hour's
@@ -281,7 +281,6 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
             )
             gust_speed = response.value_at("10fg", nxt)
             precipitation = response.value_at("tp", nxt)
-            snow = response.value_at("sf", nxt)
             cloud = response.value_at("tcc", i)
             cape = response.value_at("cape", i)
             temperature = response.value_at("2t", i)
@@ -305,7 +304,6 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                     temperature=temperature,
                     humidity=humidity,
                     precipitation=precipitation,
-                    snow=snow,
                     wind_speed=wind_speed,
                     wind_bearing=wind_bearing,
                     wind_gust_speed=gust_speed,

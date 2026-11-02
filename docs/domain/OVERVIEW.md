@@ -84,8 +84,8 @@ it publishes and the external dataset API it consumes.
   value is diagnostic only; the ensemble's `cape_p90` ≥ 1000 J/kg (with
   precipitation) is one of the two thunderstorm-outlook signals.
 - **European Air Quality Index** — EEA 1–6 scale (1 very good … 6 very poor).
-- **`tp` / `sf`** — AROME precipitation / snowfall per hour (kg m⁻² = mm),
-  each covering the hour *ending* at its stamp.
+- **`tp`** — AROME precipitation per hour (kg m⁻² = mm), covering the hour
+  *ending* at its stamp.
 - **`pt` (precipitation type)** — nowcast code: 1 rain, 3 freezing rain, 5 snow,
   7 rain and snow, 255 none. Confirmed by GeoSphere, not in `/metadata`.
 - **`sy` (weather symbol)** — GeoSphere's weather-symbol code (1–32, table
