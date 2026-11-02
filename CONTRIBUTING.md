@@ -35,7 +35,7 @@ They also **merge themselves**: a workflow enables auto-merge, and the PR lands 
 
 - **MAJOR** (1.0.0): Breaking changes (config flow changes, removed entities, changed entity IDs or units)
 - **MINOR** (0.2.0): New features (new sensor, new config option, new forecast capability)
-- **PATCH** (0.1.1): Bug fixes (condition-derivation fix, coordinator/differencing fix, API handling fix)
+- **PATCH** (0.1.1): Bug fixes (condition-derivation fix, coordinator fix, API handling fix)
 
 ### Changelog Format
 
