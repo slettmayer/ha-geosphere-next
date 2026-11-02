@@ -9,7 +9,7 @@ from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_time_change
 
-from .const import ATTRIBUTION, DOMAIN, MANUFACTURER
+from .const import DOMAIN, MANUFACTURER
 from .coordinator import GeoSphereNextConfigEntry
 
 
@@ -52,6 +52,3 @@ class HourBoundaryRefreshMixin(Entity):
     def _handle_hour_boundary(self, now: datetime) -> None:
         """Recompute the window against the new hour without refetching data."""
         self.async_write_ha_state()
-
-
-__all__ = ["ATTRIBUTION", "HourBoundaryRefreshMixin", "device_info"]

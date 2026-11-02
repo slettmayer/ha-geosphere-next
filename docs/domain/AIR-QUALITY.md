@@ -71,6 +71,7 @@ it off removes the leftover entities from the registry in
 - WRF-Chem does not provide CO, SO₂, NH₃, NO, UV index, or visibility.
 
 ## Extension Guidelines
-- To add a pollutant, extend `CHEM_PARAMETERS`, the `CHEM_POLLUTANTS` map, the
-  `AirQualityData` fields, and the `AIR_QUALITY_SENSORS` tuple.
+- To add a pollutant, extend the `CHEM_POLLUTANTS` map in `const.py`
+  (`CHEM_PARAMETERS` derives from it), the `AirQualityData` fields, and the
+  `AIR_QUALITY_SENSORS` tuple.
 - Keep large series in recorder-excluded attributes.

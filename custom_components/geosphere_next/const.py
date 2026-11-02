@@ -11,8 +11,6 @@ ATTRIBUTION = (
 )
 MANUFACTURER = "GeoSphere Austria"
 
-API_BASE_URL = "https://dataset.api.hub.geosphere.at/v1"
-
 # Datasets (mode, resource id). `AROME` names the deterministic forecast source
 # throughout the code; the dataset itself is the control run of the C-LAEF
 # AlpeAdria ensemble on a 1 km grid, and `DATASET_ENSEMBLE` is that ensemble.
@@ -58,8 +56,15 @@ AROME_PARAMETERS = (
 ENSEMBLE_PARAMETERS = ("tp_p10", "tp_p50", "tp_p90", "cape_p90")
 NOWCAST_PARAMETERS = ("t2m", "td", "rh2m", "rr", "pt", "dd", "ff", "fx")
 INCA_PARAMETERS = ("T2M", "TD2M", "RH2M", "RR", "P0", "GL", "UU", "VV")
-# WRF-Chem surface concentrations (µg/m³) and the daily European AQI (1-6).
-CHEM_PARAMETERS = ("no2surf", "o3surf", "pm10surf", "pm25surf")
+# WRF-Chem surface concentrations (µg/m³), keyed by their `AirQualityData`
+# field, and the daily European AQI (1-6).
+CHEM_POLLUTANTS = {
+    "no2": "no2surf",
+    "o3": "o3surf",
+    "pm10": "pm10surf",
+    "pm25": "pm25surf",
+}
+CHEM_PARAMETERS = tuple(CHEM_POLLUTANTS.values())
 CHEM_AQI_PARAMETERS = ("aqi",)
 
 # Config / options

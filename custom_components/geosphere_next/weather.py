@@ -21,7 +21,6 @@ from homeassistant.components.weather import (
     WeatherEntityFeature,
 )
 from homeassistant.const import (
-    UnitOfLength,
     UnitOfPrecipitationDepth,
     UnitOfPressure,
     UnitOfSpeed,
@@ -76,7 +75,6 @@ class GeoSphereWeather(
     _attr_native_pressure_unit = UnitOfPressure.HPA
     _attr_native_wind_speed_unit = UnitOfSpeed.METERS_PER_SECOND
     _attr_native_precipitation_unit = UnitOfPrecipitationDepth.MILLIMETERS
-    _attr_native_visibility_unit = UnitOfLength.KILOMETERS
 
     def __init__(self, entry: GeoSphereNextConfigEntry) -> None:
         super().__init__(

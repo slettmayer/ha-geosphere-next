@@ -35,6 +35,7 @@ from .const import (
     AROME_PARAMETERS,
     CHEM_AQI_PARAMETERS,
     CHEM_PARAMETERS,
+    CHEM_POLLUTANTS,
     CONF_CURRENT_INTERVAL,
     CONF_FORECAST_INTERVAL,
     CONF_HAS_NOWCAST,
@@ -85,7 +86,6 @@ type GeoSphereNextConfigEntry = ConfigEntry[GeoSphereNextData]
 class GeoSphereNextData:
     """Runtime data stored on the config entry."""
 
-    client: GeoSphereApiClient
     forecast: GeoSphereForecastCoordinator
     current: GeoSphereCurrentCoordinator
     air_quality: GeoSphereAirQualityCoordinator | None = None
@@ -210,7 +210,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         return None
 
     def _process(
-        self, response: GeoSphereResponse, ensemble: GeoSphereResponse | None = None
+        self, response: GeoSphereResponse, ensemble: GeoSphereResponse | None
     ) -> ForecastData:
         now = dt_util.utcnow()
         hourly: list[HourlyForecast] = []
@@ -239,12 +239,13 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         if ensemble is not None:
             for i in range(1, len(ensemble.timestamps)):
                 start = ensemble.timestamps[i - 1]
+                tp_p90 = ensemble.value_at("tp_p90", i)
                 pop_by_ts[start] = _precipitation_probability(
                     ensemble.value_at("tp_p10", i),
                     ensemble.value_at("tp_p50", i),
-                    ensemble.value_at("tp_p90", i),
+                    tp_p90,
                 )
-                tp_p90_by_ts[start] = ensemble.value_at("tp_p90", i)
+                tp_p90_by_ts[start] = tp_p90
             cape_p90_by_ts = {
                 ts: ensemble.value_at("cape_p90", i)
                 for i, ts in enumerate(ensemble.timestamps)
@@ -633,16 +634,10 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         # time can never be in the future. The nowcast needs it as much as the
         # AROME row does: the bucket match is *nearest*, not nearest-in-the-
         # past, so at 15:38 it selects the 15:45 bucket.
-        nowcast_t2m_index = nowcast_index
-        if nowcast_t2m_index is not None and (
-            nowcast.value_at("t2m", nowcast_t2m_index) is None
-        ):
-            nowcast_t2m_index = None
-
         if inca_t2m is not None:
             observed_at = inca_t2m_at
-        elif nowcast_t2m_index is not None:
-            observed_at = min(nowcast.timestamps[nowcast_t2m_index], now)
+        elif now_value("t2m") is not None:
+            observed_at = min(nowcast.timestamps[nowcast_index], now)
         else:
             observed_at = min(arome.datetime, now)
 
@@ -679,15 +674,6 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
                 night=night,
             ),
         )
-
-
-# Maps AirQualityData pollutant keys to the chem dataset parameter names.
-CHEM_POLLUTANTS = {
-    "no2": "no2surf",
-    "o3": "o3surf",
-    "pm10": "pm10surf",
-    "pm25": "pm25surf",
-}
 
 
 class GeoSphereAirQualityCoordinator(TimestampDataUpdateCoordinator[AirQualityData]):

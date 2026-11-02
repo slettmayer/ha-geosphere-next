@@ -47,8 +47,8 @@ depends only on `condition.py`, `const.py`, and `models.py`).
 
 1. `__init__.async_setup_entry` builds the `GeoSphereApiClient`, then the forecast
    coordinator (first refresh), then the current coordinator (which receives the
-   forecast coordinator), and optionally the air-quality coordinator. All are
-   stored on `entry.runtime_data` (typed `GeoSphereNextData`).
+   forecast coordinator), and optionally the air-quality coordinator. The
+   coordinators are stored on `entry.runtime_data` (typed `GeoSphereNextData`).
 2. Each coordinator's `_async_update_data` calls `client.get_timeseries(...)` per
    dataset, which parses GeoJSON into a `GeoSphereResponse`.
 3. Coordinators `_process` / `_merge` responses into `ForecastData`,

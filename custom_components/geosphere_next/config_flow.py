@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 import voluptuous as vol
@@ -40,8 +39,6 @@ from .const import (
     DEFAULT_NAME,
     DOMAIN,
 )
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class GeoSphereNextConfigFlow(ConfigFlow, domain=DOMAIN):

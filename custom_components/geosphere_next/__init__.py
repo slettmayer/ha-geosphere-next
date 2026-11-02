@@ -39,7 +39,7 @@ async def async_setup_entry(
         _remove_air_quality_entities(hass, entry)
 
     entry.runtime_data = GeoSphereNextData(
-        client=client, forecast=forecast, current=current, air_quality=air_quality
+        forecast=forecast, current=current, air_quality=air_quality
     )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -50,10 +50,9 @@ def _remove_air_quality_entities(
 ) -> None:
     """Drop leftover air-quality entities after the option was switched off."""
     registry = er.async_get(hass)
+    unique_ids = {f"{entry.entry_id}-{key}" for key in AIR_QUALITY_SENSOR_KEYS}
     for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
-        if reg_entry.unique_id in {
-            f"{entry.entry_id}-{key}" for key in AIR_QUALITY_SENSOR_KEYS
-        }:
+        if reg_entry.unique_id in unique_ids:
             registry.async_remove(reg_entry.entity_id)
 
 
