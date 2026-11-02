@@ -296,12 +296,9 @@ async def test_undecodable_body_is_not_retried(
 
     What a captive portal, a proxy error page or a maintenance page looks
     like from here: the request succeeded and the body is HTML. The decode
-    failure is a `ValueError`, which is neither an `aiohttp.ClientError` nor
-    anything else the client used to catch, so it escaped the
-    `GeoSphereApiError` hierarchy entirely -- past every `except` in
-    `coordinator.py`, surfacing as HA's generic "Unexpected error fetching
-    ... data" traceback, and past `config_flow.py`'s handler as an unknown
-    exception instead of `cannot_connect`.
+    failure is a `ValueError`, not an `aiohttp.ClientError`; unwrapped it
+    would escape the `GeoSphereApiError` hierarchy that every `except` in
+    `coordinator.py` and `config_flow.py` catches.
     """
     aioclient_mock.get(AROME_URL, text="<html>under maintenance</html>")
     client = GeoSphereApiClient(api_session)

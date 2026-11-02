@@ -194,8 +194,12 @@ each cycle retries until the next analysis appears. INCA is queried with a
 [../tech/ARCHITECTURE.md](../tech/ARCHITECTURE.md)) and stored in `entry.data`.
 INCA and the nowcast share the Austria-only grid, so when `has_nowcast` is
 `False` (inside the AROME domain but outside Austria) both are skipped and
-current conditions degrade to the AROME current hour. If no source is
-available at all, `_async_update_data` raises `UpdateFailed`.
+current conditions degrade to the AROME hour covering now, or, once the held
+series no longer covers now, to the step-0 snapshot of the last successful
+forecast fetch, which can be hours old. A source is always held: the forecast
+coordinator's first refresh must succeed before the current-conditions
+coordinator is created, so a failed nowcast and INCA fetch never leave the
+update without one.
 
 ## Dependencies
 - `GeoSphereForecastCoordinator` — injected into the current coordinator's

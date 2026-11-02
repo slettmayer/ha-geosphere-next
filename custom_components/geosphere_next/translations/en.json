@@ -31,8 +31,8 @@
           "air_quality": "Air quality sensors"
         },
         "data_description": {
-          "current_interval": "How often the nowcast is polled. The forecast model itself only updates every 3 hours.",
-          "forecast_interval": "How often the forecast is polled.",
+          "current_interval": "How often the nowcast is polled.",
+          "forecast_interval": "How often the forecast is polled. The forecast model itself only updates every 3 hours.",
           "air_quality": "Adds NO₂, O₃, PM10, PM2.5 and a daily European Air Quality Index from GeoSphere's WRF-Chem forecast (about 2 extra API requests per hour)."
         }
       }

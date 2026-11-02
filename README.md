@@ -334,22 +334,20 @@ measured against TAWES stations to lag by up to ±2 °C on diurnal ramps (too
 cold while warming, too warm while cooling) — precisely the situation above.
 
 **How often does the integration actually hit the API?**
-About as often as the interval sliders suggest, and well inside GeoSphere's
-240 requests/hour. Both forecast models rerun every 3 hours, and a request
-that could only return the run the integration already holds is skipped: the
-forecast coordinator still wakes on your configured interval and re-derives
-everything that depends on the clock, but only reaches the network once the
-run it holds could have been superseded. In practice that is most of the
-time, because GeoSphere publishes a run more than 3 hours after its stamp —
-so the forecast costs up to two requests per interval.
+As often as the interval sliders say, and well inside GeoSphere's
+240 requests/hour. Every forecast interval costs two requests (the
+deterministic run and the ensemble), even though both models rerun only every
+3 hours.
 
-That last part is why the intervals are not simply scheduled against the model
-run times. GeoSphere computes a run well after the hour it is stamped for, and
-the lag is neither published nor constant — on 2026-11-01 at 09:19 UTC, the
-newest run of both models was still 03:00 UTC (the 06:00 run was not out yet).
-A schedule pinned to 00/03/06 would fetch before the data exists; waiting for
-the run stamp to change needs no guess about the lag and adapts on its own if
-GeoSphere shifts it.
+That is why the intervals are not scheduled against the model run times.
+GeoSphere computes a run well after the hour it is stamped for, and the lag is
+neither published nor constant — on 2026-11-01 at 09:19 UTC, the newest run
+of both models was still 03:00 UTC (the 06:00 run was not out yet). A schedule
+pinned to 00/03/06 would fetch before the data exists, and because a run
+appears more than 3 hours after its stamp, skipping requests until the run
+could have changed would save nothing. Polling on your interval needs no
+guess about the lag and picks up a new run within one interval of its
+publication.
 
 The **Model run** sensor (diagnostic, enabled by default) shows which run is on
 display. If it looks old, that is usually GeoSphere's publication lag rather

@@ -33,9 +33,9 @@ from .condition import (
 from .const import (
     AIR_QUALITY_INTERVAL_MINUTES,
     AROME_PARAMETERS,
-    AROME_RUN_INTERVAL,
     CHEM_AQI_PARAMETERS,
     CHEM_PARAMETERS,
+    CHEM_POLLUTANTS,
     CONF_CURRENT_INTERVAL,
     CONF_FORECAST_INTERVAL,
     CONF_HAS_NOWCAST,
@@ -48,9 +48,7 @@ from .const import (
     DEFAULT_CURRENT_INTERVAL_MINUTES,
     DEFAULT_FORECAST_INTERVAL_MINUTES,
     DOMAIN,
-    ENSEMBLE_MAX_FALLBACK_AGE,
     ENSEMBLE_PARAMETERS,
-    ENSEMBLE_RUN_INTERVAL,
     FORECAST_ROW_MIDPOINT,
     HOURLY_LOOKBACK_HOURS,
     INCA_LOOKBACK_HOURS,
@@ -77,7 +75,7 @@ from .models import (
     GeoSphereResponse,
     HourlyForecast,
 )
-from .outlook import hour_at
+from .outlook import ensemble_is_current, hour_at
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -88,7 +86,6 @@ type GeoSphereNextConfigEntry = ConfigEntry[GeoSphereNextData]
 class GeoSphereNextData:
     """Runtime data stored on the config entry."""
 
-    client: GeoSphereApiClient
     forecast: GeoSphereForecastCoordinator
     current: GeoSphereCurrentCoordinator
     air_quality: GeoSphereAirQualityCoordinator | None = None
@@ -112,33 +109,6 @@ def _precipitation_probability(
     if p90 >= PRECIP_MIN_MM:
         return POP_P90_WET_PCT
     return POP_DRY_PCT
-
-
-def _run_is_current(response: GeoSphereResponse | None, cadence: timedelta) -> bool:
-    """True while a cached run cannot yet have been superseded by a newer one.
-
-    A forecast dataset only changes when its model reruns, so within one
-    cadence of `reference_time` a re-fetch returns exactly what is already
-    held and the request buys nothing. Keyed on the run stamp rather than on
-    the fetch time, the same way `_async_get_inca` keys on the newest analysis
-    stamp: what matters is the age of the *data*, not of the HTTP call.
-
-    Conservative in the only direction that can hurt. A run published late
-    (the normal case — see the cadence constants) merely means a few retries
-    against a 240 req/h budget; a run published early would otherwise be
-    ignored until the cache expired, so this never extends past the point
-    where a newer run could exist.
-
-    A response without a `reference_time` cannot be reasoned about and is
-    always treated as stale. So is one stamped in the *future*: a bare
-    `delta < cadence` is satisfied by any negative delta, so a host clock
-    behind real time (an un-synced RPi at boot) would pin a run for the skew
-    plus a whole cadence. Re-fetching under a wrong clock is the harmless
-    direction.
-    """
-    if response is None or response.reference_time is None:
-        return False
-    return timedelta(0) <= dt_util.utcnow() - response.reference_time < cadence
 
 
 class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData]):
@@ -165,31 +135,15 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         self._client = client
         self.latitude: float = config_entry.data[CONF_LATITUDE]
         self.longitude: float = config_entry.data[CONF_LONGITUDE]
-        self._arome: GeoSphereResponse | None = None
         self._ensemble: GeoSphereResponse | None = None
         # `sy` codes outside GeoSphere's table already reported, so a new one
         # warns once rather than on every update for as long as it is served.
         self._unknown_sy_codes: set[int] = set()
 
     async def _async_update_data(self) -> ForecastData:
-        # Both responses may come from cache (see `_run_is_current`), but
-        # `_process` always re-runs: its cutoff, the derived conditions and the
-        # day/night flags are all functions of `now`, so the coordinator still
-        # publishes a forecast that starts at the hour under way on every tick
-        # of the configured interval, fetch or no fetch.
         arome = await self._async_get_arome()
         ensemble = await self._async_get_ensemble()
-        data = self._process(arome, ensemble)
-
-        # Cache only what produced a usable forecast. A run that parses but
-        # cannot be processed — a truncated series, or one whose every stamp
-        # already precedes the cutoff — would otherwise be pinned here by
-        # `_run_is_current` for a whole cadence, re-raising the same
-        # `UpdateFailed` on every tick. Committing after `_process` keeps the
-        # pre-gating recovery: the next tick fetches again.
-        self._arome = arome
-        self._ensemble = ensemble
-        return data
+        return self._process(arome, ensemble)
 
     def _series_start(self) -> datetime:
         """Left bound for the AROME and ensemble requests.
@@ -205,16 +159,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         )
 
     async def _async_get_arome(self) -> GeoSphereResponse:
-        """Return the AROME run, re-fetching only once it can have been rerun.
-
-        A cached run is served with a `start` bound older than this tick would
-        have requested, which is harmless: the extra leading rows precede
-        `_process`'s cutoff and are dropped there.
-        """
-        cached = self._arome
-        if cached is not None and _run_is_current(cached, AROME_RUN_INTERVAL):
-            return cached
-
+        """Fetch the AROME run; a failure fails the whole forecast update."""
         try:
             return await self._client.get_timeseries(
                 *DATASET_AROME,
@@ -231,29 +176,19 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
             raise UpdateFailed(f"AROME update failed: {err}") from err
 
     async def _async_get_ensemble(self) -> GeoSphereResponse | None:
-        """Return the C-LAEF run, re-fetching only once it can have been rerun.
+        """Fetch the C-LAEF run, degrading to the last one held on failure.
 
         The percentiles add the precipitation probability and the outlook's
-        ensemble storm signal, so a failure must not take the forecast down. A
-        failed *re*-fetch degrades to the run already held rather than to
-        nothing — the percentiles are matched to AROME by timestamp, so a
-        superseded run still has a value for every hour it covers, and the
-        hours it has run past report nothing.
-
-        That fallback is bounded. A superseded run is not the same answer as
-        the current one, it is an older and worse forecast for the same hour,
-        and nothing on display distinguishes the two. Past
-        `ENSEMBLE_MAX_FALLBACK_AGE` an endpoint that never recovers would
-        otherwise keep a days-old run in service until its horizon ran out, so
-        the cache is dropped and the probability disappears instead — visible,
-        rather than quietly wrong.
+        ensemble storm signal, so a failure must not take the forecast down.
+        A failed fetch serves the run already held rather than nothing -- the
+        percentiles are matched to AROME by timestamp, so an older run still
+        has a value for every hour it covers -- but only while that run is
+        younger than `ENSEMBLE_MAX_FALLBACK_AGE`. Past that it is dropped and
+        the probability disappears, visibly, instead of an ever older run
+        staying in service with nothing on display to say so.
         """
-        cached = self._ensemble
-        if cached is not None and _run_is_current(cached, ENSEMBLE_RUN_INTERVAL):
-            return cached
-
         try:
-            return await self._client.get_timeseries(
+            self._ensemble = await self._client.get_timeseries(
                 *DATASET_ENSEMBLE,
                 parameters=ENSEMBLE_PARAMETERS,
                 latitude=self.latitude,
@@ -262,15 +197,21 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
             )
         except GeoSphereApiError as err:
             _LOGGER.warning(
-                "Ensemble update failed, omitting precipitation probability: %s", err
+                "Ensemble update failed, keeping the last run while under 12 h old: %s",
+                err,
             )
+        else:
+            return self._ensemble
 
-        if cached is not None and _run_is_current(cached, ENSEMBLE_MAX_FALLBACK_AGE):
+        cached = self._ensemble
+        if cached is not None and ensemble_is_current(
+            cached.reference_time, dt_util.utcnow()
+        ):
             return cached
         return None
 
     def _process(
-        self, response: GeoSphereResponse, ensemble: GeoSphereResponse | None = None
+        self, response: GeoSphereResponse, ensemble: GeoSphereResponse | None
     ) -> ForecastData:
         now = dt_util.utcnow()
         hourly: list[HourlyForecast] = []
@@ -299,12 +240,13 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         if ensemble is not None:
             for i in range(1, len(ensemble.timestamps)):
                 start = ensemble.timestamps[i - 1]
+                tp_p90 = ensemble.value_at("tp_p90", i)
                 pop_by_ts[start] = _precipitation_probability(
                     ensemble.value_at("tp_p10", i),
                     ensemble.value_at("tp_p50", i),
-                    ensemble.value_at("tp_p90", i),
+                    tp_p90,
                 )
-                tp_p90_by_ts[start] = ensemble.value_at("tp_p90", i)
+                tp_p90_by_ts[start] = tp_p90
             cape_p90_by_ts = {
                 ts: ensemble.value_at("cape_p90", i)
                 for i, ts in enumerate(ensemble.timestamps)
@@ -318,8 +260,8 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         # Assistant's forecast convention. The dataset mixes two stampings (see
         # AROME_PARAMETERS for how each was classified):
         #   * instantaneous AT the stamp: 2t, 2r, 10u/10v, tcc, cape, snowlmt;
-        #   * the interval ENDING at the stamp: 10fg, tp and sf ("... in the
-        #     last forecast interval"), each already a per-hour value.
+        #   * the interval ENDING at the stamp: 10fg and tp ("... in the last
+        #     forecast interval"), each already a per-hour value.
         # The interval fields covering the hour that *starts* at `ts` therefore
         # live one step later, at `nxt`. Reading them at `i` would report the
         # hour that already ended — rain that has stopped, the previous hour's
@@ -341,7 +283,6 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
             )
             gust_speed = response.value_at("10fg", nxt)
             precipitation = response.value_at("tp", nxt)
-            snow = response.value_at("sf", nxt)
             cloud = response.value_at("tcc", i)
             cape = response.value_at("cape", i)
             temperature = response.value_at("2t", i)
@@ -365,7 +306,6 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                     temperature=temperature,
                     humidity=humidity,
                     precipitation=precipitation,
-                    snow=snow,
                     wind_speed=wind_speed,
                     wind_bearing=wind_bearing,
                     wind_gust_speed=gust_speed,
@@ -453,10 +393,6 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
                 _LOGGER.warning("Nowcast update failed, falling back: %s", err)
 
         inca = await self._async_get_inca()
-
-        arome = self._forecast.data.current if self._forecast.data else None
-        if nowcast is None and inca is None and arome is None:
-            raise UpdateFailed("No GeoSphere data source available")
         return self._merge(nowcast, inca)
 
     async def _async_get_inca(self) -> GeoSphereResponse | None:
@@ -503,10 +439,10 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         # weather symbol have no other source, and the symbol feeds the derived
         # condition, so the reported condition would go stale with it. Pick the
         # hour covering `now` instead, degrading to that snapshot only when the
-        # series no longer covers now at all.
-        arome: HourlyForecast | None = None
-        if forecast_data is not None:
-            arome = hour_at(forecast_data.hourly, now) or forecast_data.current
+        # series no longer covers now at all. The forecast coordinator's first
+        # refresh succeeds before this coordinator exists, so a forecast is
+        # always held.
+        arome = hour_at(forecast_data.hourly, now) or forecast_data.current
 
         # Index of the nowcast bucket nearest `now`. Resolved once and reused by
         # every nowcast field below and by `observed_at`: the bucket cannot
@@ -544,35 +480,26 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         )
         # INCA (observation-anchored hourly analysis) beats the 15-min nowcast
         # for thermodynamic fields and wind: the nowcast extrapolates from an
-        # analysis ~2 h behind, lagging diurnal ramps by up to ~2 °C (verified
-        # 2026-07-16 against TAWES station observations).
+        # analysis ~2 h behind, lagging diurnal ramps by up to ~2 °C.
         inca_t2m, inca_t2m_at = inca_latest("T2M")
         temperature = chain(
             inca_t2m,
             now_value("t2m"),
-            arome.temperature if arome else None,
+            arome.temperature,
         )
         humidity = chain(
             inca_latest("RH2M")[0],
             now_value("rh2m"),
-            arome.humidity if arome else None,
+            arome.humidity,
         )
-        wind_speed = chain(
-            inca_wind_speed, now_value("ff"), arome.wind_speed if arome else None
-        )
-        gust = chain(now_value("fx"), arome.wind_gust_speed if arome else None)
-        cloud = chain(arome.cloud_coverage if arome else None)
-        cape = arome.cape if arome else None
-        symbol = arome.weather_symbol if arome else None
+        wind_speed = chain(inca_wind_speed, now_value("ff"), arome.wind_speed)
+        gust = chain(now_value("fx"), arome.wind_gust_speed)
+        symbol = arome.weather_symbol
 
         p0, _ = inca_latest("P0")
-        # INCA `RR` is the only source for the hourly accumulation. Summing
-        # nowcast buckets was tried and removed: the API serves a single run,
-        # clamped to its own t0 ~25-35 min back, so the sum covered 15-45 min
-        # and was published as an hour. Reconstructing a true hour needs the
-        # t0 bucket of four consecutive runs (`forecast_offset=0..3`), four
-        # requests per location per update against an endpoint that already
-        # fails often enough to matter. `unknown` is the honest answer here.
+        # INCA `RR` is the only source for the hourly accumulation: the
+        # nowcast serves a single run clamped to its own t0, so its buckets
+        # never cover a whole hour.
         rr_1h, rr_1h_time = inca_latest("RR")
 
         pt_raw = now_value("pt")
@@ -592,60 +519,23 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         # `None`, not 0.0, when the nowcast observed nothing: `is_precipitating`
         # has to tell "no precipitation" apart from "no observation", which it
         # cannot do once the absence has been defaulted away.
-        #
-        # INCA's hourly `RR` is deliberately NOT a fallback here, though it is
-        # one for `rate_mm_h` below. "Is it precipitating right now" is an
-        # instantaneous question and `RR` is an accumulation over the hour it
-        # is stamped for, so it answers a different one. `inca_latest` returns
-        # the newest non-None value at any age and `_async_get_inca` serves a
-        # cached slice for up to INCA_MAX_AGE_SECONDS -- indefinitely while
-        # refreshes keep failing -- so reading it here reported rain that had
-        # already stopped: 2.4 mm falling in the hour to 15:00 still read
-        # "wet" at 16:50. On a `moisture` entity, which is what gets wired to
-        # closing an awning, that is a wrong answer with consequences. With no
-        # instantaneous source the honest answer is `None`.
         nowcast_rate_mm_h = (
             nowcast_rr * NOWCAST_BUCKETS_PER_HOUR if nowcast_rr is not None else None
         )
-        # The condition has to name *something*, so unlike `is_precipitating`
-        # it does fall back to `RR` -- but not to a slice that has stopped
-        # updating. `inca_latest` returns the newest non-None value at any age
-        # and `_async_get_inca` serves a cached slice indefinitely while
-        # refreshes fail, so an ungated read derived `rainy` under a clear sky
-        # from rain that had stopped hours ago, and held there. Past
-        # INCA_RR_MAX_AGE_SECONDS it no longer counts as an observation, and
-        # with no nowcast either the condition is the weather symbol's alone.
-        # The bound is deliberately well
-        # past INCA's own ~90 min worst-case lag so ordinary publishing never
-        # trips it -- see the constant.
-        #
-        # `precipitation_1h` keeps reporting the accumulation regardless: it
-        # is a real measurement of a past hour. Note it is NOT dated by
-        # `observation_time`, which anchors to whichever source supplied the
-        # temperature (see below) and can therefore be newer than the `RR`
-        # stamp -- the two are read from the same slice but not the same row.
-        # Bounded at BOTH ends. A bare `age <= INCA_RR_MAX_AGE_SECONDS` is
-        # also satisfied by a NEGATIVE age, so a future-stamped `RR` would
-        # read as the freshest reading there is and derive `pouring` from an
-        # hour that has not happened yet. `_async_get_inca` requests
-        # `end=now`, so the API does not hand one back today, and the cached
-        # slice only ages further as `now` advances -- but nothing in this
-        # method's signature enforces that, and `observation_time` below
-        # already clamps every rung to `now` on exactly this principle: an
-        # observation can never be in the future.
+        # INCA's hourly `RR` is an accumulation, not an observation of *now*:
+        # it never feeds `is_precipitating` or the peak below. It stands in for
+        # the condition's rate only while the nowcast reports neither `pt` nor
+        # `rr` (a `pt` of 255 is an observed "dry" it must not overrule), only
+        # when it is wet, and only while it is younger than
+        # INCA_RR_MAX_AGE_SECONDS -- see docs/domain/CURRENT-CONDITIONS.md.
+        # The age is bounded at both ends: an observation is never in the
+        # future.
         rr_1h_age_s = (
             (now - rr_1h_time).total_seconds() if rr_1h_time is not None else None
         )
         rr_1h_is_current = (
             rr_1h_age_s is not None and 0 <= rr_1h_age_s <= INCA_RR_MAX_AGE_SECONDS
         )
-        # Only the nowcast decides while it reports either `pt` or `rr`: a
-        # `pt` of 255 is an observed "dry" that an hour-old `RR` must not
-        # overrule. Without it, only a *wet* `RR` stands in. A dry one would
-        # demote a rain or thunder symbol to `cloudy`, but it describes an
-        # hour that ended up to ~90 min ago in ordinary publishing, so it
-        # cannot rule out rain that has started since; with no nowcast,
-        # "dry" is never observed and the symbol stands.
         nowcast_observes = (
             precipitation_type is not None or nowcast_rate_mm_h is not None
         )
@@ -660,12 +550,6 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         # `pouring` branch of `condition.derive_current_condition`. So once the
         # nowcast's own `pt` code says it is precipitating, take the peak
         # across the last RATE_LOOKBACK rather than the matched bucket alone.
-        #
-        # INCA's hourly `RR` is deliberately not used here. It is a total over
-        # the whole past hour, so substituting it for an instantaneous rate
-        # reports rain that has already stopped: 6 mm falling in the first 20
-        # minutes and ending, with drizzle keeping `pt` non-zero, would read
-        # as 6 mm/h and derive `pouring` from a drizzling sky.
         if (
             nowcast is not None
             and precipitation_type is not None
@@ -703,20 +587,12 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         # time can never be in the future. The nowcast needs it as much as the
         # AROME row does: the bucket match is *nearest*, not nearest-in-the-
         # past, so at 15:38 it selects the 15:45 bucket.
-        nowcast_t2m_index = nowcast_index
-        if nowcast_t2m_index is not None and (
-            nowcast.value_at("t2m", nowcast_t2m_index) is None
-        ):
-            nowcast_t2m_index = None
-
         if inca_t2m is not None:
             observed_at = inca_t2m_at
-        elif nowcast_t2m_index is not None:
-            observed_at = min(nowcast.timestamps[nowcast_t2m_index], now)
-        elif arome is not None:
-            observed_at = min(arome.datetime, now)
+        elif now_value("t2m") is not None:
+            observed_at = min(nowcast.timestamps[nowcast_index], now)
         else:
-            observed_at = now
+            observed_at = min(arome.datetime, now)
 
         return CurrentConditions(
             observed_at=observed_at,
@@ -731,17 +607,17 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
             wind_bearing=chain(
                 inca_wind_bearing,
                 now_value("dd"),
-                arome.wind_bearing if arome else None,
+                arome.wind_bearing,
             ),
             wind_gust_speed=gust,
             precipitation_1h=rr_1h,
             precipitation_type=precipitation_type,
             precipitation_kind=derive_precipitation_type(precipitation_type, rate_mm_h),
             is_precipitating=is_precipitating(precipitation_type, nowcast_rate_mm_h),
-            cloud_coverage=cloud,
+            cloud_coverage=arome.cloud_coverage,
             global_radiation=inca_latest("GL")[0],
-            snow_limit=arome.snow_limit if arome else None,
-            cape=cape,
+            snow_limit=arome.snow_limit,
+            cape=arome.cape,
             weather_symbol=symbol,
             condition=derive_current_condition(
                 precipitation_type=precipitation_type,
@@ -751,15 +627,6 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
                 night=night,
             ),
         )
-
-
-# Maps AirQualityData pollutant keys to the chem dataset parameter names.
-CHEM_POLLUTANTS = {
-    "no2": "no2surf",
-    "o3": "o3surf",
-    "pm10": "pm10surf",
-    "pm25": "pm25surf",
-}
 
 
 class GeoSphereAirQualityCoordinator(TimestampDataUpdateCoordinator[AirQualityData]):

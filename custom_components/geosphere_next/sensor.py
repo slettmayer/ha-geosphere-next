@@ -511,12 +511,7 @@ class GeoSphereForecastSensor(
 
     @property
     def native_value(self) -> datetime | None:
-        # `None` when there is no forecast to read, matching
-        # `GeoSphereOutlookSensor._refresh_outlook`. Unreachable while
-        # `async_config_entry_first_refresh` guarantees data.
-        if (data := self.coordinator.data) is None:
-            return None
-        return self.entity_description.value_fn(data)
+        return self.entity_description.value_fn(self.coordinator.data)
 
 
 class GeoSphereOutlookSensor(
@@ -560,18 +555,9 @@ class GeoSphereOutlookSensor(
         exception is the thunderstorm outlook's ensemble age bound
         (`outlook.ensemble_is_current`), which takes effect at the next of
         those refreshes.
-
-        `None` / `{}` when there is no forecast to scan, matching
-        `GeoSphereBinarySensor._refresh_outlook`. Unreachable while
-        `async_config_entry_first_refresh` guarantees data.
         """
-        data = self.coordinator.data
-        if data is None:
-            self._attr_native_value = None
-            self._attr_extra_state_attributes = {}
-            return
         self._attr_native_value, self._attr_extra_state_attributes = (
-            self.entity_description.state_fn(data, dt_util.utcnow())
+            self.entity_description.state_fn(self.coordinator.data, dt_util.utcnow())
         )
 
     @callback

@@ -21,7 +21,6 @@ from homeassistant.components.weather import (
     WeatherEntityFeature,
 )
 from homeassistant.const import (
-    UnitOfLength,
     UnitOfPrecipitationDepth,
     UnitOfPressure,
     UnitOfSpeed,
@@ -76,7 +75,6 @@ class GeoSphereWeather(
     _attr_native_pressure_unit = UnitOfPressure.HPA
     _attr_native_wind_speed_unit = UnitOfSpeed.METERS_PER_SECOND
     _attr_native_precipitation_unit = UnitOfPrecipitationDepth.MILLIMETERS
-    _attr_native_visibility_unit = UnitOfLength.KILOMETERS
 
     def __init__(self, entry: GeoSphereNextConfigEntry) -> None:
         super().__init__(
@@ -130,8 +128,7 @@ class GeoSphereWeather(
     @callback
     def _async_forecast_hourly(self) -> list[Forecast] | None:
         coordinator = self.forecast_coordinators["hourly"]
-        if coordinator is None or coordinator.data is None:
-            return None
+        assert coordinator is not None
         # The coordinator trims to "current hour onward" at fetch time only;
         # between refreshes (interval up to 180 min) that list can still hold
         # up to 3 stale leading hours. Re-floor here on every read. The
@@ -174,8 +171,8 @@ class GeoSphereWeather(
         on a coordinator refresh.
         """
         coordinator = self.forecast_coordinators["hourly"]
-        if coordinator is None or coordinator.config_entry is None:
-            return
+        assert coordinator is not None
+        assert coordinator.config_entry is not None
         coordinator.config_entry.async_create_task(
             self.hass, self.async_update_listeners(("hourly",))
         )

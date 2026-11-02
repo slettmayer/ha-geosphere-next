@@ -30,15 +30,15 @@ as `grid_latitude` / `grid_longitude`, which differs from the requested point.
   run's t0. The primary forecast source and the ultimate current-conditions
   fallback (its hour covering now). Parameters (`AROME_PARAMETERS`): `2t`
   (temperature, °C), `2r` (humidity, %), `10u` / `10v` (wind components),
-  `10fg` (peak 10 m gust, m/s), `tcc` (cloud cover, **%**, 0–100), `tp` / `sf`
-  (per-hour precipitation / snowfall, kg m⁻²), `snowlmt` (snow limit, m),
+  `10fg` (peak 10 m gust, m/s), `tcc` (cloud cover, **%**, 0–100), `tp`
+  (per-hour precipitation, kg m⁻²), `snowlmt` (snow limit, m),
   `cape` (J/kg), `sy` (GeoSphere's weather-symbol code, which the HA
   condition is mapped from — see [CONDITION-DERIVATION.md](CONDITION-DERIVATION.md)).
 
   Each parameter is either instantaneous at its stamp or covers the interval
   *ending* at it, and which is decided by measurement, not by name: requested
   from the run's own t0, an interval parameter is `null` at index 0
-  (measured 2026-11-01). `10fg`, `tp` and `sf` are interval-ending; `2t`, `2r`,
+  (measured 2026-11-01). `10fg` and `tp` are interval-ending; `2t`, `2r`,
   `10u`/`10v`, `tcc`, `cape` and `snowlmt` are instantaneous. `sy` is `null`
   at t0 as well: its precipitation codes follow `tp` at the same stamp (the
   interval ending there) and its cloud classes bin `tcc` at that stamp, so it
@@ -183,20 +183,19 @@ thunderstorm outlook allow the ensemble up to 12 h of run age
 [FORECAST.md](FORECAST.md#thunderstorm-outlook)).
 
 The lag is longer than the cadence, so a run is already past its own cadence
-by the time it can be fetched. For the nowcast (15 min cadence) the lag was
+by the time it can be fetched, and caching a run until its cadence elapses
+would save no requests. For the nowcast (15 min cadence) the lag was
 ~30 min and WRF-Chem (daily) publishes its 00:00Z run the same morning
 (measured 2026-08-17).
 
-This is why fetches are gated on the cadence rather than scheduled against the
-run hours — see [FORECAST.md](FORECAST.md#run-gating).
+This is why the forecast is polled on its update interval rather than
+scheduled against the run hours — see [FORECAST.md](FORECAST.md#fetch-cadence).
 
 ## Dependencies
 - GeoSphere Austria Dataset API — `https://dataset.api.hub.geosphere.at/v1`.
 - Request budget: 5 req/s, 240 req/h (no key). Default polling stays well under
-  it. The forecast coordinator skips AROME and ensemble requests whose run
-  cannot have been superseded, but because both publish later than their 3 h
-  cadence (see [Publication latency](#publication-latency)) that gate rarely
-  holds, so expect up to two requests per forecast tick (~4 req/h at the
+  it. The forecast coordinator fetches AROME and the ensemble on every
+  forecast tick, so expect two requests per forecast tick (~4 req/h at the
   default 30 min), plus the current coordinator's ~4–6 req/h and ~2 req/h with
   air quality enabled.
 

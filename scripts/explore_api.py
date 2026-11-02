@@ -210,16 +210,6 @@ def main() -> None:
     )
     print(f"  cloud-coded stamps with tp@i >= {PRECIP_MIN_MM}: {cloud_but_wet}")
 
-    _, nwp_prev = fetch(
-        NWP,
-        parameters=NWP_PARAMS,
-        lat_lon=lat_lon,
-        forecast_offset="1",
-        start=stamp(reftime - timedelta(hours=3)),
-    )
-    save(restamp(nwp_prev, offset), "arome_prev_run.json")
-    print(f"prev run reference_time={nwp_prev['reference_time']}")
-
     # --- F-4: ensemble ------------------------------------------------------
     ens_reftime = datetime.fromisoformat(ens_meta["last_forecast_reftime"])
     _, ensemble = fetch(

@@ -20,12 +20,11 @@ API_BASE_URL = "https://dataset.api.hub.geosphere.at/v1"
 REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=30)
 
 # Retry budget for transient faults. The nowcast endpoint in particular
-# answers with a bare 502 or drops the connection often enough to matter --
-# 11 502s and ~35 connection failures across five days of one installation's
-# log -- and every one of them used to cost a whole poll interval (15 min by
-# default) of `unknown` on the entities that have no second source. The
-# observed faults clear on the next request, so three attempts is ample;
-# anything longer-lived is a real outage that a retry cannot paper over.
+# answers with a bare 502 or drops the connection often enough to matter, and
+# without a retry each such fault costs a whole poll interval of `unknown` on
+# the entities that have no second source. These faults clear on the next
+# request, so three attempts is ample; anything longer-lived is a real outage
+# that a retry cannot paper over.
 MAX_ATTEMPTS = 3
 RETRY_BASE_DELAY = 1.0
 # Fraction of the delay to spread it by, in both directions. The three
@@ -84,7 +83,7 @@ class GeoSphereServerError(GeoSphereTransientError):
     """HTTP 5xx — the API failed to answer a well-formed request.
 
     Carries `status` for callers that need the code. Callers that only report
-    a failure keep catching `GeoSphereApiError` and need no change.
+    a failure can catch `GeoSphereApiError`.
     """
 
     def __init__(self, message: str, status: int) -> None:
@@ -189,13 +188,9 @@ class GeoSphereApiClient:
                 except ValueError as err:
                     # A 200 whose body is not JSON: a captive portal, a proxy
                     # error page, a maintenance page. The decode raises a
-                    # `ValueError`, which is not an `aiohttp.ClientError` and
-                    # so was caught by nothing here -- it escaped the
-                    # `GeoSphereApiError` hierarchy entirely, past every
-                    # `except` in the coordinators into HA's generic
-                    # "Unexpected error fetching ... data" traceback, and past
-                    # the config flow's handler as an unknown exception rather
-                    # than `cannot_connect`.
+                    # `ValueError`, which is not an `aiohttp.ClientError`, so it
+                    # is wrapped here to stay inside the `GeoSphereApiError`
+                    # hierarchy the coordinators and the config flow catch.
                     raise GeoSphereApiError(
                         f"GeoSphere API returned a body that is not JSON for "
                         f"{resource_id}: {type(err).__name__}"
@@ -203,22 +198,18 @@ class GeoSphereApiClient:
         except aiohttp.ClientResponseError as err:
             # The server answered and the answer is unusable -- a
             # `ContentTypeError` from the decode above is the common case.
-            # These are `aiohttp.ClientError` subclasses, so the transport
-            # handler below used to sweep them up: reported as "Error
-            # connecting to the GeoSphere API", which sends the reader after a
-            # network fault that never happened, and classified transient, so
-            # retried three times for an answer that will not change. A fault
-            # mid-body (`ClientPayloadError`, `ServerDisconnectedError`) is
-            # not a `ClientResponseError` and stays retryable below.
+            # These are `aiohttp.ClientError` subclasses, so they must be
+            # caught before the transport handler below: they are neither a
+            # connection fault nor worth retrying. A fault mid-body
+            # (`ClientPayloadError`, `ServerDisconnectedError`) is not a
+            # `ClientResponseError` and stays retryable below.
             raise GeoSphereApiError(
                 f"GeoSphere API answered {resource_id} unusably: {err}"
             ) from err
         except (TimeoutError, aiohttp.ClientError) as err:
             # Name the class. Several of these stringify to `""` --
             # `ClientConnectionError` and `ClientOSError` carry the diagnosis
-            # in the type alone -- which made "Error connecting to the
-            # GeoSphere API: " both the most frequent line in the log and the
-            # least diagnosable one.
+            # in the type alone.
             reason = f"{type(err).__name__}: {err}" if str(err) else type(err).__name__
             raise GeoSphereConnectionError(
                 f"Error connecting to the GeoSphere API: {reason}"

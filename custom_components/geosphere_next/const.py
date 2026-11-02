@@ -11,8 +11,6 @@ ATTRIBUTION = (
 )
 MANUFACTURER = "GeoSphere Austria"
 
-API_BASE_URL = "https://dataset.api.hub.geosphere.at/v1"
-
 # Datasets (mode, resource id). `AROME` names the deterministic forecast source
 # throughout the code; the dataset itself is the control run of the C-LAEF
 # AlpeAdria ensemble on a 1 km grid, and `DATASET_ENSEMBLE` is that ensemble.
@@ -27,8 +25,8 @@ DATASET_CHEM_AQI = ("forecast", "chem_aqi-v1-1d-3km")
 # index 0 of a request that starts at the run's t0 (null there means the value
 # covers the interval *ending* at its stamp) -- see `_process`:
 #   * instantaneous at the stamp: 2t, 2r, 10u/10v, tcc (%), cape, snowlmt;
-#   * the interval ending at the stamp: 10fg (peak gust), tp and sf (per-hour
-#     amounts, kg m-2, not run-accumulated).
+#   * the interval ending at the stamp: 10fg (peak gust) and tp (per-hour
+#     amount, kg m-2, not run-accumulated).
 # `sy` is null at t0 too. Its precipitation classes follow `tp` at the same
 # stamp, so it describes the interval ending there and is read one stamp on,
 # like `tp`; its cloud classes bin `tcc` at that later stamp -- see
@@ -41,7 +39,6 @@ AROME_PARAMETERS = (
     "10fg",
     "tcc",
     "tp",
-    "sf",
     "snowlmt",
     "cape",
     "sy",
@@ -59,8 +56,15 @@ AROME_PARAMETERS = (
 ENSEMBLE_PARAMETERS = ("tp_p10", "tp_p50", "tp_p90", "cape_p90")
 NOWCAST_PARAMETERS = ("t2m", "td", "rh2m", "rr", "pt", "dd", "ff", "fx")
 INCA_PARAMETERS = ("T2M", "TD2M", "RH2M", "RR", "P0", "GL", "UU", "VV")
-# WRF-Chem surface concentrations (µg/m³) and the daily European AQI (1-6).
-CHEM_PARAMETERS = ("no2surf", "o3surf", "pm10surf", "pm25surf")
+# WRF-Chem surface concentrations (µg/m³), keyed by their `AirQualityData`
+# field, and the daily European AQI (1-6).
+CHEM_POLLUTANTS = {
+    "no2": "no2surf",
+    "o3": "o3surf",
+    "pm10": "pm10surf",
+    "pm25": "pm25surf",
+}
+CHEM_PARAMETERS = tuple(CHEM_POLLUTANTS.values())
 CHEM_AQI_PARAMETERS = ("aqi",)
 
 # Config / options
@@ -83,29 +87,25 @@ AIR_QUALITY_INTERVAL_MINUTES = 60
 # What actually protects it is the *anchor*, not this margin. Where an
 # unbounded request begins is the server's choice and is not documented, so
 # `start` has to be named. The API honours a `start` that lands exactly on a
-# stamp and rounds a mid-hour one *up* to the next (measured 2026-11-01:
-# `start = 07:00` came back at 07:00, `start = 07:30` at 08:00) -- so
-# `start = now` at 15:30 would come back at 16:00 and the in-progress hour
-# would be gone. Anchoring to the top of the hour is therefore load-bearing;
-# this lookback is slack on top of it. A `start` before the run's t0 comes
-# back at t0. `_process` drops whatever precedes the cutoff.
+# stamp and rounds a mid-hour one *up* to the next -- so `start = now` at
+# 15:30 would come back at 16:00 and the in-progress hour would be gone.
+# Anchoring to the top of the hour is therefore load-bearing; this lookback
+# is slack on top of it. A `start` before the run's t0 comes back at t0.
+# `_process` drops whatever precedes the cutoff.
 HOURLY_LOOKBACK_HOURS = 1
 
 # How far back the current precipitation rate may look for a wet 15-min
 # nowcast bucket. A single bucket can round to 0.0 in the gap between cells of
 # an active storm, so the rate takes the peak across this window rather than
-# the matched bucket alone. Deliberately short: INCA's hourly `RR` would be
-# the obvious wider source, but it is a *total* over the past hour, and using
-# it as an instantaneous rate keeps a shower that ended 40 min ago driving the
-# condition. Anything inside this window is still falling.
+# the matched bucket alone. Deliberately short, so anything inside it is still
+# falling; INCA's hourly `RR` is not a wider source here (see
+# docs/domain/CURRENT-CONDITIONS.md).
 RATE_LOOKBACK = timedelta(minutes=30)
 
 # How far back the nowcast request reaches, anchored to a bucket boundary.
 # Without a `start` the endpoint begins at the bucket covering `now`, so the
-# series carries exactly one stamp at or before it -- measured 2026-09-11 at
-# all three configured locations, 11 buckets each, ten of them in the future.
-# That silently disabled the `RATE_LOOKBACK` peak, which needs more than the
-# matched bucket to mean anything. Like `HOURLY_LOOKBACK_HOURS` the anchor is
+# series carries only one stamp at or before it, which leaves the
+# `RATE_LOOKBACK` peak nothing to widen. Like `HOURLY_LOOKBACK_HOURS` the anchor is
 # what matters: the API rounds a mid-interval `start` *up* to the next stamp,
 # so it is floored to the 15-min grid before this is subtracted. One bucket of
 # slack past `RATE_LOOKBACK`; the API clamps to the newest run's own t0
@@ -122,53 +122,21 @@ INCA_MAX_AGE_SECONDS = 55 * 60
 # INCA analyses trail real time by <1 h; query a window of the last 3 hours.
 INCA_LOOKBACK_HOURS = 3
 # How old INCA's hourly `RR` may get before the condition derivation stops
-# treating it as evidence about *now* (seconds). Only that derivation consults
-# it; the `precipitating` binary sensor never does.
-#
-# This bound catches a slice that has stopped updating, NOT ordinary lag. INCA
-# publishes ~30 min after the hour it analyses and the previous slice is
-# served until the next appears, so the freshest `RR` in existence is
-# routinely up to ~90 min old (see `_merge`, which says the same of
-# `observed_at`). A bound at or below that would reject the best data the
-# source has for part of every publish cycle, flapping the condition between
-# `rainy` and the dry, symbol-derived condition once an hour through steady
-# rain — worse than the staleness it set out to fix. Two hours is comfortably
-# past the normal worst case: by then INCA should have published two newer
-# analyses, so a slice this old means refreshes are failing and
-# `_async_get_inca` is serving a cached one indefinitely. That is the
-# unbounded case this exists for.
+# counting it as observed rain (seconds). It catches a slice that has stopped
+# updating, not ordinary lag: INCA's freshest `RR` is routinely up to ~90 min
+# old, so the bound sits well past that -- see
+# docs/domain/CURRENT-CONDITIONS.md.
 INCA_RR_MAX_AGE_SECONDS = 2 * 60 * 60
-
-# Model rerun cadences, used to gate re-fetches (see `_run_is_current`). A run
-# cannot be superseded before its cadence has elapsed, so until then a re-fetch
-# returns byte-for-byte what is already cached and the request is pure waste.
-#
-# These are *cadences*, not publication times: GeoSphere computes a run well
-# after the hour it is stamped for. Measured 2026-11-01 from 08:49Z to 09:19Z,
-# the newest run of both datasets was 03:00Z: the 06:00Z run was still
-# unpublished more than 3 h after its stamp, so the lag exceeds the cadence
-# itself. Gating on the bare cadence therefore under-caches — once
-# `reference_time + cadence` passes, every update cycle retries until the new
-# run appears, and with a lag that long a freshly published run is usually
-# already past its own cadence, so the gate rarely holds a run at all. That
-# is the intended behaviour: it never serves a run that has been superseded,
-# and it picks the new one up within one update interval of publication.
-# Adding a latency estimate here would cache longer at the risk of sitting on
-# a stale run whenever GeoSphere publishes early.
-AROME_RUN_INTERVAL = timedelta(hours=3)
-ENSEMBLE_RUN_INTERVAL = timedelta(hours=3)
 
 # How old the held C-LAEF run may get while its endpoint keeps failing, before
 # the precipitation probability is dropped rather than derived from it. The
 # thunderstorm outlook reads the ensemble only while its run is this young
-# (`outlook.ensemble_is_current`). Serving
-# a superseded run through a brief outage is worth more than a blank field;
-# serving one indefinitely is not, because nothing on display says which run a
-# probability came from. The bound has to cover one whole missed rerun on top
-# of the publication lag, and that lag is longer than the 3 h cadence itself
-# (see above): the newest run in service is already several hours old, so a
-# bound of a few cadences would drop it on the first failed fetch. Twelve hours
-# is the lag plus two cadences, with margin.
+# (`outlook.ensemble_is_current`). Serving an older run through a brief outage
+# is worth more than a blank field; serving one indefinitely is not, because
+# nothing on display says which run a probability came from. The model reruns
+# every 3 h but publishes several hours behind its stamp, so the run in
+# service is already that old: the bound covers the publication lag plus two
+# missed reruns, with margin.
 ENSEMBLE_MAX_FALLBACK_AGE = timedelta(hours=12)
 
 # Stepped precipitation probability, an estimate derived here from the

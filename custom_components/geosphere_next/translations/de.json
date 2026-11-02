@@ -31,8 +31,8 @@
           "air_quality": "Luftqualitäts-Sensoren"
         },
         "data_description": {
-          "current_interval": "Wie oft der Nowcast abgefragt wird. Das Vorhersagemodell selbst rechnet nur alle 3 Stunden neu.",
-          "forecast_interval": "Wie oft die Vorhersage abgefragt wird.",
+          "current_interval": "Wie oft der Nowcast abgefragt wird.",
+          "forecast_interval": "Wie oft die Vorhersage abgefragt wird. Das Vorhersagemodell selbst rechnet nur alle 3 Stunden neu.",
           "air_quality": "Ergänzt NO₂, O₃, PM10, PM2.5 und einen täglichen Europäischen Luftqualitätsindex aus der WRF-Chem-Vorhersage von GeoSphere (ca. 2 zusätzliche API-Anfragen pro Stunde)."
         }
       }

@@ -511,9 +511,9 @@ async def test_observation_time_follows_the_temperature_not_precipitation(
 ) -> None:
     """An INCA slice with temperature but no RR must not claim to be current.
 
-    `observed_at` used to come from the RR series alone, so a analysis whose
-    precipitation was absent reported `now` while the temperature on display
-    was an hour old.
+    `observed_at` follows the temperature, so an analysis whose precipitation
+    is absent must not report `now` while the temperature on display is an
+    hour old.
     """
     freezer.move_to(FROZEN_NOW)
     inca = load_fixture("inca.json")
@@ -561,36 +561,6 @@ async def test_observation_time_reports_the_arome_stamp_outside_the_nowcast_grid
 
     state = hass.states.get("sensor.geosphere_next_observation_time")
     assert state.state == "2026-07-15T16:00:00+00:00"
-
-
-async def test_outlook_entities_agree_without_a_forecast_to_scan(
-    hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
-) -> None:
-    """Outlook sensor and binary sensor both blank to `None` / `{}`.
-
-    `GeoSphereOutlookSensor._refresh_outlook` documents that it matches
-    `GeoSphereBinarySensor._refresh_outlook` when the coordinator holds no
-    data; this pins that pairing.
-    """
-    freezer.move_to("2026-07-15T16:00:00+00:00")
-    mock_config_entry.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
-    await hass.async_block_till_done()
-
-    sensor_entity = hass.data[DATA_INSTANCES]["sensor"].get_entity(
-        "sensor.geosphere_next_next_thunderstorm"
-    )
-    binary_entity = hass.data[DATA_INSTANCES]["binary_sensor"].get_entity(
-        "binary_sensor.geosphere_next_thunderstorm_expected_next_hour"
-    )
-    mock_config_entry.runtime_data.forecast.data = None
-    sensor_entity._refresh_outlook()
-    binary_entity._refresh_outlook()
-
-    assert sensor_entity.native_value is None
-    assert sensor_entity.extra_state_attributes == {}
-    assert binary_entity.is_on is None
-    assert binary_entity.extra_state_attributes == {}
 
 
 async def test_outlook_sensors_scan_the_series_once_per_refresh(
