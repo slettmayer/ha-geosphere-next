@@ -20,38 +20,23 @@ probability, and the thunderstorm outlook scanned from it.
 ## Overview
 
 `GeoSphereForecastCoordinator` (`custom_components/geosphere_next/coordinator.py`)
-runs at the forecast interval (default 30 min). Each cycle resolves AROME
-(required) and the C-LAEF ensemble (optional) — from cache when neither can
-have been rerun yet, see [Run gating](#run-gating) — then `_process` builds a
+runs at the forecast interval (default 30 min). Each cycle fetches AROME
+(required) and the C-LAEF ensemble (optional), then `_process` builds a
 list of `HourlyForecast` entries (each carrying its `weather_symbol` and
 `snow_limit`) plus a `current` step-0 snapshot and the ensemble run's
 `ensemble_reference_time`. The current-conditions coordinator picks its AROME
 hour out of `hourly` by the clock and only falls back to `current` when the
 series no longer covers now — see [CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md).
 
-### Run gating
+### Fetch cadence
 
-The models rerun less often than the coordinator ticks: both AROME and C-LAEF
-every 3 h. `_run_is_current` compares a cached response's
-`reference_time` against the matching cadence (`AROME_RUN_INTERVAL`,
-`ENSEMBLE_RUN_INTERVAL` in `const.py`) and serves the cache while a re-fetch
-could only return the same bytes. Same shape as the INCA cache in
-[CURRENT-CONDITIONS.md](CURRENT-CONDITIONS.md): keyed on the age of the *data*,
-not of the HTTP call.
-
-The gate is deliberately keyed on the bare cadence rather than on an estimate of
-when GeoSphere actually publishes, which is hours later (see
-[DATASETS.md](DATASETS.md)). Once `reference_time + cadence` passes, every cycle
-retries until a newer run appears. That under-caches — the retries during the
-publication lag are wasted — but it never serves a run that has been superseded,
-and it picks a new run up within one forecast interval of publication. A
-latency estimate would invert both properties.
-
-`_process` re-runs on every cycle regardless, cached or not: the cutoff, the
-derived conditions and the day/night flags are all functions of `now`, so the
-published forecast still begins at the hour under way on every tick. A cached
-response also carries a `start` bound older than the current tick would have
-requested; the extra leading rows precede the cutoff and are dropped there.
+Both models rerun every 3 h, but GeoSphere publishes a run hours after the hour
+it is stamped for (see [DATASETS.md](DATASETS.md#publication-latency)), so a
+run is already past its own cadence by the time it can be fetched. The
+coordinator therefore fetches both datasets on every cycle and picks a new run
+up within one forecast interval of publication. `_process` depends on `now`
+(the cutoff, the derived conditions and the day/night flags), so the published
+forecast begins at the hour under way on every tick.
 
 The run stamp is surfaced as the `model_run` sensor (diagnostic, enabled by
 default) so a stale forecast is distinguishable from a wrong one.
@@ -192,25 +177,21 @@ AROME failure raises `UpdateFailed` (rate-limit errors propagate `retry_after`).
 Ensemble failure is caught, logged at warning level, and only omits the
 precipitation probability and the ensemble storm signal — it never takes the
 forecast down; without an ensemble run the outlook rests on the symbol alone.
-Once a run has been cached, a failed ensemble *re*-fetch degrades to that run
-rather than to nothing: the percentiles are matched to AROME by timestamp, so a superseded run
-still has a value for every hour it covers, and hours it has run past simply
+Once a run has been fetched, a later failed ensemble fetch degrades to that
+run rather than to nothing: the percentiles are matched to AROME by timestamp,
+so an older run still has a value for every hour it covers, and hours it has run past simply
 report no probability.
 
 That fallback is bounded by `ENSEMBLE_MAX_FALLBACK_AGE` (12 h: the publication
-lag, which alone exceeds the 3 h cadence, plus two cadences). A
-superseded run is an older, worse forecast for the same hour rather than the
+lag, which alone exceeds the 3 h cadence, plus two cadences). An
+older run is an older, worse forecast for the same hour rather than the
 same answer, and nothing on display says which run a probability came from —
 the `model_run` sensor reports AROME's stamp, not C-LAEF's. Past the bound the
-cache is dropped and the probability disappears, which is visible rather than
+held run is dropped and the probability disappears, which is visible rather than
 quietly wrong.
 
 The thunderstorm outlook applies the same 12 h bound to run age on its own,
 when it is read (see [Thunderstorm outlook](#thunderstorm-outlook)).
-
-An AROME response is committed to the cache only after `_process` accepts it.
-A run that parses but yields no usable hours would otherwise be pinned by the
-gate for a whole cadence, re-raising the same `UpdateFailed` every tick.
 
 ### No daily forecast
 
@@ -239,13 +220,11 @@ forever. See the README FAQ and [../tech/ARCHITECTURE.md](../tech/ARCHITECTURE.m
 - Interval parameters are read one step on rather than re-stamped, so the row
   keeps HA's convention that `datetime` is the *start* of the forecast period.
   The cost is the final stamp, which has no successor and cannot be emitted.
-- Fetches are gated on the model rerun cadence rather than scheduled against
-  the model run times. GeoSphere publishes hours behind the hour a run is
-  stamped for and the lag varies, so a cron on 00/03/06… would fetch before the
-  data exists; the gate needs no estimate of the lag and self-corrects if
-  GeoSphere shifts it. Gating the *request* rather than the update interval
-  also keeps `CONF_FORECAST_INTERVAL` meaningful — it still controls how often
-  the clock-dependent parts of `_process` re-run.
+- Fetches follow the update interval rather than a schedule against the model
+  run times. GeoSphere publishes hours behind the hour a run is stamped for
+  and the lag varies, so a cron on 00/03/06… would fetch before the data
+  exists; polling needs no estimate of the lag and adapts if GeoSphere shifts
+  it.
 
 ## Known Risks
 - A row's condition (from `sy` at the end of its hour) and its

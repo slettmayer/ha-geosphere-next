@@ -83,16 +83,9 @@ Config-flow validation and out-of-domain handling, API error mapping, coordinato
 merging/stamping/fallback, the full `sy` → condition table (unknown codes and
 night included), the current-condition precedence between observations and
 the symbol, the thunderstorm outlook's symbol and ensemble signals (with
-the ensemble's 12 h age bound and the binary sensor's unknown state), run
-gating (which fetches are skipped inside a model's rerun cadence, and that the
-gate reopens every cycle once it elapses), sensor value extraction, weather
+the ensemble's 12 h age bound and the binary sensor's unknown state), the
+bounded ensemble fallback, sensor value extraction, weather
 forecast assembly, and air-quality processing.
-
-Run-gating tests move the frozen clock relative to a fixture's `reference_time`
-(12:00Z for `arome.json` and `ensemble.json`) rather than relative to the fetch,
-and assert on request counts taken from `AiohttpClientMocker.mock_calls`. Note
-that this module's usual 16:00Z clock is already 4 h past the AROME run, so the
-cached branch is only observable at an earlier clock.
 
 ## Dependencies
 - `pytest-homeassistant-custom-component` (pinned; tracks HA core).

@@ -183,20 +183,19 @@ thunderstorm outlook allow the ensemble up to 12 h of run age
 [FORECAST.md](FORECAST.md#thunderstorm-outlook)).
 
 The lag is longer than the cadence, so a run is already past its own cadence
-by the time it can be fetched. For the nowcast (15 min cadence) the lag was
+by the time it can be fetched, and caching a run until its cadence elapses
+would save no requests. For the nowcast (15 min cadence) the lag was
 ~30 min and WRF-Chem (daily) publishes its 00:00Z run the same morning
 (measured 2026-08-17).
 
-This is why fetches are gated on the cadence rather than scheduled against the
-run hours — see [FORECAST.md](FORECAST.md#run-gating).
+This is why the forecast is polled on its update interval rather than
+scheduled against the run hours — see [FORECAST.md](FORECAST.md#fetch-cadence).
 
 ## Dependencies
 - GeoSphere Austria Dataset API — `https://dataset.api.hub.geosphere.at/v1`.
 - Request budget: 5 req/s, 240 req/h (no key). Default polling stays well under
-  it. The forecast coordinator skips AROME and ensemble requests whose run
-  cannot have been superseded, but because both publish later than their 3 h
-  cadence (see [Publication latency](#publication-latency)) that gate rarely
-  holds, so expect up to two requests per forecast tick (~4 req/h at the
+  it. The forecast coordinator fetches AROME and the ensemble on every
+  forecast tick, so expect two requests per forecast tick (~4 req/h at the
   default 30 min), plus the current coordinator's ~4–6 req/h and ~2 req/h with
   air quality enabled.
 

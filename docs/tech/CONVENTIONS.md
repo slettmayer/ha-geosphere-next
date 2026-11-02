@@ -27,7 +27,7 @@ codebase follows so new code fits in.
   `GeoSphereResponse`, `ParameterSeries`).
 - **Functions/methods**: HA lifecycle verbs (`async_setup_entry`,
   `_async_update_data`, `async_step_user`), domain verbs `derive_*`, private
-  helpers prefixed `_` (`_merge`, `_process`, `_run_is_current`,
+  helpers prefixed `_` (`_merge`, `_process`,
   `_precipitation_probability`, `_parse_geojson`).
 - **Variables**: plural for collections, `is_`/`has_` for booleans, `UPPER_SNAKE`
   constants in `const.py`.

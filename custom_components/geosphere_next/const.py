@@ -139,36 +139,15 @@ INCA_LOOKBACK_HOURS = 3
 # unbounded case this exists for.
 INCA_RR_MAX_AGE_SECONDS = 2 * 60 * 60
 
-# Model rerun cadences, used to gate re-fetches (see `_run_is_current`). A run
-# cannot be superseded before its cadence has elapsed, so until then a re-fetch
-# returns byte-for-byte what is already cached and the request is pure waste.
-#
-# These are *cadences*, not publication times: GeoSphere computes a run well
-# after the hour it is stamped for. Measured 2026-11-01 from 08:49Z to 09:19Z,
-# the newest run of both datasets was 03:00Z: the 06:00Z run was still
-# unpublished more than 3 h after its stamp, so the lag exceeds the cadence
-# itself. Gating on the bare cadence therefore under-caches — once
-# `reference_time + cadence` passes, every update cycle retries until the new
-# run appears, and with a lag that long a freshly published run is usually
-# already past its own cadence, so the gate rarely holds a run at all. That
-# is the intended behaviour: it never serves a run that has been superseded,
-# and it picks the new one up within one update interval of publication.
-# Adding a latency estimate here would cache longer at the risk of sitting on
-# a stale run whenever GeoSphere publishes early.
-AROME_RUN_INTERVAL = timedelta(hours=3)
-ENSEMBLE_RUN_INTERVAL = timedelta(hours=3)
-
 # How old the held C-LAEF run may get while its endpoint keeps failing, before
 # the precipitation probability is dropped rather than derived from it. The
 # thunderstorm outlook reads the ensemble only while its run is this young
-# (`outlook.ensemble_is_current`). Serving
-# a superseded run through a brief outage is worth more than a blank field;
-# serving one indefinitely is not, because nothing on display says which run a
-# probability came from. The bound has to cover one whole missed rerun on top
-# of the publication lag, and that lag is longer than the 3 h cadence itself
-# (see above): the newest run in service is already several hours old, so a
-# bound of a few cadences would drop it on the first failed fetch. Twelve hours
-# is the lag plus two cadences, with margin.
+# (`outlook.ensemble_is_current`). Serving an older run through a brief outage
+# is worth more than a blank field; serving one indefinitely is not, because
+# nothing on display says which run a probability came from. The model reruns
+# every 3 h but publishes several hours behind its stamp, so the run in
+# service is already that old: the bound covers the publication lag plus two
+# missed reruns, with margin.
 ENSEMBLE_MAX_FALLBACK_AGE = timedelta(hours=12)
 
 # Stepped precipitation probability, an estimate derived here from the
