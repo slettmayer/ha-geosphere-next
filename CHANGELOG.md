@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.16.1
+
+- Chore: internal simplification after a code review. Nothing changes for users except that each forecast request asks GeoSphere for one parameter less: `sf` (snowfall) was requested but never shown anywhere
+- Chore: the forecast no longer tries to skip requests until a model run could have been replaced. GeoSphere publishes runs more than 3 h after their stamp, so that check never skipped a request; the request count is unchanged
+- Chore: removed unreachable branches, dead code, an unused test fixture and the stale `uv.lock`; comments no longer carry change history. Added a test for the rate-limit path of the forecast
+- Change: the options dialog's note that the forecast model only updates every 3 hours now sits under the forecast interval instead of the current-conditions interval
+
 ## 0.16.0
 
 - Change: the weather condition follows GeoSphere's own weather symbol (`sy`), mapped through the [code table GeoSphere published](https://github.com/Geosphere-Austria/dataset-api-docs/issues/30#issuecomment-2042539848), instead of this integration's cloud, gust, fog and CAPE thresholds. Every forecast hour reads the symbol: clear → `sunny` / `clear-night` (night judged at the middle of each forecast hour), cloudy → `partlycloudy` / `cloudy`, fog → `fog`, rain → `rainy` / `pouring`, sleet → `snowy-rainy`, snow → `snowy`, any thunderstorm → `lightning-rainy`. A missing or unknown code reads `unknown`, and an unknown code logs one warning
