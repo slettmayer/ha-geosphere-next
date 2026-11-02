@@ -136,13 +136,8 @@ class GeoSphereBinarySensor(
         data gap must not read as a confident "off" — a downstream
         `is_state(..., 'off')` template would treat it as "no storm".
         """
-        data = self.coordinator.data
-        if data is None:
-            self._attr_is_on = None
-            self._attr_extra_state_attributes = {}
-            return
         self._attr_is_on, self._attr_extra_state_attributes = (
-            self.entity_description.state_fn(data, dt_util.utcnow())
+            self.entity_description.state_fn(self.coordinator.data, dt_util.utcnow())
         )
 
     @callback
@@ -178,7 +173,4 @@ class GeoSphereCurrentBinarySensor(
 
     @property
     def is_on(self) -> bool | None:
-        """Tri-state: None (unknown) when there are no current conditions."""
-        if self.coordinator.data is None:
-            return None
         return self.entity_description.value_fn(self.coordinator.data)

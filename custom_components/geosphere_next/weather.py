@@ -130,8 +130,7 @@ class GeoSphereWeather(
     @callback
     def _async_forecast_hourly(self) -> list[Forecast] | None:
         coordinator = self.forecast_coordinators["hourly"]
-        if coordinator is None or coordinator.data is None:
-            return None
+        assert coordinator is not None
         # The coordinator trims to "current hour onward" at fetch time only;
         # between refreshes (interval up to 180 min) that list can still hold
         # up to 3 stale leading hours. Re-floor here on every read. The
@@ -174,8 +173,8 @@ class GeoSphereWeather(
         on a coordinator refresh.
         """
         coordinator = self.forecast_coordinators["hourly"]
-        if coordinator is None or coordinator.config_entry is None:
-            return
+        assert coordinator is not None
+        assert coordinator.config_entry is not None
         coordinator.config_entry.async_create_task(
             self.hass, self.async_update_listeners(("hourly",))
         )
