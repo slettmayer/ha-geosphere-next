@@ -8,7 +8,12 @@ on:
 
 jobs:
   release:
-    if: github.event.workflow_run.conclusion == 'success'
+    # Only for a successful push to this repository. `branches` matches the
+    # head branch name, so a fork PR from a branch called `main` would pass it.
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
