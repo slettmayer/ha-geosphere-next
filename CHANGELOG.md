@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.2
+
+- Fix: the hourly forecast survives a GeoSphere outage. A single failed forecast update made `weather.get_forecasts` return an empty forecast, because Home Assistant by default treats a forecast as expired one update interval after the last successful fetch. The last fetched forecast is now served for up to 6 h after the last successful update, filtered to the hours still ahead, and is withdrawn after that. The forecast-derived sensors still go unavailable while updates fail
+
 ## 0.16.1
 
 - Chore: internal simplification after a code review. Nothing changes for users except that each forecast request asks GeoSphere for one parameter less: `sf` (snowfall) was requested but never shown anywhere

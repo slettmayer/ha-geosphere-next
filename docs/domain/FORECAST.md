@@ -232,10 +232,14 @@ forever. See the README FAQ and [../tech/ARCHITECTURE.md](../tech/ARCHITECTURE.m
 - The ensemble storm signal pairs two independent 90th percentiles, so it can
   fire when no single member has both the CAPE and the precipitation — a
   deliberate lean towards false alarms.
-- A transient AROME failure still raises `UpdateFailed` and takes the entities
-  unavailable even when a usable run is held in the cache. Serving it would
-  match the ensemble's degradation, but it would also change the documented
-  primary-dataset contract, so the failure stays loud for now.
+- A transient AROME failure still raises `UpdateFailed` and takes the
+  forecast-derived sensors unavailable even when a usable run is held in the
+  cache. Serving it would match the ensemble's degradation, but it would also
+  change the documented primary-dataset contract, so the failure stays loud
+  for now. The weather entity's hourly forecast is the exception: it keeps
+  serving the held run for `HOURLY_FORECAST_VALID` (6 h) after the last
+  successful fetch. HA's default validity is one update interval, which made
+  `get_forecasts` return nothing after a single failed poll.
 - The ensemble's own run stamp is not surfaced anywhere, so a probability
   derived from a superseded run inside the fallback bound is indistinguishable
   from a current one.

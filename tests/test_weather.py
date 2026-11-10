@@ -19,6 +19,8 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
 
 from custom_components.geosphere_next.const import CONF_FORECAST_INTERVAL
 
+from .conftest import AROME_URL, ENSEMBLE_URL, INCA_URL, NOWCAST_URL, load_fixture
+
 ENTITY_ID = "weather.geosphere_next"
 FROZEN_NOW = "2026-07-15T16:00:00+00:00"
 
@@ -151,6 +153,43 @@ async def test_get_forecasts_hourly_filters_stale_leading_hours(
     assert len(forecast) == len(baseline_forecast) - 2
     # ...and no forecast fetch happened in between.
     assert arome_calls() == baseline_calls
+
+
+async def test_get_forecasts_hourly_survives_failed_updates(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A failing forecast endpoint keeps serving the last run for a while.
+
+    `get_forecasts` refreshes a forecast older than the update interval and
+    returns nothing once the forecast is past its validity. With HA's default
+    validity (one update interval), a single failed poll blanked the forecast
+    for every caller although the held run still covered ~60 h.
+    """
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await _setup(hass, mock_config_entry)
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(AROME_URL, status=500)
+    aioclient_mock.get(ENSEMBLE_URL, status=500)
+    aioclient_mock.get(NOWCAST_URL, status=500)
+    aioclient_mock.get(INCA_URL, status=500)
+
+    freezer.move_to("2026-07-15T17:05:00+00:00")
+    forecast = await _get_hourly_forecast(hass)
+    assert not mock_config_entry.runtime_data.forecast.last_update_success
+    assert forecast[0]["datetime"] == "2026-07-15T17:00:00+00:00"
+
+    # Past the validity window the forecast is withdrawn rather than served
+    # indefinitely.
+    freezer.move_to("2026-07-15T22:05:00+00:00")
+    assert await _get_hourly_forecast(hass) == []
 
 
 async def test_get_forecasts_hourly_keeps_the_in_progress_hour(
