@@ -30,7 +30,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import ATTRIBUTION
+from .const import ATTRIBUTION, HOURLY_FORECAST_VALID
 from .coordinator import (
     GeoSphereCurrentCoordinator,
     GeoSphereForecastCoordinator,
@@ -80,6 +80,7 @@ class GeoSphereWeather(
         super().__init__(
             entry.runtime_data.current,
             hourly_coordinator=entry.runtime_data.forecast,
+            hourly_forecast_valid=HOURLY_FORECAST_VALID,
         )
         self._attr_unique_id = entry.entry_id
         self._attr_device_info = device_info(entry)

@@ -47,7 +47,9 @@ forecast. It exposes no daily forecast (hourly-only — see the FAQ).
 | `cloud_coverage` | Cloud cover (%) | forecast |
 
 The hourly forecast is read with the `weather.get_forecasts` service (`type:
-hourly`). Each of the ~60 forecast hours carries: `datetime`, `condition`
+hourly`). If forecast updates fail, the last fetched forecast is still served
+for up to 6 h after the last successful update. Each of the ~60 forecast hours
+carries: `datetime`, `condition`
 (GeoSphere's weather symbol for that hour, mapped to HA's conditions),
 `temperature`, `dew_point`, `humidity`, `precipitation`,
 `precipitation_probability` (a stepped 0 / 30 / 70 / 95 % **estimate this

@@ -78,6 +78,11 @@ DEFAULT_CURRENT_INTERVAL_MINUTES = 15
 DEFAULT_FORECAST_INTERVAL_MINUTES = 30
 # Not user-configurable: the chem model runs once a day with hourly steps.
 AIR_QUALITY_INTERVAL_MINUTES = 60
+# How long the last fetched hourly forecast keeps being served while updates
+# fail. HA's default is one forecast interval, which blanks `get_forecasts`
+# after a single failed poll although a run covers ~60 h. Must stay above the
+# longest configurable forecast interval (180 min).
+HOURLY_FORECAST_VALID = timedelta(hours=6)
 
 # Hours of history requested alongside the AROME forecast, as margin so the
 # series is certain to reach back to the hour already under way. Losing that
