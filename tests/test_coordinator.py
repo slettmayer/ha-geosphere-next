@@ -481,6 +481,54 @@ async def test_arome_fallback_is_bounded(
     assert isinstance(coordinator.last_exception, UpdateFailed)
 
 
+async def test_arome_response_without_forecast_hours_does_not_replace_the_held_run(
+    hass: HomeAssistant,
+    mock_config_entry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A run is held only once it has produced a forecast.
+
+    A 200 whose series is empty parses, but yields no forecast hours and fails
+    that update. Had it replaced the held run, the next failed fetch would fall
+    back to the empty one and fail again, although the earlier run is still
+    usable.
+    """
+    freezer.move_to(FROZEN_NOW)
+    aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    await _setup(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data.forecast
+    reference_time = coordinator.data.reference_time
+
+    empty = load_fixture("arome.json")
+    empty["timestamps"] = []
+    for parameter in empty["features"][0]["properties"]["parameters"].values():
+        parameter["data"] = []
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(AROME_URL, json=empty)
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    freezer.move_to("2026-07-15T16:30:00+00:00")
+    await coordinator.async_refresh()
+    assert not coordinator.last_update_success
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(AROME_URL, status=503)
+    aioclient_mock.get(ENSEMBLE_URL, json=load_fixture("ensemble.json"))
+    aioclient_mock.get(NOWCAST_URL, json=load_fixture("nowcast.json"))
+    aioclient_mock.get(INCA_URL, json=load_fixture("inca.json"))
+    freezer.move_to("2026-07-15T17:00:00+00:00")
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success
+    assert coordinator.data.reference_time == reference_time
+    assert coordinator.data.hourly[0].datetime == datetime(2026, 7, 15, 17, tzinfo=UTC)
+
+
 async def test_arome_failure_without_a_held_run_fails_setup(
     hass: HomeAssistant,
     mock_config_entry,

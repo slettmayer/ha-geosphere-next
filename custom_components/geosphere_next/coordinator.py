@@ -145,7 +145,11 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
     async def _async_update_data(self) -> ForecastData:
         arome = await self._async_get_arome()
         ensemble = await self._async_get_ensemble()
-        return self._process(arome, ensemble)
+        data = self._process(arome, ensemble)
+        # Held only once it has produced a forecast, so a response that cannot
+        # (no future hours) never replaces a run that still can.
+        self._arome = arome
+        return data
 
     def _series_start(self) -> datetime:
         """Left bound for the AROME and ensemble requests.
@@ -172,7 +176,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         its `retry_after` reaches the coordinator.
         """
         try:
-            self._arome = await self._client.get_timeseries(
+            return await self._client.get_timeseries(
                 *DATASET_AROME,
                 parameters=AROME_PARAMETERS,
                 latitude=self.latitude,
@@ -196,7 +200,6 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                 err,
             )
             return cached
-        return self._arome
 
     async def _async_get_ensemble(self) -> GeoSphereResponse | None:
         """Fetch the C-LAEF run, degrading to the last one held on failure.
