@@ -20,7 +20,11 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
 
 from custom_components.geosphere_next import api
 from custom_components.geosphere_next.condition import is_night
-from custom_components.geosphere_next.const import CONF_HAS_NOWCAST, DOMAIN
+from custom_components.geosphere_next.const import (
+    CONF_HAS_NOWCAST,
+    DOMAIN,
+    ENSEMBLE_MAX_FALLBACK_AGE,
+)
 from custom_components.geosphere_next.models import ForecastData
 
 from .conftest import (
@@ -581,6 +585,40 @@ async def test_forecast_fetches_arome_and_ensemble_concurrently(
         "nwp-v2-1h-1km",
         "ensemble-v2-1h-1km",
     }
+
+
+async def test_held_ensemble_that_ages_out_during_the_arome_wait_is_dropped(
+    hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
+) -> None:
+    """A held ensemble run accepted just under the bound is not processed past it.
+
+    The ensemble falls back while AROME is still in flight; if AROME then takes
+    longer than the held run had left, the run must not reach the forecast.
+    """
+    freezer.move_to(FROZEN_NOW)
+    await _setup(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data.forecast
+    held = coordinator._ensemble
+    assert held is not None
+    assert held.reference_time is not None
+    freezer.move_to(
+        held.reference_time + ENSEMBLE_MAX_FALLBACK_AGE - timedelta(minutes=1)
+    )
+    client = coordinator._client
+    fetch = client.get_timeseries
+
+    async def slow_arome_failing_ensemble(mode, resource, **kwargs):
+        if resource == "ensemble-v2-1h-1km":
+            raise api.GeoSphereApiError("503")
+        await asyncio.sleep(0)
+        freezer.tick(timedelta(minutes=2))
+        return await fetch(mode, resource, **kwargs)
+
+    with patch.object(client, "get_timeseries", slow_arome_failing_ensemble):
+        data = await coordinator._async_update_data()
+
+    assert data.ensemble_reference_time is None
+    assert all(hour.precipitation_probability is None for hour in data.hourly)
 
 
 async def test_current_merge(
