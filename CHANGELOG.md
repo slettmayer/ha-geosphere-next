@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.16.3
+
+- Fix: the forecast sensors no longer go unavailable when a single forecast update fails. A failed AROME fetch now keeps serving the last fetched model run, re-filtered to the hours still ahead, while that run is under 12 h old, and logs a warning instead of an error. Past 12 h the update fails as before: an error is logged and the forecast sensors go unavailable. `model_run` keeps showing the held run's stamp
+- Change: requests to the GeoSphere API time out after 60 s instead of 30 s. The 1 km forecast datasets often take more than 10 s to answer, so a slow spike went past the old timeout on all three attempts. A request that keeps failing can now block an update for about 3 minutes instead of 1.5, still well inside the poll intervals
+- Change: current conditions fetch the nowcast and the INCA analysis at the same time instead of one after the other, so a stalled request delays an update by about 3 minutes at most rather than 6
+
 ## 0.16.2
 
 - Fix: the hourly forecast survives a GeoSphere outage. A single failed forecast update made `weather.get_forecasts` return an empty forecast, because Home Assistant by default treats a forecast as expired one update interval after the last successful fetch. The last fetched forecast is now served for up to 6 h after the last successful update, filtered to the hours still ahead, and is withdrawn after that. The forecast-derived sensors still go unavailable while updates fail

@@ -164,9 +164,11 @@ async def test_get_forecasts_hourly_survives_failed_updates(
     """A failing forecast endpoint keeps serving the last run for a while.
 
     `get_forecasts` refreshes a forecast older than the update interval and
-    returns nothing once the forecast is past its validity. With HA's default
-    validity (one update interval), a single failed poll blanked the forecast
-    for every caller although the held run still covered ~60 h.
+    returns nothing once the forecast is past its validity. While the held run
+    is under `AROME_MAX_FALLBACK_AGE` the coordinator serves it and the update
+    succeeds. Past that the update fails, and the forecast is still served for
+    `HOURLY_FORECAST_VALID` after the last successful update: with HA's default
+    validity (one update interval) a single failed poll would blank it.
     """
     freezer.move_to(FROZEN_NOW)
     aioclient_mock.get(AROME_URL, json=load_fixture("arome.json"))
@@ -181,14 +183,27 @@ async def test_get_forecasts_hourly_survives_failed_updates(
     aioclient_mock.get(NOWCAST_URL, status=500)
     aioclient_mock.get(INCA_URL, status=500)
 
+    coordinator = mock_config_entry.runtime_data.forecast
+
+    # Run 12:00Z: the held run is served and the update succeeds.
     freezer.move_to("2026-07-15T17:05:00+00:00")
     forecast = await _get_hourly_forecast(hass)
-    assert not mock_config_entry.runtime_data.forecast.last_update_success
+    assert coordinator.last_update_success
     assert forecast[0]["datetime"] == "2026-07-15T17:00:00+00:00"
+    freezer.move_to("2026-07-15T23:35:00+00:00")
+    await _get_hourly_forecast(hass)
+    assert coordinator.last_update_success
+
+    # Past the fallback bound the update fails, but the forecast is still
+    # served from the last successful update.
+    freezer.move_to("2026-07-16T00:05:00+00:00")
+    forecast = await _get_hourly_forecast(hass)
+    assert not coordinator.last_update_success
+    assert forecast[0]["datetime"] == "2026-07-16T00:00:00+00:00"
 
     # Past the validity window the forecast is withdrawn rather than served
     # indefinitely.
-    freezer.move_to("2026-07-15T22:05:00+00:00")
+    freezer.move_to("2026-07-16T05:40:00+00:00")
     assert await _get_hourly_forecast(hass) == []
 
 

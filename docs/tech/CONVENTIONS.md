@@ -50,7 +50,8 @@ codebase follows so new code fits in.
   `GeoSphereRateLimitError` (carries `retry_after`), `GeoSphereOutOfDomainError`.
   Always `raise ... from err`.
 - Coordinators translate `GeoSphereApiError` into HA's `UpdateFailed`, passing
-  `retry_after` through for rate limits.
+  `retry_after` through for rate limits. The forecast coordinator first falls
+  back to the run it holds while that run is under 12 h old.
 - Config-flow errors surface as translation keys (`cannot_connect`,
   `out_of_domain`) backed by `translations/{en,de}.json`.
 - Logging: `_LOGGER.warning(...)` for recoverable/secondary failures with the

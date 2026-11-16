@@ -144,6 +144,11 @@ INCA_RR_MAX_AGE_SECONDS = 2 * 60 * 60
 # missed reruns, with margin.
 ENSEMBLE_MAX_FALLBACK_AGE = timedelta(hours=12)
 
+# How old the held AROME run may get while its endpoint keeps failing, before
+# the forecast update fails and the forecast sensors go unavailable. Same
+# cadence and publication lag as the ensemble, so the same bound.
+AROME_MAX_FALLBACK_AGE = timedelta(hours=12)
+
 # Stepped precipitation probability, an estimate derived here from the
 # ensemble tp percentiles -- GeoSphere publishes no probability. A percentile
 # above PRECIP_MIN_MM bounds the fraction of wet ensemble members (p10 wet ->

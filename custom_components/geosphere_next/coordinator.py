@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -32,6 +33,7 @@ from .condition import (
 )
 from .const import (
     AIR_QUALITY_INTERVAL_MINUTES,
+    AROME_MAX_FALLBACK_AGE,
     AROME_PARAMETERS,
     CHEM_AQI_PARAMETERS,
     CHEM_PARAMETERS,
@@ -135,6 +137,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         self._client = client
         self.latitude: float = config_entry.data[CONF_LATITUDE]
         self.longitude: float = config_entry.data[CONF_LONGITUDE]
+        self._arome: GeoSphereResponse | None = None
         self._ensemble: GeoSphereResponse | None = None
         # `sy` codes outside GeoSphere's table already reported, so a new one
         # warns once rather than on every update for as long as it is served.
@@ -143,7 +146,11 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
     async def _async_update_data(self) -> ForecastData:
         arome = await self._async_get_arome()
         ensemble = await self._async_get_ensemble()
-        return self._process(arome, ensemble)
+        data = self._process(arome, ensemble)
+        # Held only once it has produced a forecast, so a response that cannot
+        # (no future hours) never replaces a run that still can.
+        self._arome = arome
+        return data
 
     def _series_start(self) -> datetime:
         """Left bound for the AROME and ensemble requests.
@@ -159,7 +166,16 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         )
 
     async def _async_get_arome(self) -> GeoSphereResponse:
-        """Fetch the AROME run; a failure fails the whole forecast update."""
+        """Fetch the AROME run, degrading to the last one held on failure.
+
+        A failed fetch serves the run already held, re-processed so it still
+        starts at the current hour, while that run is younger than
+        `AROME_MAX_FALLBACK_AGE`. The update then succeeds and the forecast
+        sensors stay available through an outage of a poll or two; `model_run`
+        keeps showing the held run's stamp. Past the bound, or with no run held
+        yet, the failure fails the update. A rate limit always does, so that
+        its `retry_after` reaches the coordinator.
+        """
         try:
             return await self._client.get_timeseries(
                 *DATASET_AROME,
@@ -173,7 +189,18 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                 f"GeoSphere rate limit hit: {err}", retry_after=err.retry_after
             ) from err
         except GeoSphereApiError as err:
-            raise UpdateFailed(f"AROME update failed: {err}") from err
+            cached = self._arome
+            if (
+                cached is None
+                or cached.reference_time is None
+                or dt_util.utcnow() - cached.reference_time >= AROME_MAX_FALLBACK_AGE
+            ):
+                raise UpdateFailed(f"AROME update failed: {err}") from err
+            _LOGGER.warning(
+                "AROME update failed, keeping the last run while under 12 h old: %s",
+                err,
+            )
+            return cached
 
     async def _async_get_ensemble(self) -> GeoSphereResponse | None:
         """Fetch the C-LAEF run, degrading to the last one held on failure.
@@ -372,28 +399,35 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         self._unknown_pt_codes: set[int] = set()
 
     async def _async_update_data(self) -> CurrentConditions:
-        nowcast: GeoSphereResponse | None = None
-        if self.has_nowcast:
-            # Anchored to the 15-min grid: the API rounds a mid-interval
-            # `start` up to the next stamp, which would drop the bucket
-            # covering `now` along with everything before it.
-            now = dt_util.utcnow()
-            bucket = now.replace(
-                minute=now.minute - now.minute % 15, second=0, microsecond=0
-            )
-            try:
-                nowcast = await self._client.get_timeseries(
-                    *DATASET_NOWCAST,
-                    parameters=NOWCAST_PARAMETERS,
-                    latitude=self.latitude,
-                    longitude=self.longitude,
-                    start=bucket - NOWCAST_LOOKBACK,
-                )
-            except GeoSphereApiError as err:
-                _LOGGER.warning("Nowcast update failed, falling back: %s", err)
-
-        inca = await self._async_get_inca()
+        # Concurrent, so a stalled request delays the update by its own retry
+        # budget only, not by both datasets' budgets back to back.
+        nowcast, inca = await asyncio.gather(
+            self._async_get_nowcast(), self._async_get_inca()
+        )
         return self._merge(nowcast, inca)
+
+    async def _async_get_nowcast(self) -> GeoSphereResponse | None:
+        """Fetch the nowcast; a failure only logs, and the merge falls back."""
+        if not self.has_nowcast:
+            return None
+        # Anchored to the 15-min grid: the API rounds a mid-interval
+        # `start` up to the next stamp, which would drop the bucket
+        # covering `now` along with everything before it.
+        now = dt_util.utcnow()
+        bucket = now.replace(
+            minute=now.minute - now.minute % 15, second=0, microsecond=0
+        )
+        try:
+            return await self._client.get_timeseries(
+                *DATASET_NOWCAST,
+                parameters=NOWCAST_PARAMETERS,
+                latitude=self.latitude,
+                longitude=self.longitude,
+                start=bucket - NOWCAST_LOOKBACK,
+            )
+        except GeoSphereApiError as err:
+            _LOGGER.warning("Nowcast update failed, falling back: %s", err)
+            return None
 
     async def _async_get_inca(self) -> GeoSphereResponse | None:
         """Return the cached INCA slice, refreshing once its newest analysis ages out.

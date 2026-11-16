@@ -17,7 +17,7 @@ import aiohttp
 from .models import GeoSphereResponse, ParameterSeries
 
 API_BASE_URL = "https://dataset.api.hub.geosphere.at/v1"
-REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=30)
+REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=60)
 
 # Retry budget for transient faults. The nowcast endpoint in particular
 # answers with a bare 502 or drops the connection often enough to matter, and

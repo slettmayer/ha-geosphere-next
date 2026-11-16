@@ -103,7 +103,8 @@ it publishes and the external dataset API it consumes.
 - GeoSphere's `sy` classification over our own thresholds for the condition;
   observations override it for what is falling now.
 - "Primary must succeed, secondary degrades" — AROME/`chem` failures raise
-  `UpdateFailed`; ensemble/AQI/nowcast failures degrade gracefully.
+  `UpdateFailed` (AROME only once its held run is 12 h old);
+  ensemble/AQI/nowcast failures degrade gracefully.
 - Hourly-only forecast (no daily) — a deliberate HA-frontend-driven product
   decision.
 
