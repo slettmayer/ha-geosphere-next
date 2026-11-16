@@ -110,9 +110,10 @@ under 12 h old and raises `UpdateFailed` past that, or when no run is held. An
 ensemble failure also serves the held run while it is under 12 h old, but never
 raises: past that the forecast updates without ensemble data (see
 [FORECAST.md](../domain/FORECAST.md#partial-failure-isolation)). A `chem`
-failure raises `UpdateFailed`; rate limits always raise and propagate
-`retry_after`. The other secondary datasets (AQI, nowcast, INCA) are caught,
-logged at warning level, and degrade gracefully.
+failure raises `UpdateFailed`. A rate limit on AROME or `chem` always raises
+and propagates `retry_after`; on any other dataset it is handled like any other
+failure of that dataset. The other secondary datasets (AQI, nowcast, INCA) are
+caught, logged at warning level, and degrade gracefully.
 
 ### Entity-description pattern
 
