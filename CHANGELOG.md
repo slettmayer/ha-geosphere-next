@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.4
+
+- Change: the forecast fetches the AROME model run and the ensemble at the same time instead of one after the other, so a stalled request delays a forecast update by about 3 minutes at most rather than 6
+
 ## 0.16.3
 
 - Fix: the forecast sensors no longer go unavailable when a single forecast update fails. A failed AROME fetch now keeps serving the last fetched model run, re-filtered to the hours still ahead, while that run is under 12 h old, and logs a warning instead of an error. Past 12 h the update fails as before: an error is logged and the forecast sensors go unavailable. `model_run` keeps showing the held run's stamp

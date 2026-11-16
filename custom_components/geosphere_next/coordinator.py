@@ -144,8 +144,24 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         self._unknown_sy_codes: set[int] = set()
 
     async def _async_update_data(self) -> ForecastData:
-        arome = await self._async_get_arome()
-        ensemble = await self._async_get_ensemble()
+        # Concurrent, so a stalled request delays the update by its own retry
+        # budget only. Both are awaited even when AROME fails, so no fetch is
+        # left running past the update.
+        arome, ensemble = await asyncio.gather(
+            self._async_get_arome(),
+            self._async_get_ensemble(),
+            return_exceptions=True,
+        )
+        if isinstance(arome, BaseException):
+            raise arome
+        if isinstance(ensemble, BaseException):
+            raise ensemble
+        # A held ensemble run was judged current before the AROME wait, which
+        # can outlast its remaining age, so judge it again.
+        if ensemble is not None and not ensemble_is_current(
+            ensemble.reference_time, dt_util.utcnow()
+        ):
+            ensemble = None
         data = self._process(arome, ensemble)
         # Held only once it has produced a forecast, so a response that cannot
         # (no future hours) never replaces a run that still can.
