@@ -103,11 +103,14 @@ roughly `MAX_ATTEMPTS × REQUEST_TIMEOUT` plus backoff (~184 s) instead of 60 s.
 Both are bounded and well inside the poll intervals, but they are the price of
 not surfacing a fault that clears by itself.
 
-Above that, AROME and ensemble failures degrade to the run already held while
-it is under 12 h old (see [FORECAST.md](../domain/FORECAST.md#partial-failure-isolation)),
-and raise `UpdateFailed` past that; `chem` failures raise `UpdateFailed`; rate
-limits always raise and propagate `retry_after`. Other secondary datasets (AQI,
-nowcast, INCA) are caught, logged at warning level, and degrade gracefully.
+Above that, an AROME failure degrades to the run already held while it is
+under 12 h old and raises `UpdateFailed` past that, or when no run is held. An
+ensemble failure also serves the held run while it is under 12 h old, but never
+raises: past that the forecast updates without ensemble data (see
+[FORECAST.md](../domain/FORECAST.md#partial-failure-isolation)). A `chem`
+failure raises `UpdateFailed`; rate limits always raise and propagate
+`retry_after`. The other secondary datasets (AQI, nowcast, INCA) are caught,
+logged at warning level, and degrade gracefully.
 
 ### Entity-description pattern
 
