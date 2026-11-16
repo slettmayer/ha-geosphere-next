@@ -47,8 +47,10 @@ forecast. It exposes no daily forecast (hourly-only — see the FAQ).
 | `cloud_coverage` | Cloud cover (%) | forecast |
 
 The hourly forecast is read with the `weather.get_forecasts` service (`type:
-hourly`). If forecast updates fail, the last fetched forecast is still served
-for up to 6 h after the last successful update. Each of the ~60 forecast hours
+hourly`). If forecast updates fail, the last fetched model run keeps being
+served, and the forecast sensors stay available, while that run is under 12 h
+old. After that the forecast sensors go unavailable, and the forecast is still
+served for up to 6 h after the last successful update. Each of the ~60 forecast hours
 carries: `datetime`, `condition`
 (GeoSphere's weather symbol for that hour, mapped to HA's conditions),
 `temperature`, `dew_point`, `humidity`, `precipitation`,

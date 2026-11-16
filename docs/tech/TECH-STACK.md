@@ -29,7 +29,7 @@ test this Home Assistant custom integration.
 
 ### Runtime libraries
 - **aiohttp** — async HTTP client for the GeoSphere API (shared HA client
-  session; 30 s timeout).
+  session; 60 s timeout).
 - **astral** — solar-elevation calculation for day/night condition classification.
 - **voluptuous** — config-flow schema validation (HA selectors).
 - (`homeassistant`, `aiohttp`, `astral`, `voluptuous` are all provided by the HA

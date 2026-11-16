@@ -46,7 +46,7 @@ configured lat/lon. See [ARCHITECTURE.md](docs/tech/ARCHITECTURE.md).
 - All datasets, parameters, and thresholds live in `const.py` — never inline literals.
 - Classes use the `GeoSphere*` prefix; private helpers are `_`-prefixed; derived logic is `derive_*`.
 - Sensors are declared as entity descriptions with a `value_fn`, read by one generic entity class per group (`GeoSphereSensor` / `GeoSphereAirQualitySensor`); the forecast-outlook descriptions use a `state_fn` returning state and attributes from one scan.
-- Primary dataset failure raises `UpdateFailed`; secondary datasets (ensemble, AQI) degrade with a warning.
+- Primary dataset failure raises `UpdateFailed` (AROME first serves its held run while under 12 h old); secondary datasets (ensemble, AQI) degrade with a warning.
 - Ruff-enforced: 4 spaces, double quotes, line length 88, rule set `E,W,F,I,UP,B,SIM,C4,RUF`. See [CONVENTIONS.md](docs/tech/CONVENTIONS.md).
 
 ## Business Domain

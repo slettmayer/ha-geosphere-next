@@ -99,13 +99,15 @@ failure and stays retryable. A 200 whose body will not decode raises
 What retrying costs: a failing dataset now issues `MAX_ATTEMPTS` requests
 instead of one, so a sustained outage triples that dataset's request rate
 against the 240 req/h budget, and a single `get_timeseries` can block for
-roughly `MAX_ATTEMPTS × REQUEST_TIMEOUT` plus backoff (~94 s) instead of 30 s.
+roughly `MAX_ATTEMPTS × REQUEST_TIMEOUT` plus backoff (~184 s) instead of 60 s.
 Both are bounded and well inside the poll intervals, but they are the price of
 not surfacing a fault that clears by itself.
 
-Above that, primary-dataset failures raise `UpdateFailed` (rate limits
-propagate `retry_after`); secondary datasets (ensemble, AQI) are caught, logged
-at warning level, and degrade gracefully.
+Above that, AROME and ensemble failures degrade to the run already held while
+it is under 12 h old (see [FORECAST.md](../domain/FORECAST.md#partial-failure-isolation)),
+and raise `UpdateFailed` past that; `chem` failures raise `UpdateFailed`; rate
+limits always raise and propagate `retry_after`. Other secondary datasets (AQI,
+nowcast, INCA) are caught, logged at warning level, and degrade gracefully.
 
 ### Entity-description pattern
 

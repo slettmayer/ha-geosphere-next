@@ -32,6 +32,7 @@ from .condition import (
 )
 from .const import (
     AIR_QUALITY_INTERVAL_MINUTES,
+    AROME_MAX_FALLBACK_AGE,
     AROME_PARAMETERS,
     CHEM_AQI_PARAMETERS,
     CHEM_PARAMETERS,
@@ -135,6 +136,7 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         self._client = client
         self.latitude: float = config_entry.data[CONF_LATITUDE]
         self.longitude: float = config_entry.data[CONF_LONGITUDE]
+        self._arome: GeoSphereResponse | None = None
         self._ensemble: GeoSphereResponse | None = None
         # `sy` codes outside GeoSphere's table already reported, so a new one
         # warns once rather than on every update for as long as it is served.
@@ -159,9 +161,18 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
         )
 
     async def _async_get_arome(self) -> GeoSphereResponse:
-        """Fetch the AROME run; a failure fails the whole forecast update."""
+        """Fetch the AROME run, degrading to the last one held on failure.
+
+        A failed fetch serves the run already held, re-processed so it still
+        starts at the current hour, while that run is younger than
+        `AROME_MAX_FALLBACK_AGE`. The update then succeeds and the forecast
+        sensors stay available through an outage of a poll or two; `model_run`
+        keeps showing the held run's stamp. Past the bound, or with no run held
+        yet, the failure fails the update. A rate limit always does, so that
+        its `retry_after` reaches the coordinator.
+        """
         try:
-            return await self._client.get_timeseries(
+            self._arome = await self._client.get_timeseries(
                 *DATASET_AROME,
                 parameters=AROME_PARAMETERS,
                 latitude=self.latitude,
@@ -173,7 +184,19 @@ class GeoSphereForecastCoordinator(TimestampDataUpdateCoordinator[ForecastData])
                 f"GeoSphere rate limit hit: {err}", retry_after=err.retry_after
             ) from err
         except GeoSphereApiError as err:
-            raise UpdateFailed(f"AROME update failed: {err}") from err
+            cached = self._arome
+            if (
+                cached is None
+                or cached.reference_time is None
+                or dt_util.utcnow() - cached.reference_time >= AROME_MAX_FALLBACK_AGE
+            ):
+                raise UpdateFailed(f"AROME update failed: {err}") from err
+            _LOGGER.warning(
+                "AROME update failed, keeping the last run while under 12 h old: %s",
+                err,
+            )
+            return cached
+        return self._arome
 
     async def _async_get_ensemble(self) -> GeoSphereResponse | None:
         """Fetch the C-LAEF run, degrading to the last one held on failure.

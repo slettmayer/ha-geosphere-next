@@ -173,7 +173,15 @@ situations the deterministic run does not convect on.
 
 ### Partial-failure isolation
 
-AROME failure raises `UpdateFailed` (rate-limit errors propagate `retry_after`).
+AROME failure degrades to the run already held, the same way the ensemble does:
+the held run is re-processed, so the forecast still starts at the current hour,
+the update succeeds and the forecast-derived sensors stay available. The
+failure is logged at warning level and `model_run` keeps showing the held run's
+stamp. That fallback is bounded by `AROME_MAX_FALLBACK_AGE` (12 h, the same
+reasoning as the ensemble bound below). Past the bound, or before any run has
+been fetched, the failure raises `UpdateFailed` and the forecast-derived
+sensors go unavailable. A rate limit always raises `UpdateFailed`, so its
+`retry_after` reaches the coordinator.
 Ensemble failure is caught, logged at warning level, and only omits the
 precipitation probability and the ensemble storm signal — it never takes the
 forecast down; without an ensemble run the outlook rests on the symbol alone.
@@ -232,14 +240,13 @@ forever. See the README FAQ and [../tech/ARCHITECTURE.md](../tech/ARCHITECTURE.m
 - The ensemble storm signal pairs two independent 90th percentiles, so it can
   fire when no single member has both the CAPE and the precipitation — a
   deliberate lean towards false alarms.
-- A transient AROME failure still raises `UpdateFailed` and takes the
-  forecast-derived sensors unavailable even when a usable run is held in the
-  cache. Serving it would match the ensemble's degradation, but it would also
-  change the documented primary-dataset contract, so the failure stays loud
-  for now. The weather entity's hourly forecast is the exception: it keeps
-  serving the held run for `HOURLY_FORECAST_VALID` (6 h) after the last
-  successful fetch. HA's default validity is one update interval, which made
-  `get_forecasts` return nothing after a single failed poll.
+- While the AROME fallback serves a held run, the forecast looks current:
+  only `model_run` and the warning in the log say the run is older than it
+  would be. Once the fallback bound is passed, the weather entity's hourly
+  forecast keeps serving the held run for `HOURLY_FORECAST_VALID` (6 h) after
+  the last successful update, so a run up to ~18 h old can be served before
+  the forecast is withdrawn. HA's default validity is one update interval,
+  which would blank `get_forecasts` after a single failed poll.
 - The ensemble's own run stamp is not surfaced anywhere, so a probability
   derived from a superseded run inside the fallback bound is indistinguishable
   from a current one.
