@@ -1049,6 +1049,9 @@ async def test_current_arome_fields_follow_the_clock(
     freezer.move_to(FROZEN_NOW)
     await _setup(hass, mock_config_entry)
     coordinator = mock_config_entry.runtime_data.current
+    # The clock jumps hours below. Stop the forecast coordinator's own poll,
+    # which would be due by then, so only this coordinator's requests count.
+    await mock_config_entry.runtime_data.forecast.async_shutdown()
 
     def arome_calls() -> int:
         return sum("nwp-v2-1h-1km" in str(call[1]) for call in mock_api.mock_calls)

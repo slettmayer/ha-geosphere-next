@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -398,28 +399,35 @@ class GeoSphereCurrentCoordinator(TimestampDataUpdateCoordinator[CurrentConditio
         self._unknown_pt_codes: set[int] = set()
 
     async def _async_update_data(self) -> CurrentConditions:
-        nowcast: GeoSphereResponse | None = None
-        if self.has_nowcast:
-            # Anchored to the 15-min grid: the API rounds a mid-interval
-            # `start` up to the next stamp, which would drop the bucket
-            # covering `now` along with everything before it.
-            now = dt_util.utcnow()
-            bucket = now.replace(
-                minute=now.minute - now.minute % 15, second=0, microsecond=0
-            )
-            try:
-                nowcast = await self._client.get_timeseries(
-                    *DATASET_NOWCAST,
-                    parameters=NOWCAST_PARAMETERS,
-                    latitude=self.latitude,
-                    longitude=self.longitude,
-                    start=bucket - NOWCAST_LOOKBACK,
-                )
-            except GeoSphereApiError as err:
-                _LOGGER.warning("Nowcast update failed, falling back: %s", err)
-
-        inca = await self._async_get_inca()
+        # Concurrent, so a stalled request delays the update by its own retry
+        # budget only, not by both datasets' budgets back to back.
+        nowcast, inca = await asyncio.gather(
+            self._async_get_nowcast(), self._async_get_inca()
+        )
         return self._merge(nowcast, inca)
+
+    async def _async_get_nowcast(self) -> GeoSphereResponse | None:
+        """Fetch the nowcast; a failure only logs, and the merge falls back."""
+        if not self.has_nowcast:
+            return None
+        # Anchored to the 15-min grid: the API rounds a mid-interval
+        # `start` up to the next stamp, which would drop the bucket
+        # covering `now` along with everything before it.
+        now = dt_util.utcnow()
+        bucket = now.replace(
+            minute=now.minute - now.minute % 15, second=0, microsecond=0
+        )
+        try:
+            return await self._client.get_timeseries(
+                *DATASET_NOWCAST,
+                parameters=NOWCAST_PARAMETERS,
+                latitude=self.latitude,
+                longitude=self.longitude,
+                start=bucket - NOWCAST_LOOKBACK,
+            )
+        except GeoSphereApiError as err:
+            _LOGGER.warning("Nowcast update failed, falling back: %s", err)
+            return None
 
     async def _async_get_inca(self) -> GeoSphereResponse | None:
         """Return the cached INCA slice, refreshing once its newest analysis ages out.
