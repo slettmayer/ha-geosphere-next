@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import fields
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 from freezegun.api import FrozenDateTimeFactory
@@ -547,6 +549,38 @@ async def test_arome_failure_without_a_held_run_fails_setup(
     await hass.async_block_till_done()
 
     assert mock_config_entry.state is ConfigEntryState.SETUP_RETRY
+
+
+async def test_forecast_fetches_arome_and_ensemble_concurrently(
+    hass: HomeAssistant, mock_config_entry, mock_api, freezer: FrozenDateTimeFactory
+) -> None:
+    """Both forecast requests are in flight before either finishes.
+
+    Sequential fetches would let one stalled dataset hold the update for its
+    full retry budget before the other even starts.
+    """
+    freezer.move_to(FROZEN_NOW)
+    await _setup(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data.forecast
+    client = coordinator._client
+    fetch = client.get_timeseries
+    events: list[tuple[str, str]] = []
+
+    async def recording_fetch(mode, resource, **kwargs):
+        events.append(("start", resource))
+        await asyncio.sleep(0)
+        response = await fetch(mode, resource, **kwargs)
+        events.append(("end", resource))
+        return response
+
+    with patch.object(client, "get_timeseries", recording_fetch):
+        await coordinator._async_update_data()
+
+    assert [kind for kind, _ in events[:2]] == ["start", "start"]
+    assert {resource for _, resource in events} == {
+        "nwp-v2-1h-1km",
+        "ensemble-v2-1h-1km",
+    }
 
 
 async def test_current_merge(

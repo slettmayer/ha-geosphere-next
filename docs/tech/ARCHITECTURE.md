@@ -99,9 +99,13 @@ failure and stays retryable. A 200 whose body will not decode raises
 What retrying costs: a failing dataset now issues `MAX_ATTEMPTS` requests
 instead of one, so a sustained outage triples that dataset's request rate
 against the 240 req/h budget, and a single `get_timeseries` can block for
-roughly `MAX_ATTEMPTS × REQUEST_TIMEOUT` plus backoff (~184 s) instead of 60 s. The current
-coordinator fetches the nowcast and INCA concurrently, so one update stalls for
-at most one such budget rather than two back to back.
+roughly `MAX_ATTEMPTS × REQUEST_TIMEOUT` plus backoff (~184 s) instead of 60 s. Both
+coordinators fetch their two datasets concurrently (nowcast and INCA; AROME and
+the ensemble), so one update stalls for at most one such budget rather than two
+back to back. The price is burstier traffic: the three locations poll at the
+same moments, so up to six requests can leave at once against the 5 req/s limit.
+A resulting 429 fails the AROME fetch with `retry_after` and sends the ensemble
+to its held run.
 Both are bounded and well inside the poll intervals, but they are the price of
 not surfacing a fault that clears by itself.
 
